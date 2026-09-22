@@ -47,6 +47,9 @@ You should see `Logged in as Gomihyu (id: ...)` in the console once it's connect
   `@here` or roles.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
   totally blind to what's being discussed.
+- **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
+  one of its own recent messages, it regenerates once at `RETRY_TEMPERATURE` (default 1.0) and
+  logs that it did. Small models otherwise tend to reuse their earlier lines word for word.
 - Ignores its own messages and other bots.
 
 ## Training data

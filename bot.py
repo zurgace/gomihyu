@@ -35,6 +35,10 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M")
 UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "1.0"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
+# A reply that copies REPEAT_WORDS words in a row from one of the bot's recent messages is
+# regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
+REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
+RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -76,12 +80,26 @@ def to_pings(text: str) -> str:
     return HANDLE.sub(ping, text)
 
 
-async def generate_reply(channel_id: int, triggered_by_mention: bool) -> str | None:
+def word_runs(text: str) -> set[tuple[str, ...]]:
+    words = re.findall(r"[\w']+", text.lower())
+    return {tuple(words[i:i + REPEAT_WORDS]) for i in range(len(words) - REPEAT_WORDS + 1)}
+
+
+def repeats_itself(channel_id: int, reply: str) -> bool:
+    """Whether reply copies a run of REPEAT_WORDS words from one of the bot's messages in the log."""
+    own = format_line(BOT_NAME, "")
+    runs = word_runs(reply)
+    return any(runs & word_runs(line[len(own):]) for line in history[channel_id] if line.startswith(own))
+
+
+async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
     payload = {
         "model": MODEL_NAME,
         "messages": build_messages(list(history[channel_id]), triggered_by_mention),
         "stream": False,
     }
+    if temperature is not None:
+        payload["options"] = {"temperature": temperature}  # otherwise the model's own (Modelfile) setting
 
     start = time.monotonic()
     try:
@@ -109,6 +127,10 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
     seen = logged[channel_id]
     async with channel.typing():
         reply = await generate_reply(channel_id, triggered_by_mention=mentioned)
+        if reply and repeats_itself(channel_id, reply):
+            log.info(f"Reply repeats one of Gomihyu's recent messages; retrying at temperature {RETRY_TEMPERATURE}")
+            # If the retry fails outright, the repetitive reply beats no reply.
+            reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
 
     if reply:
         # Log the reply right after the messages it answered, ahead of any that arrived while it
