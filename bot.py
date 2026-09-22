@@ -27,6 +27,7 @@ import discord
 from dotenv import load_dotenv
 
 from persona import BOT_NAME, build_messages, format_line
+from reactions import pick_reaction
 
 load_dotenv()
 
@@ -34,6 +35,7 @@ DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M")
 UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "1.0"))
+REACTION_CHANCE = float(os.environ.get("REACTION_CHANCE", "0.3"))  # rolled on every message, independent of replying
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
 # A reply that copies REPEAT_WORDS words in a row from one of the bot's recent messages is
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
@@ -142,6 +144,17 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
         await channel.send(to_pings(reply)[:2000])  # Discord's hard message-length limit
 
 
+async def react(message: discord.Message, text: str) -> None:
+    emoji = pick_reaction(text)
+    if not emoji:
+        return
+    try:
+        await message.add_reaction(emoji)
+        log.info(f"Reacted {emoji} to {message.author.name}")
+    except discord.HTTPException as e:  # e.g. the bot lacks the Add Reactions permission
+        log.warning(f"Couldn't react {emoji} to {message.author.name}: {e}")
+
+
 @client.event
 async def on_ready():
     log.info(f"Logged in as {client.user} (id: {client.user.id})")
@@ -153,10 +166,15 @@ async def on_message(message: discord.Message):
         return
 
     channel_id = message.channel.id
-    history[channel_id].append(format_line(message.author.name, readable(message)))
+    text = readable(message)
+    history[channel_id].append(format_line(message.author.name, text))
     logged[channel_id] += 1
     for user in (message.author, *message.mentions):
         handles[user.name.lower()] = user.id
+
+    # Independent of replying below. A reaction isn't a message, so it stays out of the history.
+    if random.random() < REACTION_CHANCE:
+        await react(message, text)
 
     mentioned = client.user in message.mentions
     should_respond = mentioned or (random.random() < UNPROMPTED_REPLY_CHANCE)

@@ -20,7 +20,7 @@ ollama run hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M "say hi"
 4. Bot tab → Reset/copy the **token** — this goes in `.env` as `DISCORD_BOT_TOKEN`. Treat
    it like a password; never commit it.
 5. OAuth2 → URL Generator → scope `bot` → permissions: **Read Messages/View Channels,
-   Send Messages, Read Message History**. Open the generated URL and invite it to your
+   Send Messages, Read Message History, Add Reactions**. Open the generated URL and invite it to your
    5-person server.
 
 ## 3. Configure and run
@@ -39,6 +39,12 @@ You should see `Logged in as Gomihyu (id: ...)` in the console once it's connect
 - **Any other message → replies with probability `UNPROMPTED_REPLY_CHANCE`** (default 1.0,
   i.e. every message, no cooldown — meant for a slow server) — tune this in `.env` without
   touching code.
+- **Reacts with an emoji** to a `REACTION_CHANCE` share of messages (default 0.3), rolled
+  separately from replying, so a message can get a reaction, a reply, both or neither. The
+  emoji comes from a small in-character set (😤 🔥 👑 💢 🙄 😈 💅), picked by keywords in
+  `reactions.py`, with no model call. Sad or serious messages get no reaction. Needs the
+  **Add Reactions** permission. If it's missing, the console logs `Couldn't react ...` and
+  replies carry on as normal.
 - **One reply at a time per channel.** If messages arrive while it's still writing a reply,
   it sends one follow-up afterwards that answers the latest chat, rather than one reply each.
 - **Addresses people by their full Discord handle.** The chat log it sees labels everyone by

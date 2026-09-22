@@ -12,16 +12,19 @@ nothing more, until told otherwise.
 - OS: CachyOS (Arch-based Linux)
 - GPU: RTX 2070, 8GB VRAM — every model/training decision here has to fit this
 - Inference: Ollama serving `hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M`
-  (LFM2.5-2.6B has native llama.cpp/Ollama support, no custom build needed)
+  (LFM2.5-2.6B has native llama.cpp/Ollama support, no custom build needed). The live
+  setup actually runs a locally built `gomihyu-base:latest` (set via `OLLAMA_MODEL` in
+  `.env`); its GGUF source/Modelfile isn't in the repo yet.
 - Python 3, using `discord.py`, `aiohttp`, `python-dotenv`
 
 ## Current state
 - `bot.py` / `persona.py` / `requirements.txt` / `.env.example` — working Discord bot
-  that talks to Ollama. Behavior-tested against a fake Discord/Ollama, but not yet run
-  against a live Discord token.
+  that talks to Ollama. Running live on the server (replies confirmed working); emoji
+  reactions not yet tested live.
 - `persona.py` — the system prompt AND the prompt format (`format_line`, `build_messages`).
   Both the bot and the dataset builder use it, so training prompts match runtime prompts
   exactly. Change the format there, never in only one place.
+- `reactions.py` — emoji reactions: curated unicode set + keyword heuristic, no model call.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
@@ -46,6 +49,11 @@ nothing more, until told otherwise.
 - Gomihyu addresses people by their full Discord handle as an @mention (this replaced the
   original "full name" trait). The log labels speakers by handle (`author.name`), and
   `@handle` in a reply becomes a real ping. Never pings @everyone/@here/roles.
+- Emoji reactions roll `REACTION_CHANCE` (default 0.3) on every message, independent of the
+  reply roll. Curated unicode emoji only (no custom server emoji), picked by keyword
+  heuristic (no model call); serious/sad messages get none. Reactions are not added to the
+  chat history. Only fall back to a short Ollama "pick an emoji" prompt if the heuristic
+  proves too dumb live.
 - Persona is inspired by an existing character but renamed and written fresh —
   original writing only. A small (dozen-ish) set of quotes as a style reference is
   fine; bulk verbatim dialogue as training data is not. This is an intentional
@@ -70,6 +78,13 @@ nothing more, until told otherwise.
 3. After training, produce a merged GGUF, load it with `ollama create`, then update
    `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
+5. Person memory — only after emoji reactions have been tested live on the server. Explicit
+   only (a "remember that ..." / "Gomihyu, don't forget ..." message aimed at her stores the
+   fact verbatim for that author; no auto-extraction from chat). Plain `people.json` keyed by
+   Discord user ID, `{"display_name": ..., "facts": [...]}`, persisted on disk, capped at
+   ~20 facts per person. At reply time, only the triggering author's facts go into that
+   call's context as a short line near the transcript (not the system prompt). No vector
+   store/embeddings/RAG — it's 5 people. Once shipped, tell the server she remembers things.
 
 ## Constraints
 - Everything runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model or
