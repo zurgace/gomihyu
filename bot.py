@@ -3,15 +3,20 @@ Gomihyu — a Discord conversationalist backed by a local LFM2.5-2.6B (via Ollam
 
 Behavior:
   - Always replies when @mentioned.
-  - Otherwise replies unprompted to any message with probability UNPROMPTED_REPLY_CHANCE.
-  - No cooldown — designed for a small, low-traffic server (see README).
+  - Otherwise replies to any message with probability UNPROMPTED_REPLY_CHANCE (default 1.0,
+    i.e. every message).
+  - One reply at a time per channel. Messages that arrive while a reply is being written get
+    a single follow-up reply to the latest chat, not one reply each.
+  - No cooldown — designed for a small, slow server (see README).
 
-Setup is in README.md. Persona lives in persona.py so it's easy to swap out
-(e.g. for the fine-tuned LoRA later) without touching the bot logic.
+Setup is in README.md. Persona and prompt format live in persona.py, shared with the
+fine-tuning data builder, so they're easy to swap out without touching the bot logic.
 """
 
 import os
+import re
 import random
+import asyncio
 import logging
 from collections import defaultdict, deque
 
@@ -19,14 +24,14 @@ import aiohttp
 import discord
 from dotenv import load_dotenv
 
-from persona import SYSTEM_PROMPT
+from persona import BOT_NAME, build_messages, format_line
 
 load_dotenv()
 
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M")
-UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "0.5"))
+UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "1.0"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -34,29 +39,45 @@ log = logging.getLogger("gomihyu")
 
 intents = discord.Intents.default()
 intents.message_content = True  # required — must also be enabled in the Dev Portal, see README
-client = discord.Client(intents=intents)
+# The bot pings people on purpose (see to_pings), but never @everyone/@here or roles.
+client = discord.Client(intents=intents, allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True))
 
-# channel_id -> deque of "display_name: content" strings, most recent last
+# channel_id -> deque of "handle: content" lines, most recent last
 history = defaultdict(lambda: deque(maxlen=HISTORY_LENGTH))
+# channel_id -> messages logged so far, so a reply can be slotted in ahead of ones it never saw
+logged = defaultdict(int)
+# channel_id -> held while a reply is being generated and sent
+reply_locks = defaultdict(asyncio.Lock)
+# channel_id -> whether anything that arrived mid-reply @mentioned the bot; present = one follow-up owed
+pending_followup = {}
+# lowercase Discord handle -> user id, so "@handle" in a reply can become a real ping
+handles = {}
+
+MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
+HANDLE = re.compile(r"@([\w.]*\w)")
+OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*{re.escape(BOT_NAME)}[*_]*\s*:[*_]*\s*", re.IGNORECASE)
+
+
+def readable(message: discord.Message) -> str:
+    """message.content with raw <@id>/<@&id>/<#id> tokens swapped for @handle, @role, #channel."""
+    names = {user.id: f"@{user.name}" for user in message.mentions}
+    names.update({role.id: f"@{role.name}" for role in message.role_mentions})
+    names.update({channel.id: f"#{channel.name}" for channel in message.channel_mentions})
+    return MENTION_TOKEN.sub(lambda m: names.get(int(m[2]), m[0]), message.content)
+
+
+def to_pings(text: str) -> str:
+    """Turn "@handle" into a real <@id> mention for anyone the bot has seen."""
+    def ping(m: re.Match) -> str:
+        user_id = handles.get(m[1].lower())
+        return f"<@{user_id}>" if user_id else m[0]
+    return HANDLE.sub(ping, text)
 
 
 async def generate_reply(channel_id: int, triggered_by_mention: bool) -> str | None:
-    transcript = "\n".join(history[channel_id])
-    instruction = (
-        "Above is the recent chat log in a Discord server. "
-        "Write your next message as Gomihyu, replying naturally to the most recent line. "
-        "Keep it short, like a real Discord message (usually 1-2 sentences). "
-        "Do not prefix your reply with your own name."
-    )
-    if triggered_by_mention:
-        instruction += " You were just directly mentioned/addressed — respond to that directly, in character."
-
     payload = {
         "model": MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"{transcript}\n\n{instruction}"},
-        ],
+        "messages": build_messages(list(history[channel_id]), triggered_by_mention),
         "stream": False,
     }
 
@@ -65,10 +86,26 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool) -> str | N
             async with session.post(OLLAMA_URL, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-                return data["message"]["content"].strip()
+                # Small models often start with "Gomihyu:" anyway, copying the log format.
+                return OWN_NAME_PREFIX.sub("", data["message"]["content"].strip())
     except Exception:
         log.exception("Generation failed")
         return None
+
+
+async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned: bool) -> None:
+    seen = logged[channel_id]
+    async with channel.typing():
+        reply = await generate_reply(channel_id, triggered_by_mention=mentioned)
+
+    if reply:
+        # Log the reply right after the messages it answered, ahead of any that arrived while it
+        # was being written, so a follow-up's last log line is still the newest unanswered message.
+        lines = history[channel_id]
+        newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))]
+        lines.append(format_line(BOT_NAME, reply))
+        lines.extend(reversed(newer))
+        await channel.send(to_pings(reply)[:2000])  # Discord's hard message-length limit
 
 
 @client.event
@@ -81,7 +118,11 @@ async def on_message(message: discord.Message):
     if message.author.id == client.user.id or message.author.bot:
         return
 
-    history[message.channel.id].append(f"{message.author.display_name}: {message.content}")
+    channel_id = message.channel.id
+    history[channel_id].append(format_line(message.author.name, readable(message)))
+    logged[channel_id] += 1
+    for user in (message.author, *message.mentions):
+        handles[user.name.lower()] = user.id
 
     mentioned = client.user in message.mentions
     should_respond = mentioned or (random.random() < UNPROMPTED_REPLY_CHANCE)
@@ -89,12 +130,19 @@ async def on_message(message: discord.Message):
     if not should_respond:
         return
 
-    async with message.channel.typing():
-        reply = await generate_reply(message.channel.id, triggered_by_mention=mentioned)
+    lock = reply_locks[channel_id]
+    if lock.locked():
+        # Already writing a reply here; answer everything that arrives meanwhile in one follow-up.
+        pending_followup[channel_id] = pending_followup.get(channel_id, False) or mentioned
+        return
 
-    if reply:
-        history[message.channel.id].append(f"Gomihyu: {reply}")
-        await message.channel.send(reply[:2000])  # Discord's hard message-length limit
+    async with lock:
+        try:
+            await reply_to(message.channel, channel_id, mentioned)
+            while channel_id in pending_followup:
+                await reply_to(message.channel, channel_id, pending_followup.pop(channel_id))
+        finally:
+            pending_followup.pop(channel_id, None)
 
 
 if __name__ == "__main__":

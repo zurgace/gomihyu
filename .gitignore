@@ -6,3 +6,6 @@ venv/
 .venv/
 __pycache__/
 *.pyc
+
+# Built from finetuning/gomihyu_seed.jsonl by finetuning/build_dataset.py
+finetuning/train.jsonl

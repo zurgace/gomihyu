@@ -17,23 +17,35 @@ nothing more, until told otherwise.
 
 ## Current state
 - `bot.py` / `persona.py` / `requirements.txt` / `.env.example` — working Discord bot
-  that talks to Ollama. Syntax-checked but not yet run against a live Discord token.
+  that talks to Ollama. Behavior-tested against a fake Discord/Ollama, but not yet run
+  against a live Discord token.
+- `persona.py` — the system prompt AND the prompt format (`format_line`, `build_messages`).
+  Both the bot and the dataset builder use it, so training prompts match runtime prompts
+  exactly. Change the format there, never in only one place.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
   writing meant to capture voice, not script.
-- `finetuning/satania_synthetic_seed.jsonl` — 41 original synthetic Discord-style
-  exchanges in that voice, formatted as system/user/assistant JSONL for SFT. This is a
-  SEED, not a finished dataset.
+- `finetuning/gomihyu_seed.jsonl` — 41 original synthetic Discord-style exchanges in that
+  voice, as `{"history": [[handle, text], ...], "reply": ...}`. This is a SEED, not a
+  finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
+  SFT JSONL (`finetuning/train.jsonl`, gitignored — rebuild it, don't edit it).
+- The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)
 - Bot's Discord username is `Gomihyu`. Always replies when @mentioned — including
   firing back rudely/dramatically if provoked (see `persona.py`: the persona is
   explicitly instructed not to stay polite when insulted).
-- Otherwise replies unprompted with probability `UNPROMPTED_REPLY_CHANCE` (default 0.5),
-  no cooldown. This was deliberately tuned for a specific low-traffic case (5-person
-  server, ~2 people actually active) — don't add a cooldown or lower the default
-  without checking first.
+- Otherwise replies unprompted with probability `UNPROMPTED_REPLY_CHANCE` (default 1.0 —
+  every message), no cooldown. This was deliberately tuned for a specific slow,
+  low-traffic server (5 people, ~2 actually active) — don't add a cooldown or lower the
+  default without checking first.
+- One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
+  follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
+  them so the follow-up prompt still ends on the newest unanswered message.
+- Gomihyu addresses people by their full Discord handle as an @mention (this replaced the
+  original "full name" trait). The log labels speakers by handle (`author.name`), and
+  `@handle` in a reply becomes a real ping. Never pings @everyone/@here/roles.
 - Persona is inspired by an existing character but renamed and written fresh —
   original writing only. A small (dozen-ish) set of quotes as a style reference is
   fine; bulk verbatim dialogue as training data is not. This is an intentional
@@ -51,9 +63,10 @@ nothing more, until told otherwise.
   few hundred).
 
 ## Next steps
-1. Expand `finetuning/satania_synthetic_seed.jsonl` toward 150–200+ examples, matching
+1. Expand `finetuning/gomihyu_seed.jsonl` toward 150–200+ examples, matching
    the existing format and voice.
-2. Set up the actual LoRA/QLoRA training script (Unsloth), targeting LFM2.5-2.6B.
+2. Set up the actual LoRA/QLoRA training script (Unsloth), targeting LFM2.5-2.6B, fed
+   from `build_dataset.py` output.
 3. After training, produce a merged GGUF, load it with `ollama create`, then update
    `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
