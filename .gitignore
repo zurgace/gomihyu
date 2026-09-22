@@ -1,0 +1,8 @@
+# Secrets — holds DISCORD_BOT_TOKEN
+.env
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
