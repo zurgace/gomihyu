@@ -56,7 +56,30 @@ You should see `Logged in as Gomihyu (id: ...)` in the console once it's connect
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
   one of its own recent messages, it regenerates once at `RETRY_TEMPERATURE` (default 1.0) and
   logs that it did. Small models otherwise tend to reuse their earlier lines word for word.
+- **Remembers what you tell her to.** See [Memory](#memory).
 - Ignores its own messages and other bots.
+
+## Memory
+Tell her something on purpose and she keeps it, across restarts:
+```
+@Gomihyu remember that I hate cilantro
+Gomihyu, don't forget my birthday is march 3
+```
+- It only counts if the message is aimed at her: it @mentions her, replies to one of her
+  messages with the ping left on, or starts with "Gomihyu". "remember that party lol" in normal chat is ignored, and so are questions
+  like "@Gomihyu remember when...?". Nothing is picked up from ordinary conversation.
+- When a fact is stored she reacts 📝 and the console logs `Remembered for <handle>: ...`.
+  Everything after "remember (that)" / "don't forget (that)" is stored word for word.
+- When she replies to you, your facts, and only yours, go into her prompt, with a note to
+  bring one up only when it fits. If you ask "what do you remember about me?", she has
+  your facts in front of her to answer from.
+- Facts live in `people.json` next to `bot.py` (`PEOPLE_FILE` in `.env`), keyed by Discord
+  user ID. It's in `.gitignore`, so it stays on your machine. Each person keeps at most
+  `MAX_FACTS_PER_PERSON` (default 20) facts; past that, their oldest one drops off.
+- To remove or fix a fact, **stop the bot first**, edit `people.json`, then start it again.
+  The running bot keeps its own copy and would overwrite your edit the next time it
+  remembers something. If the file isn't valid JSON, the bot won't start (it says why), so
+  a typo can't wipe it.
 
 ## Training data
 `finetuning/gomihyu_seed.jsonl` is the hand-written seed data: one example per line, with the
@@ -66,6 +89,8 @@ chat so far as `[handle, message]` pairs and the reply Gomihyu should give:
 ```
 The last `history` entry is the message being answered; put `@Gomihyu` in it to make it an
 @mention. Earlier entries are chat context, and Gomihyu's own messages use the speaker `Gomihyu`.
+An optional `"facts": [...]` holds what that last speaker asked her to remember, rendered
+exactly as the bot does at runtime.
 
 To turn it into training data:
 ```bash
@@ -88,6 +113,7 @@ carrying the personality — right now it's doing all the work. If you change it
 
 ## Known limitations at this scope
 - Text-only: it can't see images, only whatever caption/text comes with them.
-- No memory across restarts — channel history resets when the bot restarts.
+- Chat history is in-memory only and resets when the bot restarts. Remembered facts
+  (`people.json`) do persist.
 - Single-server assumption: history is keyed by Discord channel ID, so it naturally
   won't cross-contaminate between channels/servers, but there's no persistence yet.

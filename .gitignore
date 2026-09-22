@@ -9,3 +9,7 @@ __pycache__/
 
 # Built from finetuning/gomihyu_seed.jsonl by finetuning/build_dataset.py
 finetuning/train.jsonl
+
+# Person memory — facts about real server members; stays on the machine running the bot
+people.json
+people.json.tmp

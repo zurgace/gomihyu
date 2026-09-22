@@ -19,18 +19,20 @@ nothing more, until told otherwise.
 
 ## Current state
 - `bot.py` / `persona.py` / `requirements.txt` / `.env.example` — working Discord bot
-  that talks to Ollama. Running live on the server (replies confirmed working); emoji
-  reactions not yet tested live.
+  that talks to Ollama. Running live on the server (replies and emoji reactions confirmed
+  working).
 - `persona.py` — the system prompt AND the prompt format (`format_line`, `build_messages`).
   Both the bot and the dataset builder use it, so training prompts match runtime prompts
   exactly. Change the format there, never in only one place.
 - `reactions.py` — emoji reactions: curated unicode set + keyword heuristic, no model call.
+- `memory.py` — person memory: "remember that ..." parsing + `people.json` store. Not yet
+  tested live.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
   writing meant to capture voice, not script.
-- `finetuning/gomihyu_seed.jsonl` — 41 original synthetic Discord-style exchanges in that
-  voice, as `{"history": [[handle, text], ...], "reply": ...}`. This is a SEED, not a
+- `finetuning/gomihyu_seed.jsonl` — 44 original synthetic Discord-style exchanges in that
+  voice, as `{"history": [[handle, text], ...], "facts"?: [...], "reply": ...}`. This is a SEED, not a
   finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
   SFT JSONL (`finetuning/train.jsonl`, gitignored — rebuild it, don't edit it).
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
@@ -54,6 +56,15 @@ nothing more, until told otherwise.
   heuristic (no model call); serious/sad messages get none. Reactions are not added to the
   chat history. Only fall back to a short Ollama "pick an emoji" prompt if the heuristic
   proves too dumb live.
+- Person memory is explicit only: a "remember (that) ..." / "don't forget ..." message aimed
+  at her (@mention, reply-ping, or starting with her name) stores the rest verbatim for its
+  author. No auto-extraction from chat; questions ("remember when...?") are skipped. She
+  reacts 📝 on store. `people.json` (gitignored), `{user_id: {"display_name", "facts"}}`,
+  deduped, capped at `MAX_FACTS_PER_PERSON` (20) with the oldest dropping off, written
+  atomically; invalid JSON stops startup rather than being overwritten. At reply time only
+  the latest message's author's facts go into the prompt, as one line ahead of the chat
+  log (not the system prompt, not next to the instruction, so it isn't forced into every
+  reply). No vector store/embeddings/RAG — it's 5 people.
 - Persona is inspired by an existing character but renamed and written fresh —
   original writing only. A small (dozen-ish) set of quotes as a style reference is
   fine; bulk verbatim dialogue as training data is not. This is an intentional
@@ -67,7 +78,7 @@ nothing more, until told otherwise.
 - A real Discord transcript export (the user's own messages only) is delayed. Plan is
   to mix real transcripts into the synthetic seed once it arrives — don't assume the
   seed file is the final dataset.
-- Target dataset size before an actual training run (41 examples now; likely needs a
+- Target dataset size before an actual training run (44 examples now; likely needs a
   few hundred).
 
 ## Next steps
@@ -78,13 +89,7 @@ nothing more, until told otherwise.
 3. After training, produce a merged GGUF, load it with `ollama create`, then update
    `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
-5. Person memory — only after emoji reactions have been tested live on the server. Explicit
-   only (a "remember that ..." / "Gomihyu, don't forget ..." message aimed at her stores the
-   fact verbatim for that author; no auto-extraction from chat). Plain `people.json` keyed by
-   Discord user ID, `{"display_name": ..., "facts": [...]}`, persisted on disk, capped at
-   ~20 facts per person. At reply time, only the triggering author's facts go into that
-   call's context as a short line near the transcript (not the system prompt). No vector
-   store/embeddings/RAG — it's 5 people. Once shipped, tell the server she remembers things.
+5. Test person memory live, then tell the server she remembers things people tell her to.
 
 ## Constraints
 - Everything runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model or

@@ -32,8 +32,11 @@ def format_line(speaker: str, text: str) -> str:
     return f"{speaker}: {text}"
 
 
-def build_messages(transcript: list[str], mentioned: bool) -> list[dict]:
-    """Chat messages for the model: the persona, then the recent log plus what to do with it."""
+def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = ()) -> list[dict]:
+    """Chat messages for the model: the persona, then the recent log plus what to do with it.
+
+    facts are what speaker (the author of the latest line) has asked Gomihyu to remember.
+    """
     instruction = (
         "Above is the recent chat log in a Discord server, one 'handle: message' per line. "
         f"Write your next message as {BOT_NAME}, replying naturally to the most recent line. "
@@ -45,7 +48,14 @@ def build_messages(transcript: list[str], mentioned: bool) -> list[dict]:
     if mentioned:
         instruction += " You were just directly mentioned/addressed — respond to that directly, in character."
 
+    # Ahead of the log rather than next to the instruction, so it's background, not the topic.
+    remembered = ""
+    if facts:
+        quoted = "; ".join(f'"{fact}"' for fact in facts)
+        remembered = (f"Things {speaker} has asked you to remember, in their own words (only bring one "
+                      f"up if it fits the conversation): {quoted}\n\n")
+
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "\n".join(transcript) + "\n\n" + instruction},
+        {"role": "user", "content": remembered + "\n".join(transcript) + "\n\n" + instruction},
     ]

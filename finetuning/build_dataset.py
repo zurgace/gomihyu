@@ -6,6 +6,7 @@ Render the seed examples into SFT chat data, using the same prompt format bot.py
 Each seed line is {"history": [[handle, text], ...], "reply": "..."}. The last history line
 is the message being replied to; it counts as an @mention if it contains "@Gomihyu". Earlier
 lines are chat context, and Gomihyu's own earlier messages use the speaker "Gomihyu".
+An optional "facts": [...] is what that last speaker has asked her to remember (memory.py).
 """
 
 import json
@@ -23,8 +24,9 @@ OUT = HERE / "train.jsonl"
 
 def render(example: dict) -> dict:
     transcript = [format_line(speaker, text) for speaker, text in example["history"]]
-    mentioned = f"@{BOT_NAME}".lower() in example["history"][-1][1].lower()
-    messages = build_messages(transcript, mentioned)
+    speaker, last_text = example["history"][-1]
+    mentioned = f"@{BOT_NAME}".lower() in last_text.lower()
+    messages = build_messages(transcript, mentioned, speaker, example.get("facts", []))
     messages.append({"role": "assistant", "content": example["reply"]})
     return {"messages": messages}
 

@@ -21,11 +21,13 @@ import random
 import asyncio
 import logging
 from collections import defaultdict, deque
+from pathlib import Path
 
 import aiohttp
 import discord
 from dotenv import load_dotenv
 
+from memory import PeopleMemory, fact_to_remember
 from persona import BOT_NAME, build_messages, format_line
 from reactions import pick_reaction
 
@@ -41,6 +43,10 @@ HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages 
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
 REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
+# Facts people ask her to remember; relative paths are next to this file. Survives restarts.
+PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
+MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
+REMEMBERED_EMOJI = "📝"  # reaction confirming a fact was stored
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -60,6 +66,9 @@ reply_locks = defaultdict(asyncio.Lock)
 pending_followup = {}
 # lowercase Discord handle -> user id, so "@handle" in a reply can become a real ping
 handles = {}
+# channel_id -> (user id, handle) of the latest message, whose remembered facts a reply gets
+last_author = {}
+memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
 
 MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
 HANDLE = re.compile(r"@([\w.]*\w)")
@@ -95,9 +104,12 @@ def repeats_itself(channel_id: int, reply: str) -> bool:
 
 
 async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
+    # Only the person being replied to gets their facts in context, never everyone's.
+    author_id, author_handle = last_author[channel_id]
     payload = {
         "model": MODEL_NAME,
-        "messages": build_messages(list(history[channel_id]), triggered_by_mention),
+        "messages": build_messages(list(history[channel_id]), triggered_by_mention,
+                                   author_handle, memory.facts_for(author_id)),
         "stream": False,
     }
     if temperature is not None:
@@ -144,10 +156,7 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
         await channel.send(to_pings(reply)[:2000])  # Discord's hard message-length limit
 
 
-async def react(message: discord.Message, text: str) -> None:
-    emoji = pick_reaction(text)
-    if not emoji:
-        return
+async def react(message: discord.Message, emoji: str) -> None:
     try:
         await message.add_reaction(emoji)
         log.info(f"Reacted {emoji} to {message.author.name}")
@@ -171,12 +180,19 @@ async def on_message(message: discord.Message):
     logged[channel_id] += 1
     for user in (message.author, *message.mentions):
         handles[user.name.lower()] = user.id
+    last_author[channel_id] = (message.author.id, message.author.name)
 
     # Independent of replying below. A reaction isn't a message, so it stays out of the history.
-    if random.random() < REACTION_CHANCE:
-        await react(message, text)
+    if random.random() < REACTION_CHANCE and (emoji := pick_reaction(text)):
+        await react(message, emoji)
 
     mentioned = client.user in message.mentions
+
+    if fact := fact_to_remember(text, mentioned):
+        memory.remember(message.author.id, message.author.display_name, fact)
+        log.info(f"Remembered for {message.author.name}: {fact!r}")
+        await react(message, REMEMBERED_EMOJI)
+
     should_respond = mentioned or (random.random() < UNPROMPTED_REPLY_CHANCE)
 
     if not should_respond:
