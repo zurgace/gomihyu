@@ -15,6 +15,8 @@ fine-tuning data builder, so they're easy to swap out without touching the bot l
 
 import os
 import re
+import json
+import time
 import random
 import asyncio
 import logging
@@ -81,16 +83,26 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool) -> str | N
         "stream": False,
     }
 
+    start = time.monotonic()
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(OLLAMA_URL, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                resp.raise_for_status()
+                if resp.status != 200:
+                    # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
+                    log.error(f"Ollama returned HTTP {resp.status} for model {MODEL_NAME!r}: {(await resp.text())[:500]}")
+                    return None
                 data = await resp.json()
-                # Small models often start with "Gomihyu:" anyway, copying the log format.
-                return OWN_NAME_PREFIX.sub("", data["message"]["content"].strip())
     except Exception:
-        log.exception("Generation failed")
+        log.exception(f"Generation failed after {time.monotonic() - start:.1f}s (Ollama at {OLLAMA_URL})")
         return None
+
+    # Small models often start with "Gomihyu:" anyway, copying the log format.
+    reply = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
+    log.info(f"Generated in {time.monotonic() - start:.1f}s "
+             f"(done_reason={data.get('done_reason')}, tokens={data.get('eval_count')}): {reply[:200]!r}")
+    if not reply:
+        log.warning(f"Model gave an empty reply, nothing will be sent. Raw response: {json.dumps(data)[:1000]}")
+    return reply
 
 
 async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned: bool) -> None:
