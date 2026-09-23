@@ -14,7 +14,8 @@ nothing more, until told otherwise.
 - Inference: Ollama serving `hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M`
   (LFM2.5-2.6B has native llama.cpp/Ollama support, no custom build needed). The live
   setup actually runs a locally built `gomihyu-base:latest` (set via `OLLAMA_MODEL` in
-  `.env`); its GGUF source/Modelfile isn't in the repo yet.
+  `.env`); its GGUF source/Modelfile isn't in the repo yet. It's a thinking-capable build (Ollama
+  returns a `thinking` field), so every request sends `think: OLLAMA_THINK` (default false).
 - Python 3, using `discord.py`, `aiohttp`, `python-dotenv`
 
 ## Current state
@@ -100,7 +101,9 @@ nothing more, until told otherwise.
   opinions. Don't bring back "a few words, at most 2 sentences" or "don't reuse topics" to fix
   repetition: that turned her into a one-liner machine. Repetition is handled by "don't repeat
   your own earlier lines / pet topics" plus the REPEAT_WORDS retry. `MAX_REPLY_TOKENS` (200)
-  is the safety cap; a reply that hits it is trimmed to its last full sentence.
+  is the safety cap; a reply that hits it is trimmed to its last full sentence. The cap counts
+  thinking tokens too: with thinking on, 200 tokens of planning left an empty reply and she
+  went silent. Hence thinking off by default, plus one uncapped retry for a thought-only reply.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full
   fine-tuning — chosen specifically to fit the 8GB VRAM budget.
 

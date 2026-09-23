@@ -49,6 +49,9 @@ REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
 # Ceiling on a reply's length; one that hits it is cut back to its last full sentence.
 MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
+# Let a thinking model reason before answering. Off: for chat it only adds delay, and its thinking
+# counts against MAX_REPLY_TOKENS, which can leave no room for the answer.
+OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 # Facts people ask her to remember; relative paths are next to this file. Survives restarts.
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
@@ -133,7 +136,8 @@ async def ollama_chat(payload: dict) -> dict | None:
     start = time.monotonic()
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "stream": False, **payload},
+            async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "stream": False, "think": OLLAMA_THINK,
+                                                      **payload},
                                     timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status != 200:
                     # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
@@ -161,6 +165,13 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
 
     start = time.monotonic()
     data = await ollama_chat(payload)
+    message = (data or {}).get("message", {})
+    if data and data.get("done_reason") == "length" and message.get("thinking") and not message.get("content", "").strip():
+        # The model thought through its whole token budget and never answered (thinking left on, or
+        # a model that thinks regardless). Let it finish rather than go quiet.
+        log.warning(f"Model spent all {MAX_REPLY_TOKENS} tokens thinking and never answered; retrying without the cap")
+        del options["num_predict"]
+        data = await ollama_chat(payload)
     if data is None:
         return None
 
