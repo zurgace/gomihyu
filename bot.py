@@ -4,7 +4,8 @@ Gomihyu — a Discord conversationalist backed by a local LFM2.5-2.6B (via Ollam
 Behavior:
   - Always replies when @mentioned.
   - Otherwise replies to any message with probability UNPROMPTED_REPLY_CHANCE (default 1.0,
-    i.e. every message).
+    i.e. every message), except posts that don't need words (images, emoji-only posts, "lol"):
+    those get an emoji reaction as her whole response (reactions.py, emojis.py).
   - One reply at a time per channel. Messages that arrive while a reply is being written get
     a single follow-up reply to the latest chat, not one reply each.
   - No cooldown — designed for a small, slow server (see README).
@@ -28,9 +29,10 @@ import discord
 from dotenv import load_dotenv
 
 from censor import censor
+from emojis import CUSTOM, LOOKING, UNICODE
 from memory import PeopleMemory, fact_to_remember
 from persona import BOT_NAME, build_messages, format_line
-from reactions import pick_reaction
+from reactions import media_only, picker_format, picker_messages, posted_emoji, reacts_instead
 
 load_dotenv()
 
@@ -38,7 +40,8 @@ DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M")
 UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "1.0"))
-REACTION_CHANCE = float(os.environ.get("REACTION_CHANCE", "0.3"))  # rolled on every message, independent of replying
+# Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
+REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
 # A reply that copies REPEAT_WORDS words in a row from one of the bot's recent messages is
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
@@ -72,16 +75,25 @@ last_author = {}
 memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
 
 MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
+CUSTOM_EMOJI_TOKEN = re.compile(r"<a?:(\w+):\d+>")
+CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
+IN_TEXT_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text}
 HANDLE = re.compile(r"@([\w.]*\w)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*{re.escape(BOT_NAME)}[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
 def readable(message: discord.Message) -> str:
-    """message.content with raw <@id>/<@&id>/<#id> tokens swapped for @handle, @role, #channel."""
+    """message.content as the model sees it: <@id>/<@&id>/<#id> as @handle/@role/#channel,
+    custom emojis as :name:, and attachments/stickers as [image]/[video]/[file]/[sticker: name]."""
     names = {user.id: f"@{user.name}" for user in message.mentions}
     names.update({role.id: f"@{role.name}" for role in message.role_mentions})
     names.update({channel.id: f"#{channel.name}" for channel in message.channel_mentions})
-    return MENTION_TOKEN.sub(lambda m: names.get(int(m[2]), m[0]), message.content)
+    text = MENTION_TOKEN.sub(lambda m: names.get(int(m[2]), m[0]), message.content)
+    text = CUSTOM_EMOJI_TOKEN.sub(r":\1:", text)
+    kinds = [(a.content_type or "").split("/")[0] for a in message.attachments]
+    media = [f"[{kind if kind in ('image', 'video') else 'file'}]" for kind in kinds]
+    media += [f"[sticker: {sticker.name}]" for sticker in message.stickers]
+    return " ".join([text, *media]).strip()
 
 
 def to_pings(text: str) -> str:
@@ -90,6 +102,12 @@ def to_pings(text: str) -> str:
         user_id = handles.get(m[1].lower())
         return f"<@{user_id}>" if user_id else m[0]
     return HANDLE.sub(ping, text)
+
+
+def to_server_emojis(text: str, guild: discord.Guild | None) -> str:
+    """Turn ":name:" for this server's in-text emojis (see emojis.py) into the real emoji."""
+    server = {e.name.lower(): e for e in guild.emojis if e.name.lower() in IN_TEXT_EMOJIS} if guild else {}
+    return CUSTOM_EMOJI_NAME.sub(lambda m: str(server.get(m[1].lower(), m[0])), text)
 
 
 def word_runs(text: str) -> set[tuple[str, ...]]:
@@ -104,29 +122,34 @@ def repeats_itself(channel_id: int, reply: str) -> bool:
     return any(runs & word_runs(line[len(own):]) for line in history[channel_id] if line.startswith(own))
 
 
-async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
-    # Only the person being replied to gets their facts in context, never everyone's.
-    author_id, author_handle = last_author[channel_id]
-    payload = {
-        "model": MODEL_NAME,
-        "messages": build_messages(list(history[channel_id]), triggered_by_mention,
-                                   author_handle, memory.facts_for(author_id)),
-        "stream": False,
-    }
-    if temperature is not None:
-        payload["options"] = {"temperature": temperature}  # otherwise the model's own (Modelfile) setting
-
+async def ollama_chat(payload: dict) -> dict | None:
+    """One non-streaming call to Ollama's chat API: the response, or None with the reason logged."""
     start = time.monotonic()
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(OLLAMA_URL, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "stream": False, **payload},
+                                    timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status != 200:
                     # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
                     log.error(f"Ollama returned HTTP {resp.status} for model {MODEL_NAME!r}: {(await resp.text())[:500]}")
                     return None
-                data = await resp.json()
+                return await resp.json()
     except Exception:
         log.exception(f"Generation failed after {time.monotonic() - start:.1f}s (Ollama at {OLLAMA_URL})")
+        return None
+
+
+async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
+    # Only the person being replied to gets their facts in context, never everyone's.
+    author_id, author_handle = last_author[channel_id]
+    payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
+                                          author_handle, memory.facts_for(author_id))}
+    if temperature is not None:
+        payload["options"] = {"temperature": temperature}  # otherwise the model's own (Modelfile) setting
+
+    start = time.monotonic()
+    data = await ollama_chat(payload)
+    if data is None:
         return None
 
     # Small models often start with "Gomihyu:" anyway, copying the log format.
@@ -158,10 +181,48 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
         newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))]
         lines.append(format_line(BOT_NAME, reply))
         lines.extend(reversed(newer))
-        await channel.send(to_pings(reply)[:2000])  # Discord's hard message-length limit
+        text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
+        await channel.send(text[:2000])  # Discord's hard message-length limit
 
 
-async def react(message: discord.Message, emoji: str) -> None:
+async def choose_reaction(message: discord.Message, text: str) -> str | discord.Emoji | None:
+    """The emoji for a post that gets a reaction instead of a reply, or None to leave it be."""
+    server = {e.name.lower(): e for e in message.guild.emojis} if message.guild else {}
+
+    def usable(name: str) -> bool:
+        return name in UNICODE or name.lower() in server
+
+    def as_reaction(name: str) -> str | discord.Emoji:
+        return name if name in UNICODE else server[name.lower()]
+
+    if media_only(text):  # she can't see images, so she doesn't pretend to judge them
+        looks = [name for name in LOOKING if usable(name)]
+        return as_reaction(random.choice(looks)) if looks else None
+
+    options = dict(UNICODE) | {name: use for name, (use, _) in CUSTOM.items() if usable(name)}
+    posted = posted_emoji(text)
+    same = server.get(posted.strip(":").lower()) if posted and posted.startswith(":") else posted
+    if same:
+        options["same"] = "the same emoji they posted, joining in"
+
+    recent = list(history[message.channel.id])[-5:]
+    data = await ollama_chat({"messages": picker_messages(recent, options), "format": picker_format(options)})
+    if data is None:
+        return None
+    answer = data.get("message", {}).get("content", "")
+    try:
+        choice = str(json.loads(answer)["emoji"])
+    except (ValueError, KeyError, TypeError):
+        choice = answer.strip().strip('"').strip(":")  # in case the JSON format wasn't honored
+    if choice == "same" and same:
+        return same
+    if choice in options and choice != "same":
+        return as_reaction(choice)
+    log.info(f"No reaction for {message.author.name}: picker answered {choice!r}")
+    return None
+
+
+async def react(message: discord.Message, emoji: str | discord.Emoji) -> None:
     try:
         await message.add_reaction(emoji)
         log.info(f"Reacted {emoji} to {message.author.name}")
@@ -187,16 +248,19 @@ async def on_message(message: discord.Message):
         handles[user.name.lower()] = user.id
     last_author[channel_id] = (message.author.id, message.author.name)
 
-    # Independent of replying below. A reaction isn't a message, so it stays out of the history.
-    if random.random() < REACTION_CHANCE and (emoji := pick_reaction(text)):
-        await react(message, emoji)
-
     mentioned = client.user in message.mentions
 
     if fact := fact_to_remember(text, mentioned):
         memory.remember(message.author.id, message.author.display_name, fact)
         log.info(f"Remembered for {message.author.name}: {fact!r}")
         await react(message, REMEMBERED_EMOJI)
+
+    # Posts that don't need words (images, emoji-only, "lol") get a reaction as her whole response.
+    # A reaction isn't a message, so it stays out of the chat history.
+    if not mentioned and reacts_instead(text, REACT_ONLY_MAX_WORDS):
+        if emoji := await choose_reaction(message, text):
+            await react(message, emoji)
+        return
 
     should_respond = mentioned or (random.random() < UNPROMPTED_REPLY_CHANCE)
 

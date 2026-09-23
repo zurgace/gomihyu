@@ -19,21 +19,22 @@ nothing more, until told otherwise.
 
 ## Current state
 - `bot.py` / `persona.py` / `requirements.txt` / `.env.example` — working Discord bot
-  that talks to Ollama. Running live on the server (replies and emoji reactions confirmed
-  working).
+  that talks to Ollama. Running live on the server (replies and memory confirmed working;
+  the emoji rework, prompt fixes and slur filter not yet tested live).
 - `persona.py` — the system prompt AND the prompt format (`format_line`, `build_messages`).
   Both the bot and the dataset builder use it, so training prompts match runtime prompts
   exactly. Change the format there, never in only one place.
-- `reactions.py` — emoji reactions: curated unicode set + keyword heuristic, no model call.
+- `emojis.py` — every emoji she uses (unicode + this server's custom ones) with a "when to use
+  it" note; the model only ever sees names + notes. `reactions.py` — when a post gets a
+  reaction instead of a reply, and the constrained emoji-picker prompt.
 - `censor.py` + `slurs.txt` — any slur in her reply becomes "filtered" (whole words, optional
   plural s). Swearing is deliberately not filtered; the server doesn't want her more PG.
-- `memory.py` — person memory: "remember that ..." parsing + `people.json` store. Not yet
-  tested live.
+- `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
   writing meant to capture voice, not script.
-- `finetuning/gomihyu_seed.jsonl` — 44 original synthetic Discord-style exchanges in that
+- `finetuning/gomihyu_seed.jsonl` — 47 original synthetic Discord-style exchanges in that
   voice, as `{"history": [[handle, text], ...], "facts"?: [...], "reply": ...}`. This is a SEED, not a
   finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
   SFT JSONL (`finetuning/train.jsonl`, gitignored — rebuild it, don't edit it).
@@ -46,18 +47,24 @@ nothing more, until told otherwise.
 - Otherwise replies unprompted with probability `UNPROMPTED_REPLY_CHANCE` (default 1.0 —
   every message), no cooldown. This was deliberately tuned for a specific slow,
   low-traffic server (5 people, ~2 actually active) — don't add a cooldown or lower the
-  default without checking first.
+  default without checking first. Exception (user decision): posts that don't need words —
+  image/sticker/bare-link/emoji-only, or at most `REACT_ONLY_MAX_WORDS` (2) words without "?"
+  — get an emoji reaction as her whole response, unless they @mention or name her ("gomi",
+  "gomihyu") or look serious; those always get a reply.
 - One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
   follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
   them so the follow-up prompt still ends on the newest unanswered message.
 - Gomihyu addresses people by their full Discord handle as an @mention (this replaced the
   original "full name" trait). The log labels speakers by handle (`author.name`), and
   `@handle` in a reply becomes a real ping. Never pings @everyone/@here/roles.
-- Emoji reactions roll `REACTION_CHANCE` (default 0.3) on every message, independent of the
-  reply roll. Curated unicode emoji only (no custom server emoji), picked by keyword
-  heuristic (no model call); serious/sad messages get none. Reactions are not added to the
-  chat history. Only fall back to a short Ollama "pick an emoji" prompt if the heuristic
-  proves too dumb live.
+- Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
+  was removed at the user's request). Media she can't see → a "looking" emoji (👀 /
+  :goonerstare:), never a judgment of the image. Emoji-only posts may get the same emoji
+  back. Otherwise a separate short Ollama call picks, with `format` constrained to the
+  `emojis.py` names + "none". Reactions are never added to the chat history.
+- She may write this server's custom emojis in replies as `:name:` (converted to the real
+  emoji at send time). Only `in_text=True` ones are listed in her prompt; `aryanosaka` and
+  `goonerstare` are reaction-only so those names never reach her chat prompt.
 - Person memory is explicit only: a "remember (that) ..." / "don't forget ..." message aimed
   at her (@mention, reply-ping, or starting with her name) stores the rest verbatim for its
   author. No auto-extraction from chat; questions ("remember when...?") are skipped. She
@@ -80,7 +87,7 @@ nothing more, until told otherwise.
 - A real Discord transcript export (the user's own messages only) is delayed. Plan is
   to mix real transcripts into the synthetic seed once it arrives — don't assume the
   seed file is the final dataset.
-- Target dataset size before an actual training run (44 examples now; likely needs a
+- Target dataset size before an actual training run (47 examples now; likely needs a
   few hundred).
 
 ## Next steps
@@ -91,7 +98,8 @@ nothing more, until told otherwise.
 3. After training, produce a merged GGUF, load it with `ollama create`, then update
    `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
-5. Test person memory live, then tell the server she remembers things people tell her to.
+5. Tell the server she remembers things people tell her to (if not done yet).
+6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
 
 ## Constraints
 - Everything runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model or

@@ -49,12 +49,7 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 - **Any other message → replies with probability `UNPROMPTED_REPLY_CHANCE`** (default 1.0,
   i.e. every message, no cooldown — meant for a slow server) — tune this in `.env` without
   touching code.
-- **Reacts with an emoji** to a `REACTION_CHANCE` share of messages (default 0.3), rolled
-  separately from replying, so a message can get a reaction, a reply, both or neither. The
-  emoji comes from a small in-character set (😤 🔥 👑 💢 🙄 😈 💅), picked by keywords in
-  `reactions.py`, with no model call. Sad or serious messages get no reaction. Needs the
-  **Add Reactions** permission. If it's missing, the console logs `Couldn't react ...` and
-  replies carry on as normal.
+- **Reacts instead of replying when words aren't needed.** See [Emojis](#emojis).
 - **One reply at a time per channel.** If messages arrive while it's still writing a reply,
   it sends one follow-up afterwards that answers the latest chat, rather than one reply each.
 - **Addresses people by their full Discord handle.** The chat log it sees labels everyone by
@@ -71,6 +66,30 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   safe; swearing isn't on the list. Edit the file to add or remove words, then restart.
 - **Remembers what you tell her to.** See [Memory](#memory).
 - Ignores its own messages and other bots.
+
+## Emojis
+**Posts that don't need words get a reaction as her whole response:** images, stickers, a
+bare link (usually a GIF), emoji-only posts, and short interjections of up to
+`REACT_ONLY_MAX_WORDS` words (default 2) without a `?`, like "oogaga" or "lol wtf". Anything
+that @mentions her, says "gomi"/"gomihyu", or sounds like bad news ("died", "rough week") gets
+a normal reply instead.
+- **Images, stickers, links:** she can't see them, so she doesn't pretend to judge them: she
+  reacts 👀 or `:goonerstare:`. In her chat log they show up as `[image]`, `[sticker: name]`,
+  so she knows something was posted instead of seeing an empty line.
+- **Emoji-only posts:** she can react with the same emoji, or answer it with a different one.
+- **Everything else:** a quick, separate model call picks the emoji. Its answer is restricted
+  to the names in `emojis.py` (plus "none", in which case she leaves it be).
+- **In her own messages** she can use this server's custom emojis now and then, by writing
+  `:kekpoint:`; the bot turns that into the real emoji.
+
+`emojis.py` lists every emoji she uses and **when** to use it. The model never sees the
+pictures, only names and those notes, so edit the notes to change how she uses them. Custom
+emojis marked `in_text=False` (`aryanosaka`, `goonerstare`) are reaction-only: their names
+never go into her chat prompt. If you rename or delete one in Discord, she just can't use it
+until `emojis.py` matches again.
+
+Reactions need the **Add Reactions** permission. If it's missing, the console logs
+`Couldn't react ...` and everything else carries on.
 
 ## Memory
 Tell her something on purpose and she keeps it, across restarts:
@@ -125,7 +144,8 @@ carrying the personality — right now it's doing all the work. If you change it
 `train.jsonl` and retrain: the LoRA is trained against whatever prompt was in place at the time.
 
 ## Known limitations at this scope
-- Text-only: it can't see images, only whatever caption/text comes with them.
+- Text-only: it can't see images, only whatever caption/text comes with them. Image posts
+  appear to her as `[image]`, and on their own they get a 👀-style reaction, not a reply.
 - Chat history is in-memory only and resets when the bot restarts. Remembered facts
   (`people.json`) do persist.
 - Single-server assumption: history is keyed by Discord channel ID, so it naturally
