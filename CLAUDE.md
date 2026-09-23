@@ -35,8 +35,9 @@ nothing more, until told otherwise.
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
   writing meant to capture voice, not script.
-- `finetuning/gomihyu_seed.jsonl` — 47 original synthetic Discord-style exchanges in that
-  voice, as `{"history": [[handle, text], ...], "facts"?: [...], "reply": ...}`. This is a SEED, not a
+- `finetuning/gomihyu_seed.jsonl` — 49 original synthetic Discord-style exchanges in that
+  voice, as `{"history": [[handle, text], ...], "facts"?: [...], "nicknames"?: {handle: nick},
+  "reply": ...}`. This is a SEED, not a
   finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
   SFT JSONL (`finetuning/train.jsonl`, gitignored — rebuild it, don't edit it).
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
@@ -55,9 +56,11 @@ nothing more, until told otherwise.
 - One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
   follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
   them so the follow-up prompt still ends on the newest unanswered message.
-- Gomihyu addresses people by their full Discord handle as an @mention (this replaced the
-  original "full name" trait). The log labels speakers by handle (`author.name`), and
-  `@handle` in a reply becomes a real ping. Never pings @everyone/@here/roles.
+- She goes by Gomi (`BOT_NICKNAME`) and calls people by their nicknames, falling back to
+  their handle (user decision; this replaced the earlier "full handle, never a nickname"
+  trait). The log labels speakers by handle (`author.name`); a "Nicknames, call these people
+  by them: ..." line covers everyone in the log. `@handle`, `@display name` or `@nickname` in
+  a reply becomes a real ping. Never pings @everyone/@here/roles.
 - Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
   was removed at the user's request). Media she can't see → a "looking" emoji (👀 /
   :goonerstare:), never a judgment of the image. Emoji-only posts may get the same emoji
@@ -72,7 +75,10 @@ nothing more, until told otherwise.
 - Person memory is explicit only: a "remember (that) ..." / "don't forget ..." message aimed
   at her (@mention, reply-ping, or "Gomi"/"Gomihyu" within the first 4 words) stores the rest verbatim for its
   author. No auto-extraction from chat; questions ("remember when...?") are skipped. She
-  reacts 📝 on store. `people.json` (gitignored), `{user_id: {"display_name", "facts"}}`,
+  reacts 📝 on store. Nicknames ("call me X", "my nickname is X", "Y's nickname is X",
+  "call @y X") are stored on the person they're about (resolved by handle / display name /
+  mention / people.json), never with a slur, never for her. `people.json` (gitignored),
+  `{user_id: {"display_name", "facts", "nickname"?}}`,
   deduped, capped at `MAX_FACTS_PER_PERSON` (20) with the oldest dropping off, written
   atomically; invalid JSON stops startup rather than being overwritten. At reply time only
   the latest message's author's facts go into the prompt, as one line ahead of the chat
@@ -91,7 +97,7 @@ nothing more, until told otherwise.
 - A real Discord transcript export (the user's own messages only) is delayed. Plan is
   to mix real transcripts into the synthetic seed once it arrives — don't assume the
   seed file is the final dataset.
-- Target dataset size before an actual training run (47 examples now; likely needs a
+- Target dataset size before an actual training run (49 examples now; likely needs a
   few hundred).
 
 ## Next steps

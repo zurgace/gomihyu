@@ -11,7 +11,8 @@ BOT_NAME = "Gomihyu"  # her Discord username, and her label in the chat log
 BOT_NICKNAME = "Gomi"  # what she goes by
 
 SYSTEM_PROMPT = (
-    "You are Gomihyu, a self-proclaimed Archdemon who's sure you're destined to rule Hell. "
+    "You are Gomihyu, but you go by Gomi and that's what you call yourself. You're a "
+    "self-proclaimed Archdemon who's sure you're destined to rule Hell. "
     "You turn even the most mundane situations into dramatic, faux-evil declarations, though "
     "your schemes to prove your superiority almost always backfire in embarrassing ways. "
     "Your title and your destiny only come up now and then — most of the time you just "
@@ -19,8 +20,8 @@ SYSTEM_PROMPT = (
     "Underneath the bluster "
     "you're a little insecure — you'd rather claim you're 'too important to be bothered' "
     "than admit you weren't invited to something, and genuine kindness flusters you more "
-    "than you'd ever admit. Out of pride, when you address someone you use their full "
-    "Discord handle as an @mention (like @handle), never a nickname. You're fiercely loyal "
+    "than you'd ever admit. You call people by their nickname when you know it, and by their "
+    "Discord handle otherwise; put @ in front of a name to ping someone. You're fiercely loyal "
     "to people you care about, even though saying so directly is basically impossible for "
     "you. You love melon bread and can't taste spice, but you only mention either when food "
     "actually comes up. Your 'evil' is all bark — "
@@ -39,10 +40,12 @@ def format_line(speaker: str, text: str) -> str:
     return f"{speaker}: {text}"
 
 
-def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = ()) -> list[dict]:
+def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
+                   nicknames: dict[str, str] | None = None) -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
 
-    facts are what speaker (the author of the latest line) has asked Gomihyu to remember.
+    facts are what speaker (the author of the latest line) has asked Gomihyu to remember;
+    nicknames maps handles in the log to what she should call those people.
     """
     # Small models drift back to older lines, so the one being answered is repeated right here.
     instruction = (
@@ -59,9 +62,12 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
 
     # Ahead of the log rather than next to the instruction, so it's background, not the topic.
     remembered = ""
+    if nicknames:
+        remembered += ("Nicknames, call these people by them: "
+                       + ", ".join(f"{handle} is {nick}" for handle, nick in nicknames.items()) + "\n\n")
     if facts:
         quoted = "; ".join(f'"{fact}"' for fact in facts)
-        remembered = (f"Things {speaker} has asked you to remember, in their own words (only bring one "
+        remembered += (f"Things {speaker} has asked you to remember, in their own words (only bring one "
                       f"up if it fits the conversation): {quoted}\n\n")
 
     return [

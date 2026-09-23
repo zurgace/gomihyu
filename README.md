@@ -52,8 +52,10 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 - **Reacts instead of replying when words aren't needed.** See [Emojis](#emojis).
 - **One reply at a time per channel.** If messages arrive while it's still writing a reply,
   it sends one follow-up afterwards that answers the latest chat, rather than one reply each.
-- **Addresses people by their full Discord handle.** The chat log it sees labels everyone by
-  handle (e.g. `kaz0: ...`), and when a reply says `@kaz0` the bot turns it into a real ping.
+- **Goes by Gomi, and calls people by their nicknames** (see [Memory](#memory)), or by their
+  Discord handle when she doesn't know one. The chat log she sees labels everyone by handle
+  (e.g. `kaz0: ...`), with a line listing the nicknames of the people in it. When a reply says
+  `@kaz0` or `@Kaz` (handle, display name or nickname), the bot turns it into a real ping.
   Discord shows a ping as the person's server display name. It never pings `@everyone`,
   `@here` or roles.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
@@ -106,11 +108,17 @@ Gomihyu, don't forget my birthday is march 3
   like "@Gomihyu remember when...?". Nothing is picked up from ordinary conversation.
 - When a fact is stored she reacts 📝 and the console logs `Remembered for <handle>: ...`.
   Everything after "remember (that)" / "don't forget (that)" is stored word for word.
+- **Nicknames** are saved for the person they belong to, not whoever said them, so she uses
+  them whenever that person is in the chat: "gomi call me Rex", "gomi my nickname is Rex",
+  "gomi remember that Yuzuki's nickname is Yuzu", "@Gomihyu call @yuzuki Yuzu". The person can
+  be named by handle, display name or @mention, and needs to have talked since the bot started
+  or already be in `people.json`. Otherwise the console logs `Nickname ... not saved: don't
+  know who ...`. Nicknames containing a slur aren't saved. Her own name (Gomi) is fixed.
 - When she replies to you, your facts, and only yours, go into her prompt, with a note to
   bring one up only when it fits. If you ask "what do you remember about me?", she has
   your facts in front of her to answer from.
-- Facts live in `people.json` next to `bot.py` (`PEOPLE_FILE` in `.env`), keyed by Discord
-  user ID. It's in `.gitignore`, so it stays on your machine. Each person keeps at most
+- Facts and nicknames live in `people.json` next to `bot.py` (`PEOPLE_FILE` in `.env`), keyed by
+  Discord user ID. It's in `.gitignore`, so it stays on your machine. Each person keeps at most
   `MAX_FACTS_PER_PERSON` (default 20) facts; past that, their oldest one drops off.
 - To remove or fix a fact, **stop the bot first**, edit `people.json`, then start it again.
   The running bot keeps its own copy and would overwrite your edit the next time it

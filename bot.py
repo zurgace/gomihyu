@@ -30,8 +30,8 @@ from dotenv import load_dotenv
 
 from censor import has_slur
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
-from memory import PeopleMemory, fact_to_remember
-from persona import BOT_NAME, build_messages, format_line
+from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
+from persona import BOT_NAME, BOT_NICKNAME, build_messages, format_line
 from reactions import media_only, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
 
 load_dotenv()
@@ -50,7 +50,7 @@ RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
 # Facts people ask her to remember; relative paths are next to this file. Survives restarts.
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
-REMEMBERED_EMOJI = "📝"  # reaction confirming a fact was stored
+REMEMBERED_EMOJI = "📝"  # reaction confirming a fact or nickname was stored
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -68,8 +68,10 @@ logged = defaultdict(int)
 reply_locks = defaultdict(asyncio.Lock)
 # channel_id -> whether anything that arrived mid-reply @mentioned the bot; present = one follow-up owed
 pending_followup = {}
-# lowercase Discord handle -> user id, so "@handle" in a reply can become a real ping
+# lowercase Discord handle or display name -> user id, for real pings and for "Yuzuki's nickname is..."
 handles = {}
+# user id -> display name, for everyone seen
+display_names = {}
 # channel_id -> (user id, handle) of the latest message, whose remembered facts a reply gets
 last_author = {}
 memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
@@ -80,7 +82,7 @@ CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
 # Custom emojis she may post: the in-text ones, plus the stand-in she posts instead of a slur.
 POSTABLE_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text} | {SLUR_STANDIN.lower()}
 HANDLE = re.compile(r"@([\w.]*\w)")
-OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*{re.escape(BOT_NAME)}[*_]*\s*:[*_]*\s*", re.IGNORECASE)
+OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*(?:{BOT_NAME}|{BOT_NICKNAME})[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
 def readable(message: discord.Message) -> str:
@@ -98,9 +100,9 @@ def readable(message: discord.Message) -> str:
 
 
 def to_pings(text: str) -> str:
-    """Turn "@handle" into a real <@id> mention for anyone the bot has seen."""
+    """Turn "@handle" (or @nickname, @display name) into a real <@id> mention for anyone known."""
     def ping(m: re.Match) -> str:
-        user_id = handles.get(m[1].lower())
+        user_id = handles.get(m[1].lower()) or memory.find(m[1])
         return f"<@{user_id}>" if user_id else m[0]
     return HANDLE.sub(ping, text)
 
@@ -143,8 +145,12 @@ async def ollama_chat(payload: dict) -> dict | None:
 async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
     # Only the person being replied to gets their facts in context, never everyone's.
     author_id, author_handle = last_author[channel_id]
+    # Everyone in the log gets their nickname, though, so she can call them by it.
+    speakers = dict.fromkeys(line.split(": ", 1)[0] for line in history[channel_id])
+    nicknames = {handle: nick for handle in speakers
+                 if (user_id := handles.get(handle.lower())) and (nick := memory.nickname_for(user_id))}
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
-                                          author_handle, memory.facts_for(author_id))}
+                                          author_handle, memory.facts_for(author_id), nicknames)}
     if temperature is not None:
         payload["options"] = {"temperature": temperature}  # otherwise the model's own (Modelfile) setting
 
@@ -224,6 +230,36 @@ async def choose_reaction(message: discord.Message, text: str) -> str | discord.
     return None
 
 
+def find_person(who: str, message: discord.Message) -> int | None:
+    """The user id behind "me" or a name/handle someone used, if the bot knows who that is."""
+    if who.lower() == "me":
+        return message.author.id
+    if who.lower() in ("you", "yourself", BOT_NAME.lower(), BOT_NICKNAME.lower()):
+        return None  # her own name is fixed
+    return handles.get(who.lower()) or memory.find(who)
+
+
+async def take_notes(message: discord.Message, text: str, mentioned: bool) -> None:
+    """Store what a message aimed at her explicitly asks her to remember: facts and nicknames."""
+    noted = False
+    if fact := fact_to_remember(text, mentioned):
+        memory.remember(message.author.id, message.author.display_name, fact)
+        log.info(f"Remembered for {message.author.name}: {fact!r}")
+        noted = True
+    if aimed_at_her(text, mentioned):
+        for who, nick in nicknames_in(text):
+            if (user_id := find_person(who, message)) is None:
+                log.warning(f"Nickname {nick!r} not saved: don't know who {who!r} is")
+            elif has_slur(nick):
+                log.warning(f"Nickname for {who!r} not saved: it has a slur in it")
+            else:
+                memory.set_nickname(user_id, display_names.get(user_id), nick)
+                log.info(f"Nickname for {who} (id {user_id}) is now {nick!r}, set by {message.author.name}")
+                noted = True
+    if noted:
+        await react(message, REMEMBERED_EMOJI)
+
+
 async def react(message: discord.Message, emoji: str | discord.Emoji) -> None:
     try:
         await message.add_reaction(emoji)
@@ -248,14 +284,13 @@ async def on_message(message: discord.Message):
     logged[channel_id] += 1
     for user in (message.author, *message.mentions):
         handles[user.name.lower()] = user.id
+        handles[user.display_name.lower()] = user.id
+        display_names[user.id] = user.display_name
     last_author[channel_id] = (message.author.id, message.author.name)
 
     mentioned = client.user in message.mentions
 
-    if fact := fact_to_remember(text, mentioned):
-        memory.remember(message.author.id, message.author.display_name, fact)
-        log.info(f"Remembered for {message.author.name}: {fact!r}")
-        await react(message, REMEMBERED_EMOJI)
+    await take_notes(message, text, mentioned)
 
     # Sad news gets a sad cat on top of her reply (it never counts as a post that doesn't need words).
     if sad_news(text) and message.guild:
