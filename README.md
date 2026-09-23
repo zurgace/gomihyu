@@ -26,12 +26,22 @@ ollama run hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M "say hi"
 ## 3. Configure and run
 ```bash
 git clone https://github.com/zurgace/gomihyu.git && cd gomihyu
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 cp .env.example .env   # then fill in DISCORD_BOT_TOKEN
-python3 bot.py
+venv/bin/python bot.py
 ```
 You should see `Logged in as Gomihyu (id: ...)` in the console once it's connected.
+
+Running through `venv/bin/python` uses the venv without activating it, so it works the same in
+bash, zsh or fish. (If you do activate it in fish, the command is `source venv/bin/activate.fish`.)
+
+**`ModuleNotFoundError: No module named 'aiohttp'` (or `discord`)** means the Python running
+the bot doesn't have the requirements installed. Either plain `python3` ran instead of the venv's,
+or a system update (common on CachyOS/Arch) upgraded Python and left the venv behind. Rebuild it:
+```bash
+rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
+```
 
 ## How it behaves
 - **@mention → always replies**, and the persona is instructed to fire back rudely in
