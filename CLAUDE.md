@@ -25,6 +25,8 @@ nothing more, until told otherwise.
   Both the bot and the dataset builder use it, so training prompts match runtime prompts
   exactly. Change the format there, never in only one place.
 - `reactions.py` — emoji reactions: curated unicode set + keyword heuristic, no model call.
+- `censor.py` + `slurs.txt` — any slur in her reply becomes "filtered" (whole words, optional
+  plural s). Swearing is deliberately not filtered; the server doesn't want her more PG.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store. Not yet
   tested live.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased

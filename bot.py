@@ -27,6 +27,7 @@ import aiohttp
 import discord
 from dotenv import load_dotenv
 
+from censor import censor
 from memory import PeopleMemory, fact_to_remember
 from persona import BOT_NAME, build_messages, format_line
 from reactions import pick_reaction
@@ -129,7 +130,11 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         return None
 
     # Small models often start with "Gomihyu:" anyway, copying the log format.
-    reply = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
+    raw = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
+    # Slurs become "filtered" before the reply is logged, sent, or kept in the chat history.
+    reply = censor(raw)
+    if reply != raw:
+        log.info("Replaced a slur in the reply with 'filtered'")
     log.info(f"Generated in {time.monotonic() - start:.1f}s "
              f"(done_reason={data.get('done_reason')}, tokens={data.get('eval_count')}): {reply[:200]!r}")
     if not reply:

@@ -66,6 +66,9 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
   one of its own recent messages, it regenerates once at `RETRY_TEMPERATURE` (default 1.0) and
   logs that it did. Small models otherwise tend to reuse their earlier lines word for word.
+- **Never says a slur.** Any word from `slurs.txt` in her reply becomes "filtered" before it's
+  sent (and in her chat history, so she can't echo it later). Whole words only, so "spicy" is
+  safe; swearing isn't on the list. Edit the file to add or remove words, then restart.
 - **Remembers what you tell her to.** See [Memory](#memory).
 - Ignores its own messages and other bots.
 

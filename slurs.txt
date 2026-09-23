@@ -1,0 +1,27 @@
+# Slurs Gomihyu never says: any of these in her messages is replaced with "filtered".
+# One per line, matched as a whole word (so "spicy" is safe), any capitalization, with an
+# optional plural "s". List other forms (e.g. "retarded") on their own line.
+# Swearing is deliberately not on here. Add or remove words to taste.
+nigger
+nigga
+sandnigger
+faggot
+fag
+dyke
+tranny
+trannies
+shemale
+retard
+retarded
+spic
+spick
+chink
+gook
+kike
+wetback
+beaner
+towelhead
+raghead
+coon
+paki
+jap
