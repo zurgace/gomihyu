@@ -43,3 +43,9 @@ UNICODE = {
 
 # What she reacts with to posts she can't see (images, videos, stickers): she just looks.
 LOOKING = ["👀", "goonerstare"]
+
+# Posted instead of any reply of hers that contains a slur (see censor.py / slurs.txt).
+SLUR_STANDIN = "goonerstare"
+
+# Her reaction to sad news ("my dog died"), on top of a reply.
+SAD_NEWS = "catsad"

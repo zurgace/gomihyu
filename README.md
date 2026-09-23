@@ -61,9 +61,10 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
   one of its own recent messages, it regenerates once at `RETRY_TEMPERATURE` (default 1.0) and
   logs that it did. Small models otherwise tend to reuse their earlier lines word for word.
-- **Never says a slur.** Any word from `slurs.txt` in her reply becomes "filtered" before it's
-  sent (and in her chat history, so she can't echo it later). Whole words only, so "spicy" is
-  safe; swearing isn't on the list. Edit the file to add or remove words, then restart.
+- **Never says a slur.** If her reply contains any word from `slurs.txt`, the whole reply is
+  thrown away and she posts `:goonerstare:` instead (`SLUR_STANDIN` in `emojis.py`). Her chat
+  history keeps only the stare, so she can't echo the slur later. Whole words only, so "spicy"
+  is safe; swearing isn't on the list. Edit the file to add or remove words, then restart.
 - **Remembers what you tell her to.** See [Memory](#memory).
 - Ignores its own messages and other bots.
 
@@ -71,8 +72,9 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 **Posts that don't need words get a reaction as her whole response:** images, stickers, a
 bare link (usually a GIF), emoji-only posts, and short interjections of up to
 `REACT_ONLY_MAX_WORDS` words (default 2) without a `?`, like "oogaga" or "lol wtf". Anything
-that @mentions her, says "gomi"/"gomihyu", or sounds like bad news ("died", "rough week") gets
-a normal reply instead.
+that @mentions her, says "gomi"/"gomihyu", or sounds like bad news gets a normal reply instead.
+- **Sad news** ("my dog died", "rough week") gets a reply *and* a `:catsad:` reaction
+  (`SAD_NEWS` in `emojis.py`). Laughter doesn't count: "im crying lmao" is not sad news.
 - **Images, stickers, links:** she can't see them, so she doesn't pretend to judge them: she
   reacts 👀 or `:goonerstare:`. In her chat log they show up as `[image]`, `[sticker: name]`,
   so she knows something was posted instead of seeing an empty line.
@@ -85,7 +87,8 @@ a normal reply instead.
 `emojis.py` lists every emoji she uses and **when** to use it. The model never sees the
 pictures, only names and those notes, so edit the notes to change how she uses them. Custom
 emojis marked `in_text=False` (`aryanosaka`, `goonerstare`) are reaction-only: their names
-never go into her chat prompt. If you rename or delete one in Discord, she just can't use it
+aren't listed in her chat prompt. (`goonerstare` still shows up in her chat log after she posts
+it in place of a slur.) If you rename or delete one in Discord, she just can't use it
 until `emojis.py` matches again.
 
 Reactions need the **Add Reactions** permission. If it's missing, the console logs

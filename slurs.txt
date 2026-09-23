@@ -1,4 +1,5 @@
-# Slurs Gomihyu never says: any of these in her messages is replaced with "filtered".
+# Slurs Gomihyu never says: if her reply has any of these, the whole reply is thrown away and
+# she posts :goonerstare: instead (SLUR_STANDIN in emojis.py).
 # One per line, matched as a whole word (so "spicy" is safe), any capitalization, with an
 # optional plural "s". List other forms (e.g. "retarded") on their own line.
 # Swearing is deliberately not on here. Add or remove words to taste.

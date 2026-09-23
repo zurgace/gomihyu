@@ -28,11 +28,11 @@ import aiohttp
 import discord
 from dotenv import load_dotenv
 
-from censor import censor
-from emojis import CUSTOM, LOOKING, UNICODE
+from censor import has_slur
+from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from memory import PeopleMemory, fact_to_remember
 from persona import BOT_NAME, build_messages, format_line
-from reactions import media_only, picker_format, picker_messages, posted_emoji, reacts_instead
+from reactions import media_only, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
 
 load_dotenv()
 
@@ -77,7 +77,8 @@ memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
 MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
 CUSTOM_EMOJI_TOKEN = re.compile(r"<a?:(\w+):\d+>")
 CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
-IN_TEXT_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text}
+# Custom emojis she may post: the in-text ones, plus the stand-in she posts instead of a slur.
+POSTABLE_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text} | {SLUR_STANDIN.lower()}
 HANDLE = re.compile(r"@([\w.]*\w)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*{re.escape(BOT_NAME)}[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
@@ -105,8 +106,8 @@ def to_pings(text: str) -> str:
 
 
 def to_server_emojis(text: str, guild: discord.Guild | None) -> str:
-    """Turn ":name:" for this server's in-text emojis (see emojis.py) into the real emoji."""
-    server = {e.name.lower(): e for e in guild.emojis if e.name.lower() in IN_TEXT_EMOJIS} if guild else {}
+    """Turn ":name:" for this server's postable emojis (see emojis.py) into the real emoji."""
+    server = {e.name.lower(): e for e in guild.emojis if e.name.lower() in POSTABLE_EMOJIS} if guild else {}
     return CUSTOM_EMOJI_NAME.sub(lambda m: str(server.get(m[1].lower(), m[0])), text)
 
 
@@ -153,11 +154,12 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         return None
 
     # Small models often start with "Gomihyu:" anyway, copying the log format.
-    raw = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
-    # Slurs become "filtered" before the reply is logged, sent, or kept in the chat history.
-    reply = censor(raw)
-    if reply != raw:
-        log.info("Replaced a slur in the reply with 'filtered'")
+    reply = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
+    # A reply with a slur in it is thrown away whole, before it's sent or kept in the chat
+    # history: she just stares instead.
+    if has_slur(reply):
+        log.info(f"Reply had a slur, posting :{SLUR_STANDIN}: instead (was: {reply[:200]!r})")
+        reply = f":{SLUR_STANDIN}:"
     log.info(f"Generated in {time.monotonic() - start:.1f}s "
              f"(done_reason={data.get('done_reason')}, tokens={data.get('eval_count')}): {reply[:200]!r}")
     if not reply:
@@ -254,6 +256,11 @@ async def on_message(message: discord.Message):
         memory.remember(message.author.id, message.author.display_name, fact)
         log.info(f"Remembered for {message.author.name}: {fact!r}")
         await react(message, REMEMBERED_EMOJI)
+
+    # Sad news gets a sad cat on top of her reply (it never counts as a post that doesn't need words).
+    if sad_news(text) and message.guild:
+        if cat := next((e for e in message.guild.emojis if e.name.lower() == SAD_NEWS.lower()), None):
+            await react(message, cat)
 
     # Posts that don't need words (images, emoji-only, "lol") get a reaction as her whole response.
     # A reaction isn't a message, so it stays out of the chat history.

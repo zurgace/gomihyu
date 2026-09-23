@@ -27,8 +27,9 @@ nothing more, until told otherwise.
 - `emojis.py` — every emoji she uses (unicode + this server's custom ones) with a "when to use
   it" note; the model only ever sees names + notes. `reactions.py` — when a post gets a
   reaction instead of a reply, and the constrained emoji-picker prompt.
-- `censor.py` + `slurs.txt` — any slur in her reply becomes "filtered" (whole words, optional
-  plural s). Swearing is deliberately not filtered; the server doesn't want her more PG.
+- `censor.py` + `slurs.txt` — a reply containing any slur (whole words, optional plural s) is
+  replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
+  Swearing is deliberately not filtered; the server doesn't want her more PG.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
@@ -62,9 +63,12 @@ nothing more, until told otherwise.
   :goonerstare:), never a judgment of the image. Emoji-only posts may get the same emoji
   back. Otherwise a separate short Ollama call picks, with `format` constrained to the
   `emojis.py` names + "none". Reactions are never added to the chat history.
+- Sad news (`reactions.sad_news`: serious words, not laughter like "crying lmao") gets a
+  reply plus a `:catsad:` reaction (`SAD_NEWS`), never a reaction alone.
 - She may write this server's custom emojis in replies as `:name:` (converted to the real
   emoji at send time). Only `in_text=True` ones are listed in her prompt; `aryanosaka` and
-  `goonerstare` are reaction-only so those names never reach her chat prompt.
+  `goonerstare` are reaction-only so those names aren't listed there. `goonerstare` is also
+  the slur stand-in, so it's always postable and can appear in her chat log.
 - Person memory is explicit only: a "remember (that) ..." / "don't forget ..." message aimed
   at her (@mention, reply-ping, or starting with her name) stores the rest verbatim for its
   author. No auto-extraction from chat; questions ("remember when...?") are skipped. She

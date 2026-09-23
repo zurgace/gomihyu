@@ -1,4 +1,4 @@
-"""Swap slurs in Gomihyu's messages for "filtered". The word list lives in slurs.txt."""
+"""Spot slurs in Gomihyu's replies (bot.py then posts SLUR_STANDIN instead). Words: slurs.txt."""
 
 import re
 from pathlib import Path
@@ -8,5 +8,5 @@ WORDS = [line.strip() for line in (Path(__file__).resolve().parent / "slurs.txt"
 SLUR = re.compile(r"\b(?:" + "|".join(map(re.escape, WORDS)) + r")s?\b", re.IGNORECASE)
 
 
-def censor(text: str) -> str:
-    return SLUR.sub("filtered", text)
+def has_slur(text: str) -> bool:
+    return bool(SLUR.search(text))

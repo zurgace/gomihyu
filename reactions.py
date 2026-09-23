@@ -19,6 +19,8 @@ _PIC = r"[\u2190-\u21FF\u2600-\u27BF\u2B00-\u2BFF\U0001F000-\U0001FAFF]"
 EMOJI = re.compile(rf":(\w+):|[\U0001F1E6-\U0001F1FF]{{2}}|{_PIC}[\uFE0F\U0001F3FB-\U0001F3FF]*"
                    rf"(?:\u200D{_PIC}[\uFE0F\U0001F3FB-\U0001F3FF]*)*")
 WORD = re.compile(r"\w+")
+# "i'm crying lmao" is laughter, not bad news.
+LAUGHING = re.compile(r"\b(?:lol|lmao|lmfao|rofl|haha\w*|kek)\b|[\U0001F602\U0001F923\U0001F480]", re.IGNORECASE)
 
 
 def _words(text: str) -> list[str]:
@@ -27,11 +29,16 @@ def _words(text: str) -> list[str]:
 
 def reacts_instead(text: str, max_words: int) -> bool:
     """Whether a reaction says enough: no words at all, or a few without a question."""
-    said = MEDIA.sub(" ", text)  # what they typed, not a link's text ("cat-crying-gif")
-    if ADDRESSED.search(said) or SERIOUS.search(said):
+    if ADDRESSED.search(MEDIA.sub(" ", text)) or sad_news(text):
         return False
     words = _words(text)
     return not words or (len(words) <= max_words and "?" not in text)
+
+
+def sad_news(text: str) -> bool:
+    """Bad news ("my dog died", "rough week"): gets a reply and a sad cat, never just a reaction."""
+    said = MEDIA.sub(" ", text)  # what they typed, not a link's text ("cat-crying-gif")
+    return bool(SERIOUS.search(said)) and not LAUGHING.search(said)
 
 
 def media_only(text: str) -> bool:
