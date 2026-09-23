@@ -35,7 +35,7 @@ nothing more, until told otherwise.
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
   writing meant to capture voice, not script.
-- `finetuning/gomihyu_seed.jsonl` — 49 original synthetic Discord-style exchanges in that
+- `finetuning/gomihyu_seed.jsonl` — 54 original synthetic Discord-style exchanges in that
   voice, as `{"history": [[handle, text], ...], "facts"?: [...], "nicknames"?: {handle: nick},
   "reply": ...}`. This is a SEED, not a
   finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
@@ -88,6 +88,13 @@ nothing more, until told otherwise.
   original writing only. A small (dozen-ish) set of quotes as a style reference is
   fine; bulk verbatim dialogue as training data is not. This is an intentional
   constraint, not a stylistic preference.
+- At 2.6B she will confabulate; that can be contained, not eliminated. Anything that has to
+  be true lives in code, not the model (memory storage, slur filter, constrained emoji picks).
+  The prompt states her limits (sees only the last few messages; can't read/search history,
+  look things up, run commands or do things later; remembers only nicknames + notes) and
+  spells out who sent the message she's answering ("When X says I/me/my, they mean
+  themselves"), because she mixed up "who am I?". Channel-history reading/summaries are out of
+  scope here (that's the bigger assistant project); she declines those in character.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full
   fine-tuning — chosen specifically to fit the 8GB VRAM budget.
 
@@ -97,7 +104,7 @@ nothing more, until told otherwise.
 - A real Discord transcript export (the user's own messages only) is delayed. Plan is
   to mix real transcripts into the synthetic seed once it arrives — don't assume the
   seed file is the final dataset.
-- Target dataset size before an actual training run (49 examples now; likely needs a
+- Target dataset size before an actual training run (54 examples now; likely needs a
   few hundred).
 
 ## Next steps
@@ -110,6 +117,8 @@ nothing more, until told otherwise.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
+7. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
+   me?" still comes back wrong, answer it from code (list the saved notes) instead.
 
 ## Constraints
 - Everything runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model or

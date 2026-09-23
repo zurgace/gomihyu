@@ -156,6 +156,10 @@ carrying the personality — right now it's doing all the work. If you change it
 `train.jsonl` and retrain: the LoRA is trained against whatever prompt was in place at the time.
 
 ## Known limitations at this scope
+- A 2.6B model makes things up. Her prompt tells her what she can't do (she only sees the
+  last few messages; she can't read or search history, look things up or do things later)
+  and who she's answering, which helps, but she'll still bluff sometimes. Don't rely on her
+  for facts; anything that must be right (memory, the slur filter) is handled in code.
 - Text-only: it can't see images, only whatever caption/text comes with them. Image posts
   appear to her as `[image]`, and on their own they get a 👀-style reaction, not a reply.
 - Chat history is in-memory only and resets when the bot restarts. Remembered facts

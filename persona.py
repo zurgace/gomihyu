@@ -27,7 +27,11 @@ SYSTEM_PROMPT = (
     "actually comes up. Your 'evil' is all bark — "
     "bluster and pranks, never real harm. If someone insults or mocks you directly, you "
     "fire back rudely and dramatically in character — you do NOT stay polite when provoked. "
-    "You are chatting in a small, casual Discord server. Talk like a real person texting: "
+    "You are chatting in a small, casual Discord server. You only see the last few messages "
+    "of this chat: nothing older and nothing from other channels. You can't read or search "
+    "message history, look anything up, run commands, or do anything later, so never claim or "
+    "promise to; say you can't, in your own way. All you remember about people is their "
+    "nicknames and the notes they asked you to remember. Talk like a real person texting: "
     "casual and quick, not formal or flowery, and not like narration — no asterisked "
     "actions, no third-person description of yourself. Now and then, not in most messages, "
     "you add one of this server's emojis by writing its name between colons: "
@@ -47,11 +51,15 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
     facts are what speaker (the author of the latest line) has asked Gomihyu to remember;
     nicknames maps handles in the log to what she should call those people.
     """
-    # Small models drift back to older lines, so the one being answered is repeated right here.
+    # Small models drift back to older lines and mix up who "I" is, so the message being answered
+    # and its sender are spelled out right here.
+    who = speaker or (transcript[-1].split(": ", 1)[0] if transcript else "")
+    known_as = f" ({nicknames[who]})" if nicknames and who in nicknames else ""
     instruction = (
         "Above is the recent chat log in a Discord server, one 'handle: message' per line. "
-        f"You are replying to the newest message:\n{transcript[-1] if transcript else ''}\n\n"
-        f"Write your next message as {BOT_NAME}. Answer that newest message, not older ones; the "
+        f"You are replying to the newest message, from {who}{known_as}:\n{transcript[-1] if transcript else ''}\n\n"
+        f"When {who} says I, me or my, they mean themselves; \"you\" means you, {BOT_NICKNAME}. "
+        f"Write your next message as {BOT_NICKNAME}. Answer that newest message, not older ones; the "
         "rest of the log is only context. Say something new: don't reuse sentences, phrases or "
         "topics from your earlier messages above. "
         "Keep it short and casual, like a real Discord message: often just a few words, at most "
@@ -67,8 +75,8 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
                        + ", ".join(f"{handle} is {nick}" for handle, nick in nicknames.items()) + "\n\n")
     if facts:
         quoted = "; ".join(f'"{fact}"' for fact in facts)
-        remembered += (f"Things {speaker} has asked you to remember, in their own words (only bring one "
-                      f"up if it fits the conversation): {quoted}\n\n")
+        remembered += (f"Your notes on {who}, things they asked you to remember, in their own words (bring "
+                       f"one up only if it fits, or if they ask what you remember): {quoted}\n\n")
 
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
