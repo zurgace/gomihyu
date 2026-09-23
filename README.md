@@ -101,7 +101,8 @@ Tell her something on purpose and she keeps it, across restarts:
 Gomihyu, don't forget my birthday is march 3
 ```
 - It only counts if the message is aimed at her: it @mentions her, replies to one of her
-  messages with the ping left on, or starts with "Gomihyu". "remember that party lol" in normal chat is ignored, and so are questions
+  messages with the ping left on, or has "Gomi"/"Gomihyu" within its first few words
+  ("ok then gomi remember that ..."). "remember that party lol" in normal chat is ignored, and so are questions
   like "@Gomihyu remember when...?". Nothing is picked up from ordinary conversation.
 - When a fact is stored she reacts 📝 and the console logs `Remembered for <handle>: ...`.
   Everything after "remember (that)" / "don't forget (that)" is stored word for word.

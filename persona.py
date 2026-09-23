@@ -7,7 +7,8 @@ fine-tuning data matches what the bot sends at runtime.
 
 from emojis import CUSTOM
 
-BOT_NAME = "Gomihyu"
+BOT_NAME = "Gomihyu"  # her Discord username, and her label in the chat log
+BOT_NICKNAME = "Gomi"  # what she goes by
 
 SYSTEM_PROMPT = (
     "You are Gomihyu, a self-proclaimed Archdemon who's sure you're destined to rule Hell. "

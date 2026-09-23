@@ -70,7 +70,7 @@ nothing more, until told otherwise.
   `goonerstare` are reaction-only so those names aren't listed there. `goonerstare` is also
   the slur stand-in, so it's always postable and can appear in her chat log.
 - Person memory is explicit only: a "remember (that) ..." / "don't forget ..." message aimed
-  at her (@mention, reply-ping, or starting with her name) stores the rest verbatim for its
+  at her (@mention, reply-ping, or "Gomi"/"Gomihyu" within the first 4 words) stores the rest verbatim for its
   author. No auto-extraction from chat; questions ("remember when...?") are skipped. She
   reacts 📝 on store. `people.json` (gitignored), `{user_id: {"display_name", "facts"}}`,
   deduped, capped at `MAX_FACTS_PER_PERSON` (20) with the oldest dropping off, written

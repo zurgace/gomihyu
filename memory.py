@@ -1,7 +1,7 @@
 """
 Person memory: facts people explicitly ask Gomihyu to remember, kept in one small JSON file.
 
-Explicit only. A message aimed at her ("@Gomihyu remember that ...", "Gomihyu, don't forget
+Explicit only. A message aimed at her ("@Gomihyu remember that ...", "ok gomi, don't forget
 ...") stores the rest of the message verbatim against its author's Discord ID. Nothing is
 inferred from ordinary chat, so sarcasm and banter never end up stored as facts.
 """
@@ -11,10 +11,11 @@ import os
 import re
 from pathlib import Path
 
-from persona import BOT_NAME
+from persona import BOT_NAME, BOT_NICKNAME
 
-# "Gomihyu, ..." / "hey @Gomihyu ..." at the start, or an @mention tacked on the end
-LEADING_ADDRESS = re.compile(rf"^\s*(?:(?:hey|yo|oi|ok|okay)[\s,]+)?@?{BOT_NAME}\b[\s,:!.-]*", re.IGNORECASE)
+# Her name within the first few words ("gomi, ...", "ok then gomi ...", "hey @Gomihyu ..."),
+# or an @mention tacked on the end
+LEADING_ADDRESS = re.compile(rf"^\W*(?:\w+\W+){{0,3}}?@?(?:{BOT_NAME}|{BOT_NICKNAME})\b[\s,:!.-]*", re.IGNORECASE)
 TRAILING_MENTION = re.compile(rf"[\s,]*@{BOT_NAME}\W*$", re.IGNORECASE)
 TRIGGER = re.compile(r"^(?:pl(?:ease|s|z)\s+)?(?:remember|don'?t\s+forget|do\s+not\s+forget)\b(?:\s+that\b)?[\s,:-]*",
                      re.IGNORECASE)
