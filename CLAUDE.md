@@ -35,7 +35,7 @@ nothing more, until told otherwise.
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
   list. No source dialogue is copied anywhere in this repo — everything is original
   writing meant to capture voice, not script.
-- `finetuning/gomihyu_seed.jsonl` — 54 original synthetic Discord-style exchanges in that
+- `finetuning/gomihyu_seed.jsonl` — 58 original synthetic Discord-style exchanges in that
   voice, as `{"history": [[handle, text], ...], "facts"?: [...], "nicknames"?: {handle: nick},
   "reply": ...}`. This is a SEED, not a
   finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
@@ -95,6 +95,12 @@ nothing more, until told otherwise.
   spells out who sent the message she's answering ("When X says I/me/my, they mean
   themselves"), because she mixed up "who am I?". Channel-history reading/summaries are out of
   scope here (that's the bigger assistant project); she declines those in character.
+- Reply length matches the moment (user wants her to actively join discussions): a jab can
+  be a few words, a question or real discussion 2–4 sentences, building on others and giving
+  opinions. Don't bring back "a few words, at most 2 sentences" or "don't reuse topics" to fix
+  repetition: that turned her into a one-liner machine. Repetition is handled by "don't repeat
+  your own earlier lines / pet topics" plus the REPEAT_WORDS retry. `MAX_REPLY_TOKENS` (200)
+  is the safety cap; a reply that hits it is trimmed to its last full sentence.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full
   fine-tuning — chosen specifically to fit the 8GB VRAM budget.
 
@@ -104,12 +110,13 @@ nothing more, until told otherwise.
 - A real Discord transcript export (the user's own messages only) is delayed. Plan is
   to mix real transcripts into the synthetic seed once it arrives — don't assume the
   seed file is the final dataset.
-- Target dataset size before an actual training run (54 examples now; likely needs a
+- Target dataset size before an actual training run (58 examples now; likely needs a
   few hundred).
 
 ## Next steps
 1. Expand `finetuning/gomihyu_seed.jsonl` toward 150–200+ examples, matching
-   the existing format and voice.
+   the existing format and voice. Most current replies are one-liners; new ones should
+   include plenty of 2–4 sentence replies that engage with the discussion.
 2. Set up the actual LoRA/QLoRA training script (Unsloth), targeting LFM2.5-2.6B, fed
    from `build_dataset.py` output.
 3. After training, produce a merged GGUF, load it with `ollama create`, then update

@@ -47,6 +47,8 @@ HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages 
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
 REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
+# Ceiling on a reply's length; one that hits it is cut back to its last full sentence.
+MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
 # Facts people ask her to remember; relative paths are next to this file. Survives restarts.
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
@@ -82,6 +84,7 @@ CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
 # Custom emojis she may post: the in-text ones, plus the stand-in she posts instead of a slur.
 POSTABLE_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text} | {SLUR_STANDIN.lower()}
 HANDLE = re.compile(r"@([\w.]*\w)")
+SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*(?:{BOT_NAME}|{BOT_NICKNAME})[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
@@ -149,10 +152,12 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     speakers = dict.fromkeys(line.split(": ", 1)[0] for line in history[channel_id])
     nicknames = {handle: nick for handle in speakers
                  if (user_id := handles.get(handle.lower())) and (nick := memory.nickname_for(user_id))}
-    payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
-                                          author_handle, memory.facts_for(author_id), nicknames)}
+    options = {"num_predict": MAX_REPLY_TOKENS}
     if temperature is not None:
-        payload["options"] = {"temperature": temperature}  # otherwise the model's own (Modelfile) setting
+        options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
+    payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
+                                          author_handle, memory.facts_for(author_id), nicknames),
+               "options": options}
 
     start = time.monotonic()
     data = await ollama_chat(payload)
@@ -161,6 +166,8 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
 
     # Small models often start with "Gomihyu:" anyway, copying the log format.
     reply = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
+    if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
+        reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
     # A reply with a slur in it is thrown away whole, before it's sent or kept in the chat
     # history: she just stares instead.
     if has_slur(reply):

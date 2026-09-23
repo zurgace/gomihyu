@@ -58,6 +58,11 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   `@kaz0` or `@Kaz` (handle, display name or nickname), the bot turns it into a real ping.
   Discord shows a ping as the person's server display name. It never pings `@everyone`,
   `@here` or roles.
+- **Joins in, not just one-liners.** Her prompt makes her an active member of the chat: she
+  answers the newest message but builds on what others said, gives opinions and reasons, and
+  sometimes asks something back. A quick jab can be a few words; a question or a real
+  discussion gets 2–4 sentences. `MAX_REPLY_TOKENS` (default 200) caps a runaway reply, and
+  one that hits the cap is cut back to its last full sentence.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
   totally blind to what's being discussed.
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
