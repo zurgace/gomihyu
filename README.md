@@ -14,7 +14,7 @@ ollama create gomihyu-base -f Modelfile
 ```
 **`Error: 400 Bad Request: invalid model name`** means Ollama didn't find the GGUF next to the
 `Modelfile` (missing, misnamed, or a broken symlink), so it read the `FROM` line as a model name
-instead. `ls -lL LFM2.5-2.6B-Q4_K_M.gguf` should show a ~1.7GB file; if it says "No such file",
+instead. `command ls -lL LFM2.5-2.6B-Q4_K_M.gguf` should show a ~1.7GB file; if it says "No such file",
 find the real one with `find ~ -iname 'LFM2.5-2.6B*.gguf'` and link that (`ln -sf <path> .`).
 Leave Ollama running (`ollama serve`, or it may already run as a background service
 depending on your install).
