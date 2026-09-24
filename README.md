@@ -6,16 +6,18 @@ curl -fsSL https://ollama.com/install.sh | sh
 git clone https://github.com/zurgace/gomihyu.git && cd gomihyu
 ```
 Download `LFM2.5-2.6B-Q4_K_M.gguf` (LFM2.5-2.6B at Q4_K_M, ~1.7GB, from Hugging Face:
-`LiquidAI/LFM2.5-2.6B-GGUF` or `lmstudio-community/LFM2.5-2.6B-GGUF`) into this folder, or
-symlink it here with its full path (`ln -s ~/Downloads/LFM2.5-2.6B-Q4_K_M.gguf .`). `*.gguf` is
-gitignored. Then:
+`LiquidAI/LFM2.5-2.6B-GGUF` or `lmstudio-community/LFM2.5-2.6B-GGUF`) and move it into this
+folder, e.g. `mv ~/Downloads/LFM2.5-2.6B-Q4_K_M.gguf .` (`*.gguf` is gitignored). Then:
 ```bash
 ollama create gomihyu-base -f Modelfile
 ```
-**`Error: 400 Bad Request: invalid model name`** means Ollama didn't find the GGUF next to the
-`Modelfile` (missing, misnamed, or a broken symlink), so it read the `FROM` line as a model name
-instead. `command ls -lL LFM2.5-2.6B-Q4_K_M.gguf` should show a ~1.7GB file; if it says "No such file",
-find the real one with `find ~ -iname 'LFM2.5-2.6B*.gguf'` and link that (`ln -sf <path> .`).
+**`Error: 400 Bad Request: invalid model name`** means Ollama didn't find the GGUF in this
+folder, so it read the `FROM` line as a model name instead. `command ls -lL
+LFM2.5-2.6B-Q4_K_M.gguf` should show a file of 1674454368 bytes. If you no longer have the file
+but already built a model from it, Ollama kept a copy: it's the path on the `FROM` line of
+`ollama show <that model> --modelfile`. Copy it here with
+`sudo cp <that path> LFM2.5-2.6B-Q4_K_M.gguf` and `sudo chown $USER: LFM2.5-2.6B-Q4_K_M.gguf`.
+
 Leave Ollama running (`ollama serve`, or it may already run as a background service
 depending on your install).
 
