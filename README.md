@@ -63,12 +63,13 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   sometimes asks something back. A quick jab can be a few words; a question or a real
   discussion gets 2–4 sentences. `MAX_REPLY_TOKENS` (default 200) caps a runaway reply, and
   one that hits the cap is cut back to its last full sentence.
-- **No "thinking" before replying.** If the model can reason before answering (like
-  `gomihyu-base`), that's switched off (`OLLAMA_THINK=false`): for chat it only adds delay, and
-  the thinking counts against `MAX_REPLY_TOKENS`, which once left no room for the actual reply.
-  If a reply still comes back as thinking with no answer, the bot retries once without the cap
-  and logs `Model spent all ... tokens thinking`. With `OLLAMA_THINK=true`, raise
-  `MAX_REPLY_TOKENS` to leave room for the thinking.
+- **Asks the model not to "think" before replying** (`OLLAMA_THINK=false`): for chat it only
+  adds delay. Some models think anyway, and `gomihyu-base` does. The thinking counts against
+  `MAX_REPLY_TOKENS` and would crowd out the answer, so the first time a response comes back
+  with thinking in it, the console logs `... thinks before answering even with
+  OLLAMA_THINK=false` once and replies stop being capped from then on (that first reply is
+  retried without the cap). They still take several seconds longer. The fix for that is in the
+  model's Modelfile, not the bot. `OLLAMA_THINK=true` turns thinking on, uncapped from the start.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
   totally blind to what's being discussed.
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from

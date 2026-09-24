@@ -52,6 +52,9 @@ MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
 # Let a thinking model reason before answering. Off: for chat it only adds delay, and its thinking
 # counts against MAX_REPLY_TOKENS, which can leave no room for the answer.
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
+# Whether answers come with thinking: OLLAMA_THINK, or seen in a response (some models think even when
+# told not to). Replies then go uncapped, since the thinking counts against MAX_REPLY_TOKENS.
+model_thinks = OLLAMA_THINK
 # Facts people ask her to remember; relative paths are next to this file. Survives restarts.
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
@@ -133,6 +136,7 @@ def repeats_itself(channel_id: int, reply: str) -> bool:
 
 async def ollama_chat(payload: dict) -> dict | None:
     """One non-streaming call to Ollama's chat API: the response, or None with the reason logged."""
+    global model_thinks
     start = time.monotonic()
     try:
         async with aiohttp.ClientSession() as session:
@@ -143,10 +147,15 @@ async def ollama_chat(payload: dict) -> dict | None:
                     # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
                     log.error(f"Ollama returned HTTP {resp.status} for model {MODEL_NAME!r}: {(await resp.text())[:500]}")
                     return None
-                return await resp.json()
+                data = await resp.json()
     except Exception:
         log.exception(f"Generation failed after {time.monotonic() - start:.1f}s (Ollama at {OLLAMA_URL})")
         return None
+    if not model_thinks and data.get("message", {}).get("thinking"):
+        model_thinks = True
+        log.warning(f"{MODEL_NAME} thinks before answering even with OLLAMA_THINK=false, so replies take longer. "
+                    f"They're no longer capped at MAX_REPLY_TOKENS ({MAX_REPLY_TOKENS}), which the thinking counts against.")
+    return data
 
 
 async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
@@ -156,7 +165,7 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     speakers = dict.fromkeys(line.split(": ", 1)[0] for line in history[channel_id])
     nicknames = {handle: nick for handle in speakers
                  if (user_id := handles.get(handle.lower())) and (nick := memory.nickname_for(user_id))}
-    options = {"num_predict": MAX_REPLY_TOKENS}
+    options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}  # thinking would eat into the cap
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
@@ -165,11 +174,10 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
 
     start = time.monotonic()
     data = await ollama_chat(payload)
-    message = (data or {}).get("message", {})
-    if data and data.get("done_reason") == "length" and message.get("thinking") and not message.get("content", "").strip():
-        # The model thought through its whole token budget and never answered (thinking left on, or
-        # a model that thinks regardless). Let it finish rather than go quiet.
-        log.warning(f"Model spent all {MAX_REPLY_TOKENS} tokens thinking and never answered; retrying without the cap")
+    if data and "num_predict" in options and data.get("done_reason") == "length" and data.get("message", {}).get("thinking"):
+        # Thinking used up the cap before the answer was done (the first reply from a model that turns
+        # out to think). Let it finish rather than go quiet or send half a sentence.
+        log.warning(f"Thinking used up the {MAX_REPLY_TOKENS}-token cap before the answer was done; retrying without it")
         del options["num_predict"]
         data = await ollama_chat(payload)
     if data is None:

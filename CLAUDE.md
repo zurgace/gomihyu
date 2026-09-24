@@ -14,8 +14,9 @@ nothing more, until told otherwise.
 - Inference: Ollama serving `hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M`
   (LFM2.5-2.6B has native llama.cpp/Ollama support, no custom build needed). The live
   setup actually runs a locally built `gomihyu-base:latest` (set via `OLLAMA_MODEL` in
-  `.env`); its GGUF source/Modelfile isn't in the repo yet. It's a thinking-capable build (Ollama
-  returns a `thinking` field), so every request sends `think: OLLAMA_THINK` (default false).
+  `.env`); its GGUF source/Modelfile isn't in the repo yet. It thinks before every answer (Ollama
+  returns a `thinking` field) and ignores `think: false`; confirmed live: ~850–1150 tokens and
+  8–13s per reply, mostly thinking. Every request still sends `think: OLLAMA_THINK` (default false).
 - Python 3, using `discord.py`, `aiohttp`, `python-dotenv`
 
 ## Current state
@@ -102,8 +103,11 @@ nothing more, until told otherwise.
   repetition: that turned her into a one-liner machine. Repetition is handled by "don't repeat
   your own earlier lines / pet topics" plus the REPEAT_WORDS retry. `MAX_REPLY_TOKENS` (200)
   is the safety cap; a reply that hits it is trimmed to its last full sentence. The cap counts
-  thinking tokens too: with thinking on, 200 tokens of planning left an empty reply and she
-  went silent. Hence thinking off by default, plus one uncapped retry for a thought-only reply.
+  thinking tokens too: 200 tokens of planning left an empty reply and she went silent. So
+  thinking is requested off by default, and once any response shows thinking (`OLLAMA_THINK=true`,
+  or a model that ignores `think: false`, as `gomihyu-base` does) `model_thinks` is set and replies
+  go uncapped (the 60s request timeout still bounds them); a capped reply that ran out while
+  thinking is retried once uncapped. The real fix is a model/template that doesn't think.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full
   fine-tuning — chosen specifically to fit the 8GB VRAM budget.
 
@@ -127,7 +131,9 @@ nothing more, until told otherwise.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
-7. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
+7. Get `ollama show gomihyu-base --modelfile` (and which GGUF it was built from) and rebuild it so
+   it doesn't think: that's most of her 8–13s reply time. Add the Modelfile to the repo.
+8. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
    me?" still comes back wrong, answer it from code (list the saved notes) instead.
 
 ## Constraints
