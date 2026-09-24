@@ -38,7 +38,7 @@ load_dotenv()
 
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
-MODEL_NAME = os.environ.get("OLLAMA_MODEL", "hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M")
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gomihyu-base")  # built with the Modelfile, see README
 UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "1.0"))
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
@@ -122,6 +122,12 @@ def to_server_emojis(text: str, guild: discord.Guild | None) -> str:
     return CUSTOM_EMOJI_NAME.sub(lambda m: str(server.get(m[1].lower(), m[0])), text)
 
 
+def strip_thinking(text: str) -> str:
+    """Drop reasoning a model wrote into the answer itself (<think>...</think>); it's never posted."""
+    text = text.rsplit("</think>", 1)[-1]
+    return text.split("<think>", 1)[0]  # an unclosed <think>: the answer never came
+
+
 def word_runs(text: str) -> set[tuple[str, ...]]:
     words = re.findall(r"[\w']+", text.lower())
     return {tuple(words[i:i + REPEAT_WORDS]) for i in range(len(words) - REPEAT_WORDS + 1)}
@@ -184,7 +190,7 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         return None
 
     # Small models often start with "Gomihyu:" anyway, copying the log format.
-    reply = OWN_NAME_PREFIX.sub("", data.get("message", {}).get("content", "").strip())
+    reply = OWN_NAME_PREFIX.sub("", strip_thinking(data.get("message", {}).get("content", "")).strip())
     if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
         reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
     # A reply with a slur in it is thrown away whole, before it's sent or kept in the chat

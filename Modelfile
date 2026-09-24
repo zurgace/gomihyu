@@ -1,0 +1,36 @@
+# Gomihyu's model: LFM2.5-2.6B (Q4_K_M) with a chat template that skips its reasoning.
+#
+#   ollama create gomihyu-base -f Modelfile     # then OLLAMA_MODEL=gomihyu-base in .env
+#
+# Put (or symlink) the GGUF next to this file first; *.gguf is gitignored.
+#
+# LFM2.5-2.6B always reasons: its own chat template opens <think> at the start of every answer,
+# so Ollama's think: false can't turn it off, and she spent ~1000 tokens (8-13s) thinking per
+# reply. This template hands it an empty, already-closed think block instead, so it answers
+# straight away. With think: true (OLLAMA_THINK=true) it opens <think> like the original.
+# Built from the bare GGUF without a TEMPLATE, Ollama showed TEMPLATE {{ .Prompt }}.
+#
+# Sampling isn't set here, so Ollama's defaults apply (temperature 0.8). Liquid tuned the model
+# for low temperatures (0.1-0.2, up to ~0.6 for creative use); lower it here if she rambles.
+FROM ./LFM2.5-2.6B-Q4_K_M.gguf
+
+TEMPLATE """<|startoftext|>{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 }}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ if $last }}<|im_start|>assistant
+{{ if $.Think }}<think>
+{{ else }}<think>
+</think>
+
+{{ end }}
+{{- end }}
+{{- else if eq .Role "assistant" }}<|im_start|>assistant
+{{ .Content }}<|im_end|>
+{{ end }}
+{{- end }}"""
+
+PARAMETER stop "<|im_end|>"

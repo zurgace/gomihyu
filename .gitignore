@@ -13,3 +13,6 @@ finetuning/train.jsonl
 # Person memory — facts about real server members; stays on the machine running the bot
 people.json
 people.json.tmp
+
+# Model weights for the Modelfile (LFM2.5-2.6B-Q4_K_M.gguf, ~1.7GB)
+*.gguf

@@ -11,12 +11,14 @@ nothing more, until told otherwise.
 ## Environment
 - OS: CachyOS (Arch-based Linux)
 - GPU: RTX 2070, 8GB VRAM — every model/training decision here has to fit this
-- Inference: Ollama serving `hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M`
-  (LFM2.5-2.6B has native llama.cpp/Ollama support, no custom build needed). The live
-  setup actually runs a locally built `gomihyu-base:latest` (set via `OLLAMA_MODEL` in
-  `.env`); its GGUF source/Modelfile isn't in the repo yet. It thinks before every answer (Ollama
-  returns a `thinking` field) and ignores `think: false`; confirmed live: ~850–1150 tokens and
-  8–13s per reply, mostly thinking. Every request still sends `think: OLLAMA_THINK` (default false).
+- Inference: Ollama serving `gomihyu-base` (set via `OLLAMA_MODEL` in `.env`), built with
+  `ollama create gomihyu-base -f Modelfile` from `LFM2.5-2.6B-Q4_K_M.gguf` (gitignored; from
+  Hugging Face `LiquidAI/` or `lmstudio-community/LFM2.5-2.6B-GGUF`). LFM2.5-2.6B is a pure
+  reasoning model: its native template always opens `<think>`, so `think: false` does nothing.
+  The first build, from the bare GGUF, had `TEMPLATE {{ .Prompt }}` and spent ~850–1150 tokens
+  (8–13s) thinking per reply. The repo `Modelfile`'s TEMPLATE (ChatML-style `<|im_start|>`) ends
+  the prompt with an empty, closed `<think>\n</think>\n\n` unless `.Think` is set. Liquid says
+  skipping the reasoning isn't officially supported; fine for chat, not yet confirmed live.
 - Python 3, using `discord.py`, `aiohttp`, `python-dotenv`
 
 ## Current state
@@ -32,6 +34,8 @@ nothing more, until told otherwise.
 - `censor.py` + `slurs.txt` — a reply containing any slur (whole words, optional plural s) is
   replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
   Swearing is deliberately not filtered; the server doesn't want her more PG.
+- `Modelfile` — how `gomihyu-base` is built (LFM2.5-2.6B GGUF + a template that skips its
+  reasoning). Keep its TEMPLATE for any future build, fine-tuned or not.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
 - `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
   summary of a public wiki character bio plus tonal patterns pulled from a short quotes
@@ -107,7 +111,8 @@ nothing more, until told otherwise.
   thinking is requested off by default, and once any response shows thinking (`OLLAMA_THINK=true`,
   or a model that ignores `think: false`, as `gomihyu-base` does) `model_thinks` is set and replies
   go uncapped (the 60s request timeout still bounds them); a capped reply that ran out while
-  thinking is retried once uncapped. The real fix is a model/template that doesn't think.
+  thinking is retried once uncapped. The real fix is the `Modelfile` template;
+  this path is the fallback. `<think>` text inside the content is stripped before posting.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full
   fine-tuning — chosen specifically to fit the 8GB VRAM budget.
 
@@ -125,14 +130,15 @@ nothing more, until told otherwise.
    the existing format and voice. Most current replies are one-liners; new ones should
    include plenty of 2–4 sentence replies that engage with the discussion.
 2. Set up the actual LoRA/QLoRA training script (Unsloth), targeting LFM2.5-2.6B, fed
-   from `build_dataset.py` output.
-3. After training, produce a merged GGUF, load it with `ollama create`, then update
-   `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
+   from `build_dataset.py` output. Assistant turns must start with the same empty
+   `<think>\n</think>\n\n` the Modelfile adds, so training matches serving.
+3. After training, produce a merged GGUF, load it with `ollama create` using a copy of the
+   `Modelfile` (same TEMPLATE, new FROM), then update `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
-7. Get `ollama show gomihyu-base --modelfile` (and which GGUF it was built from) and rebuild it so
-   it doesn't think: that's most of her 8–13s reply time. Add the Modelfile to the repo.
+7. Confirm live that `gomihyu-base` rebuilt with the `Modelfile` answers without thinking (no
+   `thinks before answering` warning, replies in a couple of seconds) and still sounds right.
 8. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
    me?" still comes back wrong, answer it from code (list the saved notes) instead.
 

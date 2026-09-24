@@ -1,14 +1,28 @@
 # Gomihyu — Discord conversationalist (LFM2.5-2.6B)
 
-## 1. Install and start Ollama, pull the model
+## 1. Install Ollama and build the model
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M
+git clone https://github.com/zurgace/gomihyu.git && cd gomihyu
+```
+Download `LFM2.5-2.6B-Q4_K_M.gguf` (LFM2.5-2.6B at Q4_K_M, ~1.7GB, from Hugging Face:
+`LiquidAI/LFM2.5-2.6B-GGUF` or `lmstudio-community/LFM2.5-2.6B-GGUF`) into this folder, or
+symlink it here (`ln -s /path/to/LFM2.5-2.6B-Q4_K_M.gguf .`). `*.gguf` is gitignored. Then:
+```bash
+ollama create gomihyu-base -f Modelfile
 ```
 Leave Ollama running (`ollama serve`, or it may already run as a background service
-depending on your install). Sanity-check it works:
+depending on your install).
+
+**Why a Modelfile:** LFM2.5-2.6B is a reasoning model. Its own chat template starts every
+answer with a `<think>` block, so asking Ollama not to think does nothing, and every reply
+cost ~1000 tokens (8–13s) of reasoning. The `Modelfile` gives it a template that hands it an
+empty, already-closed think block instead, so it answers straight away. (Built from the bare
+GGUF without a template, `ollama show gomihyu-base --modelfile` shows `TEMPLATE {{ .Prompt }}`.)
+
+Sanity-check it: the answer should come back with no `"thinking"` field.
 ```bash
-ollama run hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M "say hi"
+curl -s localhost:11434/api/chat -d '{"model": "gomihyu-base", "stream": false, "think": false, "messages": [{"role": "user", "content": "say hi in five words"}]}'
 ```
 
 ## 2. Create the Discord bot application
@@ -25,7 +39,6 @@ ollama run hf.co/lmstudio-community/LFM2.5-2.6B-GGUF:Q4_K_M "say hi"
 
 ## 3. Configure and run
 ```bash
-git clone https://github.com/zurgace/gomihyu.git && cd gomihyu
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 cp .env.example .env   # then fill in DISCORD_BOT_TOKEN
@@ -63,13 +76,12 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   sometimes asks something back. A quick jab can be a few words; a question or a real
   discussion gets 2–4 sentences. `MAX_REPLY_TOKENS` (default 200) caps a runaway reply, and
   one that hits the cap is cut back to its last full sentence.
-- **Asks the model not to "think" before replying** (`OLLAMA_THINK=false`): for chat it only
-  adds delay. Some models think anyway, and `gomihyu-base` does. The thinking counts against
-  `MAX_REPLY_TOKENS` and would crowd out the answer, so the first time a response comes back
-  with thinking in it, the console logs `... thinks before answering even with
-  OLLAMA_THINK=false` once and replies stop being capped from then on (that first reply is
-  retried without the cap). They still take several seconds longer. The fix for that is in the
-  model's Modelfile, not the bot. `OLLAMA_THINK=true` turns thinking on, uncapped from the start.
+- **Doesn't "think" before replying** (`OLLAMA_THINK=false`): for chat it only adds delay. The
+  `Modelfile` is what makes that work for LFM2.5-2.6B (see step 1). If a model thinks anyway,
+  the console logs `... thinks before answering even with OLLAMA_THINK=false` once, and replies
+  stop being capped at `MAX_REPLY_TOKENS` from then on, because the thinking counts against
+  that cap and would crowd out the answer. Any `<think>` text that ends up in the answer
+  itself is cut before posting. `OLLAMA_THINK=true` turns thinking back on, uncapped.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
   totally blind to what's being discussed.
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
@@ -159,8 +171,9 @@ runtime, so the model is trained on exactly the prompt format it will be served.
 ## Swapping in the fine-tuned LoRA later
 The bot code doesn't need to change. Once you have a trained LoRA:
 1. Merge it (or serve it as an adapter, depending on your training tool) into a GGUF.
-2. `ollama create gomihyu-tuned -f Modelfile` pointing at that GGUF (or `ollama pull` if you
-   push it somewhere).
+2. Copy the `Modelfile`, point its `FROM` at that GGUF and keep its `TEMPLATE`, then
+   `ollama create gomihyu-tuned -f <that Modelfile>`. Train with the same empty think block
+   (`<think>\n</think>\n\n` at the start of each answer), so the model learns the format it's served.
 3. Update `OLLAMA_MODEL` in `.env` to the new model name and restart the bot.
 
 The `SYSTEM_PROMPT` in `persona.py` can likely get much shorter once the LoRA is actually
