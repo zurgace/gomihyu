@@ -59,6 +59,10 @@ model_thinks = OLLAMA_THINK
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
 REMEMBERED_EMOJI = "📝"  # reaction confirming a fact or nickname was stored
+# Made-up example chats (the fine-tuning seed) shown in her prompt to set her voice, until a
+# fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
+EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
+FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -83,6 +87,18 @@ display_names = {}
 # channel_id -> (user id, handle) of the latest message, whose remembered facts a reply gets
 last_author = {}
 memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
+
+
+def load_examples(path: Path) -> list[dict]:
+    if FEW_SHOT_EXAMPLES <= 0:
+        return []
+    if not path.exists():
+        log.warning(f"No example chats at {path}; replying without them")
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+examples = load_examples(EXAMPLES_FILE)
 
 MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
 CUSTOM_EMOJI_TOKEN = re.compile(r"<a?:(\w+):\d+>")
@@ -134,10 +150,12 @@ def word_runs(text: str) -> set[tuple[str, ...]]:
 
 
 def repeats_itself(channel_id: int, reply: str) -> bool:
-    """Whether reply copies a run of REPEAT_WORDS words from one of the bot's messages in the log."""
+    """Whether reply copies a run of REPEAT_WORDS words from one of the bot's messages in the log,
+    or from an example chat's reply."""
     own = format_line(BOT_NAME, "")
     runs = word_runs(reply)
-    return any(runs & word_runs(line[len(own):]) for line in history[channel_id] if line.startswith(own))
+    return (any(runs & word_runs(line[len(own):]) for line in history[channel_id] if line.startswith(own))
+            or any(runs & word_runs(example["reply"]) for example in examples))
 
 
 async def ollama_chat(payload: dict) -> dict | None:
@@ -174,8 +192,9 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}  # thinking would eat into the cap
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
+    shown = random.sample(examples, min(FEW_SHOT_EXAMPLES, len(examples)))
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
-                                          author_handle, memory.facts_for(author_id), nicknames),
+                                          author_handle, memory.facts_for(author_id), nicknames, shown),
                "options": options}
 
     start = time.monotonic()
@@ -210,7 +229,7 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
     async with channel.typing():
         reply = await generate_reply(channel_id, triggered_by_mention=mentioned)
         if reply and repeats_itself(channel_id, reply):
-            log.info(f"Reply repeats one of Gomihyu's recent messages; retrying at temperature {RETRY_TEMPERATURE}")
+            log.info(f"Reply repeats one of Gomihyu's recent messages or example lines; retrying at temperature {RETRY_TEMPERATURE}")
             # If the retry fails outright, the repetitive reply beats no reply.
             reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
 

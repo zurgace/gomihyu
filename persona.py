@@ -46,12 +46,22 @@ def format_line(speaker: str, text: str) -> str:
     return f"{speaker}: {text}"
 
 
+def format_examples(examples: list[dict]) -> str:
+    """Made-up chats that show her voice ({"history": [[handle, text], ...], "reply": ...} each, the
+    fine-tuning seed's format), for the system prompt while no fine-tuned model carries it."""
+    chats = ["\n".join([format_line(speaker, text) for speaker, text in example["history"][-3:]]
+                       + [format_line(BOT_NAME, example["reply"])]) for example in examples]
+    return ("Some made-up chats that show how you talk. The people and events in them aren't real, "
+            "and they're only there for your voice: never reuse their lines.\n\n" + "\n\n".join(chats))
+
+
 def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
-                   nicknames: dict[str, str] | None = None) -> list[dict]:
+                   nicknames: dict[str, str] | None = None, examples: list[dict] = ()) -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
 
     facts are what speaker (the author of the latest line) has asked Gomihyu to remember;
-    nicknames maps handles in the log to what she should call those people.
+    nicknames maps handles in the log to what she should call those people. examples are
+    made-up chats for the system prompt (see format_examples); training data leaves them out.
     """
     # Small models drift back to older lines and mix up who "I" is, so the message being answered
     # and its sender are spelled out right here.
@@ -83,6 +93,6 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
                        f"one up only if it fits, or if they ask what you remember): {quoted}\n\n")
 
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{format_examples(examples)}" if examples else "")},
         {"role": "user", "content": remembered + "\n".join(transcript) + "\n\n" + instruction},
     ]

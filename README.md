@@ -76,6 +76,12 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   `MAX_REPLY_TOKENS` from then on, because the thinking counts against that cap and would
   crowd out the answer. Any `<think>` text that ends up in the answer itself is cut before
   posting. `OLLAMA_THINK=true` turns thinking on, uncapped.
+- **Learns her voice from example chats.** Until a fine-tuned model carries her personality,
+  each reply's prompt includes `FEW_SHOT_EXAMPLES` (default 8) made-up chats picked at random
+  from `finetuning/gomihyu_seed.jsonl` (`EXAMPLES_FILE`), showing how Gomi talks. A new pick every
+  reply keeps her from latching onto a few lines, and a reply that copies an example's line is
+  regenerated, like one that repeats her own. `FEW_SHOT_EXAMPLES=0` turns them off; do that
+  once a fine-tuned model is serving, since it was trained without them.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
   totally blind to what's being discussed.
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
@@ -144,43 +150,35 @@ Gomihyu, don't forget my birthday is march 3
   a typo can't wipe it.
 
 ## Training data
-Gomi is being trained to text like you, from your own Discord messages (a Discord data export).
-DMs are never used. Everything the scripts write goes to `finetuning/data/`, which is
-gitignored, and so is the export (`Messages/`, `*.zip`). Your messages stay on your machine.
+`finetuning/gomihyu_seed.jsonl` holds 58 hand-written example chats in Gomi's voice, one per line,
+with the chat so far as `[handle, message]` pairs and the reply she should give:
+```json
+{"history": [["kaz0", "@Gomihyu wanna 1v1 me in valorant"]], "reply": "You dare challenge the Archdemon to combat, @kaz0? ..."}
+```
+The last `history` entry is the message being answered; put `@Gomihyu` in it to make it an
+@mention. Earlier entries are chat context, and Gomihyu's own messages use the speaker `Gomihyu`.
+Optional `"facts": [...]` and `"nicknames": {handle: nickname}` are rendered the way the bot does
+at runtime. `finetuning/persona_guide.md` is the style reference for writing more.
 
-1. **Pull your server messages out of the export:**
-   ```bash
-   venv/bin/python finetuning/extract.py ~/path/to/package/Messages
-   ```
-   It reads public server channels only: DMs, group DMs and private threads are skipped without
-   being opened. Messages sent within 90 seconds of each other become one reply. Links, @mentions,
-   `!bot` commands, spoiler bars and other servers' emojis are stripped, and a reply is dropped if
-   it has a slur, an email address or a phone number. `--since 2024` keeps only recent messages.
-   Skim `finetuning/data/replies.jsonl` before going on: whatever's in it, she can learn to say.
-2. **Write the other side of each conversation:** the export only has your messages, not what
-   you were replying to, so Gemma writes 1–3 friend messages that plausibly came before each one.
-   ```bash
-   venv/bin/python finetuning/backtranslate.py --limit 50   # a test batch: read data/examples.jsonl
-   venv/bin/python finetuning/backtranslate.py              # the full run, 3000 replies by default
-   ```
-   The full run takes a few hours. You can stop it with Ctrl+C and rerun it later to continue.
-3. **Render the training file:**
-   ```bash
-   venv/bin/python finetuning/build_dataset.py   # -> finetuning/data/train.jsonl
-   ```
-   It builds every prompt with `persona.build_messages()`, the same function the bot uses, so the
-   model is trained on exactly the prompt format it's served. Pass several example files to mix
-   them (for example `archive/synthetic-seed/gomihyu_seed.jsonl` for more of the archdemon act).
-
-Once your server agrees, real conversations exported from it can be added as another examples
-file, alongside the generated ones.
+Right now the bot shows a few of these to Gemma in every prompt (see **Learns her voice from
+example chats** above), so adding good examples changes her voice without any training. They're
+also the training set for a fine-tune:
+```bash
+venv/bin/python finetuning/build_dataset.py   # -> finetuning/train.jsonl (system/user/assistant chat format)
+```
+It builds each prompt with `persona.build_messages()`, the same function the bot uses at runtime,
+so the model is trained on exactly the prompt format it's served (without the example chats).
 
 Fine-tuning Gemma 4 E4B with QLoRA reportedly needs about 10GB of VRAM, more than the RTX 2070
-has, so training has to happen elsewhere (e.g. a free Colab GPU). Serving the result doesn't
-need bot changes: build it into Ollama and point `OLLAMA_MODEL` at it.
+has, so training will run on a rented GPU. Serving the result doesn't need bot changes: build it
+into Ollama, point `OLLAMA_MODEL` at it, and set `FEW_SHOT_EXAMPLES=0`.
 
-The first dataset, 58 hand-written synthetic exchanges for LFM2.5-2.6B, is in
-`archive/synthetic-seed/`.
+**Parked for then:** `archive/discord-pipeline/` turns your own Discord data export into training
+data, so she learns to text like you. It reads public server channels only, never DMs, and
+writes to its gitignored `data/` folder: `extract.py` cleans your messages, `backtranslate.py` has
+the model write the friend messages each one was answering, and `build_dataset.py` renders them.
+Each script's header explains how to run it. A Discord export (`Messages/`, `*.zip`) is
+gitignored too.
 
 ## Known limitations at this scope
 - A small model makes things up. Her prompt tells her what she can't do (she only sees the

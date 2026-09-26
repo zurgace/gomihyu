@@ -38,17 +38,18 @@ nothing more, until told otherwise.
   replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
   Swearing is deliberately not filtered; the server doesn't want her more PG.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
-- `archive/synthetic-seed/` — the first fine-tuning dataset, archived at the user's request
-  (2026-09-26): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the voice guide they were
-  written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns, no copied dialogue),
-  and `build_dataset.py`, which renders them through `persona.build_messages` (still runs).
-- `finetuning/` — the training-data pipeline, all output in `finetuning/data/` (gitignored):
-  `extract.py` (export → cleaned server replies, `replies.jsonl`), `backtranslate.py` (Ollama
-  writes 1–3 friend messages before each reply → `examples.jsonl`, same format as the archived
-  seed; resumable, fixed shuffled order, 2 tries then `rejected.jsonl`; 25% get an "@Gomihyu"
-  ping; made-up friend handles), `build_dataset.py` (examples → `train.jsonl` via
-  `persona.build_messages`, several input files can be mixed). Tested with a fake export/Ollama;
-  not yet run on the user's machine. On the export: 17,482 replies survive cleanup.
+- `finetuning/` — the "Satania" seed, active again (user, 2026-09-26: reuse it until a rented
+  GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
+  voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
+  no copied dialogue), and `build_dataset.py` (renders them through `persona.build_messages`).
+  Nothing has ever been trained on it. Right now it's used as few-shot example chats (below).
+- `archive/discord-pipeline/` — parked until the rented GPU: turns the user's Discord export
+  into training data in their texting style. `extract.py` (export → cleaned server replies),
+  `backtranslate.py` (Ollama writes 1–3 friend messages before each reply; resumable, fixed
+  shuffled order, 2 tries then `rejected.jsonl`; 25% get an "@Gomihyu" ping; made-up handles),
+  `build_dataset.py` (examples → `train.jsonl`, several input files can be mixed). Runs from the
+  archive; output in its gitignored `data/`. Tested with a fake export/Ollama, never run for real.
+  On the export: 17,482 replies survive cleanup.
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)
@@ -115,9 +116,14 @@ nothing more, until told otherwise.
   or a model that ignores `think: false`, as LFM2.5-2.6B did) `model_thinks` is set and replies
   go uncapped (the 60s request timeout still bounds them); a capped reply that ran out while
   thinking is retried once uncapped. `<think>` text inside the content is stripped before posting.
+- Until a fine-tuned model serves her, her voice comes from few-shot example chats: each reply's
+  system prompt gets `FEW_SHOT_EXAMPLES` (8) seed examples, a fresh random pick every reply
+  (`persona.format_examples`, last 3 history lines + her reply, labelled made-up and not to be
+  reused). The repeat guard also retries a reply that copies 5 words from any example reply.
+  Training data is built without them; set `FEW_SHOT_EXAMPLES=0` once a fine-tuned model serves.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full fine-tuning.
   Gemma 4 E4B QLoRA reportedly needs ~10GB VRAM, so it won't train on the 2070: training
-  happens elsewhere (e.g. free Colab); serving stays on the 2070.
+  happens on a GPU the user will rent; serving stays on the 2070.
 - Training data must never be committed: the user's Discord export (`Messages/`, `*.zip`) holds
   personal messages including DMs, and is gitignored. Builders read it from a local path.
 
@@ -136,20 +142,20 @@ nothing more, until told otherwise.
     archdemon persona from the prompt. Mix in persona examples so she doesn't just become them.
   - DMs: OUT, never used. The user says they likely hold private information; they were deleted
     from the session they were uploaded to. Any builder must skip DM / GROUP_DM channels.
-  - Context: option (b) for now, an LLM writes the preceding friend messages ("instruction
-    backtranslation", `finetuning/backtranslate.py`). Later, with the other members' consent, the
+  - Context: option (b), an LLM writes the preceding friend messages ("instruction
+    backtranslation", `archive/discord-pipeline/backtranslate.py`). Later, with the other members' consent, the
     bot will export the real channel history of its server (it has Read Message History) as a
     second examples file: option (a).
+- Which data the first Gemma training run uses: the seed (58, active), the Discord pipeline's
+  output (parked), or a mix. Decide when the rented GPU is set up.
 - Target dataset size before a training run (likely 1–3k good examples).
 
 ## Next steps
-1. User runs the pipeline (README "Training data"): extract, skim replies.jsonl, a 50-reply
-   backtranslation test batch, then the full run. Decide on mixing persona examples (the
-   archived seed is archdemon-heavy one-liners; the user's messages have no archdemon in them,
-   so training on them alone will likely tone the act down).
-2. Set up the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B, runnable on Colab.
+1. See how Gemma does with the seed as example chats: voice, reply length (the seed replies are
+   ~20 words, 2+ sentences), "Archdemon" frequency (the seed leans on it), copying.
+2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B.
 3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
-   update `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
+   update `OLLAMA_MODEL` in `.env` and set `FEW_SHOT_EXAMPLES=0`. No bot code changes needed.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.

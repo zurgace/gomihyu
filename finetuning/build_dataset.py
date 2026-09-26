@@ -1,13 +1,13 @@
 """
-Step 3 of 3: render examples into chat-format training data, using the prompt format bot.py sends.
+Render the seed examples into SFT chat data, using the same prompt format bot.py sends.
 
-    python3 finetuning/build_dataset.py                      # data/examples.jsonl -> data/train.jsonl
-    python3 finetuning/build_dataset.py finetuning/data/examples.jsonl archive/synthetic-seed/gomihyu_seed.jsonl
+    python3 finetuning/build_dataset.py   # gomihyu_seed.jsonl -> train.jsonl
 
-Each input line is {"history": [[handle, text], ...], "reply": "..."}, optionally with "facts"
-and "nicknames": the format backtranslate.py writes and the archived seed uses. The last
-history line is the message being answered; it counts as an @mention if it contains
-"@Gomihyu". Every prompt is built by persona.build_messages(), like at runtime.
+Each seed line is {"history": [[handle, text], ...], "reply": "..."}. The last history line
+is the message being replied to; it counts as an @mention if it contains "@Gomihyu". Earlier
+lines are chat context, and Gomihyu's own earlier messages use the speaker "Gomihyu".
+An optional "facts": [...] is what that last speaker has asked her to remember (memory.py), and
+an optional "nicknames": {handle: nickname} what she calls people in the log.
 """
 
 import json
@@ -15,12 +15,12 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))  # the repo root, for persona.py
+sys.path.insert(0, str(HERE.parent))  # so persona.py imports when run from anywhere
 
 from persona import BOT_NAME, build_messages, format_line  # noqa: E402
 
-EXAMPLES = HERE / "data" / "examples.jsonl"
-OUT = HERE / "data" / "train.jsonl"
+SEED = HERE / "gomihyu_seed.jsonl"
+OUT = HERE / "train.jsonl"
 
 
 def render(example: dict) -> dict:
@@ -33,13 +33,8 @@ def render(example: dict) -> dict:
 
 
 def main():
-    sources = [Path(arg) for arg in sys.argv[1:]] or [EXAMPLES]
-    rows = []
-    for source in sources:
-        lines = [line for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
-        rows += [render(json.loads(line)) for line in lines]
-        print(f"{len(lines)} examples from {source}")
-    OUT.parent.mkdir(exist_ok=True)
+    lines = [line for line in SEED.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = [render(json.loads(line)) for line in lines]
     OUT.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
     print(f"Wrote {len(rows)} examples to {OUT}")
 

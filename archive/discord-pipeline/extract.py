@@ -1,7 +1,9 @@
 """
+ARCHIVED until training on a rented GPU is set up; runs from here as is.
+
 Step 1 of 3: pull training replies out of your Discord data export.
 
-    python3 finetuning/extract.py ~/Downloads/package/Messages   # -> finetuning/data/replies.jsonl
+    python3 archive/discord-pipeline/extract.py ~/Downloads/package/Messages   # -> archive/discord-pipeline/data/replies.jsonl
 
 Only public server channels are read. DMs, group DMs and private threads are skipped without
 opening their messages. Messages sent within BURST_GAP seconds of each other in one channel
@@ -9,7 +11,7 @@ become one reply, a line each, since she answers with a single message. Links, @
 commands, spoiler bars and custom emojis she can't post are stripped. A reply is dropped if it
 has a slur, an email address or a phone number, or ends up outside --min-words..--max-words.
 
-finetuning/data/ is gitignored: none of this leaves your machine.
+archive/discord-pipeline/data/ is gitignored: none of this leaves your machine.
 """
 
 import argparse
@@ -20,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))  # the repo root, for censor.py and emojis.py
+sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for censor.py and emojis.py
 
 from censor import has_slur  # noqa: E402
 from emojis import CUSTOM  # noqa: E402

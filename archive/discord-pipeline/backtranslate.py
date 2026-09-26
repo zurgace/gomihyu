@@ -1,8 +1,10 @@
 """
+ARCHIVED until training on a rented GPU is set up; runs from here as is.
+
 Step 2 of 3: write the other side of each conversation.
 
-    python3 finetuning/backtranslate.py --limit 50   # try a small batch first, then read the output
-    python3 finetuning/backtranslate.py              # data/replies.jsonl -> data/examples.jsonl
+    python3 archive/discord-pipeline/backtranslate.py --limit 50   # try a small batch first, then read the output
+    python3 archive/discord-pipeline/backtranslate.py              # data/replies.jsonl -> data/examples.jsonl
 
 Your export only has your messages, not what they were answering. For each one, a model (via
 Ollama: OLLAMA_URL and OLLAMA_MODEL from .env, or --model) writes 1-3 friend messages that
@@ -26,7 +28,7 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))  # the repo root, for censor.py and persona.py
+sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for censor.py and persona.py
 
 from dotenv import load_dotenv  # noqa: E402
 
