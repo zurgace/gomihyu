@@ -1,7 +1,7 @@
 """
 Everything the model sees: the persona and the exact prompt format.
 
-bot.py and finetuning/build_dataset.py both build prompts with build_messages(), so the
+bot.py and the training-data builders build prompts with build_messages(), so the
 fine-tuning data matches what the bot sends at runtime.
 """
 

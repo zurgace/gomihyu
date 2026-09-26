@@ -7,12 +7,16 @@ venv/
 __pycache__/
 *.pyc
 
-# Built from finetuning/gomihyu_seed.jsonl by finetuning/build_dataset.py
-finetuning/train.jsonl
+# Training data built by a dataset builder; rebuild it, don't commit it
+train.jsonl
 
 # Person memory — facts about real server members; stays on the machine running the bot
 people.json
 people.json.tmp
 
-# Model weights for the Modelfile (LFM2.5-2.6B-Q4_K_M.gguf, ~1.7GB)
+# Model weights (e.g. the archived LFM2.5 Modelfile's GGUF)
 *.gguf
+
+# A Discord data export: personal messages, including DMs. Never commit it.
+Messages/
+*.zip

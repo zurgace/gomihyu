@@ -1,36 +1,23 @@
-# Gomihyu — Discord conversationalist (LFM2.5-2.6B)
+# Gomihyu — Discord conversationalist (Gemma 4 E4B)
 
-## 1. Install Ollama and build the model
+## 1. Install Ollama and pull the model
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
+ollama pull gemma4:e4b
 git clone https://github.com/zurgace/gomihyu.git && cd gomihyu
 ```
-Download `LFM2.5-2.6B-Q4_K_M.gguf` (LFM2.5-2.6B at Q4_K_M, ~1.7GB, from Hugging Face:
-`LiquidAI/LFM2.5-2.6B-GGUF` or `lmstudio-community/LFM2.5-2.6B-GGUF`) and move it into this
-folder, e.g. `mv ~/Downloads/LFM2.5-2.6B-Q4_K_M.gguf .` (`*.gguf` is gitignored). Then:
-```bash
-ollama create gomihyu-base -f Modelfile
-```
-**`Error: 400 Bad Request: invalid model name`** means Ollama didn't find the GGUF in this
-folder, so it read the `FROM` line as a model name instead. `command ls -lL
-LFM2.5-2.6B-Q4_K_M.gguf` should show a file of 1674454368 bytes. If you no longer have the file
-but already built a model from it, Ollama kept a copy: it's the path on the `FROM` line of
-`ollama show <that model> --modelfile`. Copy it here with
-`sudo cp <that path> LFM2.5-2.6B-Q4_K_M.gguf` and `sudo chown $USER: LFM2.5-2.6B-Q4_K_M.gguf`.
-
 Leave Ollama running (`ollama serve`, or it may already run as a background service
-depending on your install).
-
-**Why a Modelfile:** LFM2.5-2.6B is a reasoning model. Its own chat template starts every
-answer with a `<think>` block, so asking Ollama not to think does nothing, and every reply
-cost ~1000 tokens (8–13s) of reasoning. The `Modelfile` gives it a template that hands it an
-empty, already-closed think block instead, so it answers straight away. (Built from the bare
-GGUF without a template, `ollama show gomihyu-base --modelfile` shows `TEMPLATE {{ .Prompt }}`.)
-
-Sanity-check it: the answer should come back with no `"thinking"` field.
+depending on your install). Sanity-check it, then see where it loaded:
 ```bash
-curl -s localhost:11434/api/chat -d '{"model": "gomihyu-base", "stream": false, "think": false, "messages": [{"role": "user", "content": "say hi in five words"}]}'
+ollama run gemma4:e4b "say hi in five words"
+ollama ps
 ```
+`ollama ps` should say `100% GPU` under PROCESSOR. Ollama's `gemma4:e4b` is listed at about
+9.6GB (it bundles image and audio encoders), more than an 8GB card holds, so a CPU/GPU split
+there means part of the model runs on the CPU and replies are slower.
+
+The earlier model, LFM2.5-2.6B, and the Modelfile that stopped it reasoning before every reply
+are in `archive/lfm2.5/`.
 
 ## 2. Create the Discord bot application
 1. Go to https://discord.com/developers/applications → New Application → name it "Gomihyu".
@@ -83,12 +70,12 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   sometimes asks something back. A quick jab can be a few words; a question or a real
   discussion gets 2–4 sentences. `MAX_REPLY_TOKENS` (default 200) caps a runaway reply, and
   one that hits the cap is cut back to its last full sentence.
-- **Doesn't "think" before replying** (`OLLAMA_THINK=false`): for chat it only adds delay. The
-  `Modelfile` is what makes that work for LFM2.5-2.6B (see step 1). If a model thinks anyway,
-  the console logs `... thinks before answering even with OLLAMA_THINK=false` once, and replies
-  stop being capped at `MAX_REPLY_TOKENS` from then on, because the thinking counts against
-  that cap and would crowd out the answer. Any `<think>` text that ends up in the answer
-  itself is cut before posting. `OLLAMA_THINK=true` turns thinking back on, uncapped.
+- **Doesn't "think" before replying** (`OLLAMA_THINK=false`): for chat it only adds delay.
+  Gemma 4 E4B only reasons when asked to. If a model thinks anyway, the console logs `... thinks
+  before answering even with OLLAMA_THINK=false` once, and replies stop being capped at
+  `MAX_REPLY_TOKENS` from then on, because the thinking counts against that cap and would
+  crowd out the answer. Any `<think>` text that ends up in the answer itself is cut before
+  posting. `OLLAMA_THINK=true` turns thinking on, uncapped.
 - Keeps the last `HISTORY_LENGTH` messages per channel as context so replies aren't
   totally blind to what's being discussed.
 - **Doesn't parrot itself.** If a reply copies `REPEAT_WORDS` (default 5) words in a row from
@@ -157,38 +144,20 @@ Gomihyu, don't forget my birthday is march 3
   a typo can't wipe it.
 
 ## Training data
-`finetuning/gomihyu_seed.jsonl` is the hand-written seed data: one example per line, with the
-chat so far as `[handle, message]` pairs and the reply Gomihyu should give:
-```json
-{"history": [["kaz0", "@Gomihyu wanna 1v1 me in valorant"]], "reply": "You dare challenge the Archdemon to combat, @kaz0? ..."}
-```
-The last `history` entry is the message being answered; put `@Gomihyu` in it to make it an
-@mention. Earlier entries are chat context, and Gomihyu's own messages use the speaker `Gomihyu`.
-An optional `"facts": [...]` holds what that last speaker asked her to remember, rendered
-exactly as the bot does at runtime.
+Being redone. The plan is to train on real Discord messages instead of hand-written examples.
+Nothing personal goes in this repo: a Discord data export (`Messages/`, `*.zip`) is gitignored.
 
-To turn it into training data:
-```bash
-python3 finetuning/build_dataset.py   # -> finetuning/train.jsonl (system/user/assistant chat format)
-```
-This builds each prompt with `persona.build_messages()`, the same function the bot uses at
-runtime, so the model is trained on exactly the prompt format it will be served.
-`finetuning/persona_guide.md` is the style reference for writing more examples.
+The first dataset, 58 hand-written synthetic exchanges for LFM2.5-2.6B, its style guide and the
+script that rendered it, is in `archive/synthetic-seed/`. Whatever replaces it should build its
+prompts with `persona.build_messages()`, the same function the bot uses at runtime, so the model
+is trained on exactly the prompt format it's served.
 
-## Swapping in the fine-tuned LoRA later
-The bot code doesn't need to change. Once you have a trained LoRA:
-1. Merge it (or serve it as an adapter, depending on your training tool) into a GGUF.
-2. Copy the `Modelfile`, point its `FROM` at that GGUF and keep its `TEMPLATE`, then
-   `ollama create gomihyu-tuned -f <that Modelfile>`. Train with the same empty think block
-   (`<think>\n</think>\n\n` at the start of each answer), so the model learns the format it's served.
-3. Update `OLLAMA_MODEL` in `.env` to the new model name and restart the bot.
-
-The `SYSTEM_PROMPT` in `persona.py` can likely get much shorter once the LoRA is actually
-carrying the personality — right now it's doing all the work. If you change it, rebuild
-`train.jsonl` and retrain: the LoRA is trained against whatever prompt was in place at the time.
+Fine-tuning Gemma 4 E4B with QLoRA reportedly needs about 10GB of VRAM, more than the RTX 2070
+has, so training has to happen elsewhere (e.g. a free Colab GPU). Serving the result doesn't
+need bot changes: build it into Ollama and point `OLLAMA_MODEL` at it.
 
 ## Known limitations at this scope
-- A 2.6B model makes things up. Her prompt tells her what she can't do (she only sees the
+- A small model makes things up. Her prompt tells her what she can't do (she only sees the
   last few messages; she can't read or search history, look things up or do things later)
   and who she's answering, which helps, but she'll still bluff sometimes. Don't rely on her
   for facts; anything that must be right (memory, the slur filter) is handled in code.

@@ -1,7 +1,7 @@
 # Gomihyu — Discord SLM Conversationalist
 
 ## What this is
-A small-model (LFM2.5-2.6B) Discord bot, "Gomihyu," running locally via Ollama on an
+A small-model (Gemma 4 E4B) Discord bot, "Gomihyu," running locally via Ollama on an
 RTX 2070 (8GB VRAM). This is a standalone side project — a dry run of Discord +
 personality plumbing before a much larger, separate local assistant project
 (Nemotron-based, on a different machine — a Framework Desktop) comes online. Don't
@@ -11,14 +11,17 @@ nothing more, until told otherwise.
 ## Environment
 - OS: CachyOS (Arch-based Linux)
 - GPU: RTX 2070, 8GB VRAM — every model/training decision here has to fit this
-- Inference: Ollama serving `gomihyu-base` (set via `OLLAMA_MODEL` in `.env`), built with
-  `ollama create gomihyu-base -f Modelfile` from `LFM2.5-2.6B-Q4_K_M.gguf` (gitignored; from
-  Hugging Face `LiquidAI/` or `lmstudio-community/LFM2.5-2.6B-GGUF`). LFM2.5-2.6B is a pure
-  reasoning model: its native template always opens `<think>`, so `think: false` does nothing.
-  The first build, from the bare GGUF, had `TEMPLATE {{ .Prompt }}` and spent ~850–1150 tokens
-  (8–13s) thinking per reply. The repo `Modelfile`'s TEMPLATE (ChatML-style `<|im_start|>`) ends
-  the prompt with an empty, closed `<think>\n</think>\n\n` unless `.Think` is set. Liquid says
-  skipping the reasoning isn't officially supported; fine for chat, not yet confirmed live.
+- Inference: Ollama serving `gemma4:e4b` (Ollama's official tag; `OLLAMA_MODEL` in `.env`).
+  User switched from LFM2.5-2.6B on 2026-09-26 because it felt like "a response bot, not an
+  AI" (Liquid built it for agents/tool calling). Gemma 4 E4B: ~4.5B effective params (8B with
+  per-layer embeddings), ~5GB at Q4_K_M, but Ollama's tag is listed at ~9.6GB (bundles image +
+  audio encoders), so it may not load 100% on the GPU; `ollama ps` shows the split. Not yet
+  confirmed live. Thinking is off unless requested (a `<|think|>` token in the system prompt).
+  Rejected: Ternary Bonsai 2 27B (needs PrismML's llama.cpp fork, stock Ollama 0.34.2 can't load
+  it, 5.95GB of weights is too tight for 8GB, and it's a reasoning model).
+- LFM2.5-2.6B history, kept in `archive/lfm2.5/`: it's a pure reasoning model whose template
+  always opens `<think>`, so `think: false` did nothing (~1000 tokens, 8–13s per reply). The
+  archived `Modelfile` fixed that with a template ending in an empty, closed think block.
 - Python 3, using `discord.py`, `aiohttp`, `python-dotenv`
 
 ## Current state
@@ -26,7 +29,7 @@ nothing more, until told otherwise.
   that talks to Ollama. Running live on the server (replies and memory confirmed working;
   the emoji rework, prompt fixes and slur filter not yet tested live).
 - `persona.py` — the system prompt AND the prompt format (`format_line`, `build_messages`).
-  Both the bot and the dataset builder use it, so training prompts match runtime prompts
+  Both the bot and any dataset builder use it, so training prompts match runtime prompts
   exactly. Change the format there, never in only one place.
 - `emojis.py` — every emoji she uses (unicode + this server's custom ones) with a "when to use
   it" note; the model only ever sees names + notes. `reactions.py` — when a post gets a
@@ -34,18 +37,11 @@ nothing more, until told otherwise.
 - `censor.py` + `slurs.txt` — a reply containing any slur (whole words, optional plural s) is
   replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
   Swearing is deliberately not filtered; the server doesn't want her more PG.
-- `Modelfile` — how `gomihyu-base` is built (LFM2.5-2.6B GGUF + a template that skips its
-  reasoning). Keep its TEMPLATE for any future build, fine-tuned or not.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
-- `finetuning/persona_guide.md` — voice/personality guide, written from a paraphrased
-  summary of a public wiki character bio plus tonal patterns pulled from a short quotes
-  list. No source dialogue is copied anywhere in this repo — everything is original
-  writing meant to capture voice, not script.
-- `finetuning/gomihyu_seed.jsonl` — 58 original synthetic Discord-style exchanges in that
-  voice, as `{"history": [[handle, text], ...], "facts"?: [...], "nicknames"?: {handle: nick},
-  "reply": ...}`. This is a SEED, not a
-  finished dataset. `finetuning/build_dataset.py` renders it into system/user/assistant
-  SFT JSONL (`finetuning/train.jsonl`, gitignored — rebuild it, don't edit it).
+- `archive/synthetic-seed/` — the first fine-tuning dataset, archived at the user's request
+  (2026-09-26): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the voice guide they were
+  written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns, no copied dialogue),
+  and `build_dataset.py`, which renders them through `persona.build_messages` (still runs).
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)
@@ -94,7 +90,7 @@ nothing more, until told otherwise.
   original writing only. A small (dozen-ish) set of quotes as a style reference is
   fine; bulk verbatim dialogue as training data is not. This is an intentional
   constraint, not a stylistic preference.
-- At 2.6B she will confabulate; that can be contained, not eliminated. Anything that has to
+- A small model will confabulate; that can be contained, not eliminated. Anything that has to
   be true lives in code, not the model (memory storage, slur filter, constrained emoji picks).
   The prompt states her limits (sees only the last few messages; can't read/search history,
   look things up, run commands or do things later; remembers only nicknames + notes) and
@@ -109,41 +105,51 @@ nothing more, until told otherwise.
   is the safety cap; a reply that hits it is trimmed to its last full sentence. The cap counts
   thinking tokens too: 200 tokens of planning left an empty reply and she went silent. So
   thinking is requested off by default, and once any response shows thinking (`OLLAMA_THINK=true`,
-  or a model that ignores `think: false`, as `gomihyu-base` does) `model_thinks` is set and replies
+  or a model that ignores `think: false`, as LFM2.5-2.6B did) `model_thinks` is set and replies
   go uncapped (the 60s request timeout still bounds them); a capped reply that ran out while
-  thinking is retried once uncapped. The real fix is the `Modelfile` template;
-  this path is the fallback. `<think>` text inside the content is stripped before posting.
-- Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full
-  fine-tuning — chosen specifically to fit the 8GB VRAM budget.
+  thinking is retried once uncapped. `<think>` text inside the content is stripped before posting.
+- Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full fine-tuning.
+  Gemma 4 E4B QLoRA reportedly needs ~10GB VRAM, so it won't train on the 2070: training
+  happens elsewhere (e.g. free Colab); serving stays on the 2070.
+- Training data must never be committed: the user's Discord export (`Messages/`, `*.zip`) holds
+  personal messages including DMs, and is gitignored. Builders read it from a local path.
 
 ## Open / not yet decided
 - Whether to persist channel history across bot restarts (currently in-memory, resets
   on restart).
-- A real Discord transcript export (the user's own messages only) is delayed. Plan is
-  to mix real transcripts into the synthetic seed once it arrives — don't assume the
-  seed file is the final dataset.
-- Target dataset size before an actual training run (58 examples now; likely needs a
-  few hundred).
+- Training data from the user's own Discord export (received 2026-09-26, analysed in a
+  scratch space, not in the repo): 83,656 messages, 2017-05 to 2026-09. 56k from server
+  channels (4 servers still named in the export, plus 18k from ones that aren't), 27.6k from
+  111 DMs + 6 group DMs. Server names and message contents stay out of the repo. Only
+  the user's side is in it, never anyone else's messages. Median message is 5–6 words; they
+  post in bursts (22.8k server bursts of messages <=90s apart, 9.5k of 12+ words). ~730
+  messages contain a word from `slurs.txt`; a few emails / phone numbers; 4.4k link-only or
+  attachment-only posts. Undecided (the user's call):
+  1. Whose voice: training on these makes Gomi text like the user (lowercase bursts, gaming
+     talk, their opinions, friends' names), with the archdemon persona only from the prompt.
+  2. DMs in or out (recommended out: a trained model can repeat private DM content in the server).
+  3. Where the other side of each conversation comes from: generated with an LLM from the
+     user's replies ("instruction backtranslation"), or a real channel export of the 5-person
+     server made with everyone's consent.
+- Target dataset size before a training run (likely 1–3k good examples).
 
 ## Next steps
-1. Expand `finetuning/gomihyu_seed.jsonl` toward 150–200+ examples, matching
-   the existing format and voice. Most current replies are one-liners; new ones should
-   include plenty of 2–4 sentence replies that engage with the discussion.
-2. Set up the actual LoRA/QLoRA training script (Unsloth), targeting LFM2.5-2.6B, fed
-   from `build_dataset.py` output. Assistant turns must start with the same empty
-   `<think>\n</think>\n\n` the Modelfile adds, so training matches serving.
-3. After training, produce a merged GGUF, load it with `ollama create` using a copy of the
-   `Modelfile` (same TEMPLATE, new FROM), then update `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
+1. Once the user decides the open data questions: a builder that reads the export from a local
+   path, keeps server messages, merges bursts, strips links/mentions/foreign custom emojis,
+   drops slurs and PII, and renders examples through `persona.build_messages`.
+2. Set up the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B, runnable on Colab.
+3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
+   update `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
-7. Confirm live that `gomihyu-base` rebuilt with the `Modelfile` answers without thinking (no
-   `thinks before answering` warning, replies in a couple of seconds) and still sounds right.
+7. Confirm Gemma 4 E4B live: `ollama ps` GPU/CPU split, reply speed, no thinking warning, and
+   whether the prompt (tuned on LFM) needs retuning, e.g. asterisk actions or rambling.
 8. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
    me?" still comes back wrong, answer it from code (list the saved notes) instead.
 
 ## Constraints
-- Everything runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model or
-  training changes; check VRAM math before suggesting a bigger model.
+- Serving runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model change; check
+  VRAM math before suggesting a bigger model. Training can run elsewhere (see above).
 - Keep bot behavior config-driven via `.env`, not hardcoded, so it can be retuned
   without a code change.

@@ -1,7 +1,9 @@
 """
 Render the seed examples into SFT chat data, using the same prompt format bot.py sends.
 
-    python3 finetuning/build_dataset.py   # gomihyu_seed.jsonl -> train.jsonl
+    python3 archive/synthetic-seed/build_dataset.py   # gomihyu_seed.jsonl -> train.jsonl
+
+Archived: this was the synthetic seed for LFM2.5-2.6B, replaced by training on real messages.
 
 Each seed line is {"history": [[handle, text], ...], "reply": "..."}. The last history line
 is the message being replied to; it counts as an @mention if it contains "@Gomihyu". Earlier
@@ -15,7 +17,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))  # so persona.py imports when run from anywhere
+sys.path.insert(0, str(HERE.parent.parent))  # the repo root, so persona.py imports when run from anywhere
 
 from persona import BOT_NAME, build_messages, format_line  # noqa: E402
 
