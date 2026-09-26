@@ -42,6 +42,13 @@ nothing more, until told otherwise.
   (2026-09-26): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the voice guide they were
   written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns, no copied dialogue),
   and `build_dataset.py`, which renders them through `persona.build_messages` (still runs).
+- `finetuning/` — the training-data pipeline, all output in `finetuning/data/` (gitignored):
+  `extract.py` (export → cleaned server replies, `replies.jsonl`), `backtranslate.py` (Ollama
+  writes 1–3 friend messages before each reply → `examples.jsonl`, same format as the archived
+  seed; resumable, fixed shuffled order, 2 tries then `rejected.jsonl`; 25% get an "@Gomihyu"
+  ping; made-up friend handles), `build_dataset.py` (examples → `train.jsonl` via
+  `persona.build_messages`, several input files can be mixed). Tested with a fake export/Ollama;
+  not yet run on the user's machine. On the export: 17,482 replies survive cleanup.
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)
@@ -129,17 +136,17 @@ nothing more, until told otherwise.
     archdemon persona from the prompt. Mix in persona examples so she doesn't just become them.
   - DMs: OUT, never used. The user says they likely hold private information; they were deleted
     from the session they were uploaded to. Any builder must skip DM / GROUP_DM channels.
-  Still undecided: where the other side of each conversation comes from. The export has only
-  the user's messages, not what they were replying to. Options: (a) the bot exports the real
-  channel history of the server it's in (it has Read Message History), with the other members'
-  consent; (b) an LLM invents a plausible preceding message for each of the user's messages
-  ("instruction backtranslation"), for servers the bot isn't in or if friends say no.
+  - Context: option (b) for now, an LLM writes the preceding friend messages ("instruction
+    backtranslation", `finetuning/backtranslate.py`). Later, with the other members' consent, the
+    bot will export the real channel history of its server (it has Read Message History) as a
+    second examples file: option (a).
 - Target dataset size before a training run (likely 1–3k good examples).
 
 ## Next steps
-1. Once the user picks where conversation context comes from: a builder that reads the export
-   from a local path, keeps server messages only (never DMs), merges bursts, strips links/mentions/foreign custom emojis,
-   drops slurs and PII, and renders examples through `persona.build_messages`.
+1. User runs the pipeline (README "Training data"): extract, skim replies.jsonl, a 50-reply
+   backtranslation test batch, then the full run. Decide on mixing persona examples (the
+   archived seed is archdemon-heavy one-liners; the user's messages have no archdemon in them,
+   so training on them alone will likely tone the act down).
 2. Set up the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B, runnable on Colab.
 3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
    update `OLLAMA_MODEL` in `.env`. Bot code should not need to change for this.
