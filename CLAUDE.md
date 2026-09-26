@@ -124,18 +124,21 @@ nothing more, until told otherwise.
   the user's side is in it, never anyone else's messages. Median message is 5–6 words; they
   post in bursts (22.8k server bursts of messages <=90s apart, 9.5k of 12+ words). ~730
   messages contain a word from `slurs.txt`; a few emails / phone numbers; 4.4k link-only or
-  attachment-only posts. Undecided (the user's call):
-  1. Whose voice: training on these makes Gomi text like the user (lowercase bursts, gaming
-     talk, their opinions, friends' names), with the archdemon persona only from the prompt.
-  2. DMs in or out (recommended out: a trained model can repeat private DM content in the server).
-  3. Where the other side of each conversation comes from: generated with an LLM from the
-     user's replies ("instruction backtranslation"), or a real channel export of the 5-person
-     server made with everyone's consent.
+  attachment-only posts. Decided 2026-09-26:
+  - Voice: yes, Gomi should text like the user (lowercase bursts, gaming talk), with the
+    archdemon persona from the prompt. Mix in persona examples so she doesn't just become them.
+  - DMs: OUT, never used. The user says they likely hold private information; they were deleted
+    from the session they were uploaded to. Any builder must skip DM / GROUP_DM channels.
+  Still undecided: where the other side of each conversation comes from. The export has only
+  the user's messages, not what they were replying to. Options: (a) the bot exports the real
+  channel history of the server it's in (it has Read Message History), with the other members'
+  consent; (b) an LLM invents a plausible preceding message for each of the user's messages
+  ("instruction backtranslation"), for servers the bot isn't in or if friends say no.
 - Target dataset size before a training run (likely 1–3k good examples).
 
 ## Next steps
-1. Once the user decides the open data questions: a builder that reads the export from a local
-   path, keeps server messages, merges bursts, strips links/mentions/foreign custom emojis,
+1. Once the user picks where conversation context comes from: a builder that reads the export
+   from a local path, keeps server messages only (never DMs), merges bursts, strips links/mentions/foreign custom emojis,
    drops slurs and PII, and renders examples through `persona.build_messages`.
 2. Set up the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B, runnable on Colab.
 3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
