@@ -15,7 +15,7 @@ CUSTOM = {
     "deadge": ("dead chat, someone died in a game, or 'I'm dead'", True),
     "MonkaChrist": ("something cursed or unholy", True),
     "DoWar": ("ready to fight: bets, 1v1s, challenges", True),
-    "AIEEE": ("shock or horror", True),
+    "AIEEEE": ("shock or horror", True),
     "AAAaa": ("panic or chaos", True),
     "pleasee": ("begging, or someone begging her", True),
     "extremetired": ("done with this, exhausted", True),
