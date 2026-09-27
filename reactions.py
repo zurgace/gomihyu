@@ -27,9 +27,14 @@ def _words(text: str) -> list[str]:
     return WORD.findall(EMOJI.sub(" ", MEDIA.sub(" ", text)))
 
 
+def names_her(text: str) -> bool:
+    """Whether the post calls her by name ("gomi", "Gomihyu"), not counting links."""
+    return bool(ADDRESSED.search(MEDIA.sub(" ", text)))
+
+
 def reacts_instead(text: str, max_words: int) -> bool:
     """Whether a reaction says enough: no words at all, or a few without a question."""
-    if ADDRESSED.search(MEDIA.sub(" ", text)) or sad_news(text):
+    if names_her(text) or sad_news(text):
         return False
     words = _words(text)
     return not words or (len(words) <= max_words and "?" not in text)

@@ -42,6 +42,8 @@ nothing more, until told otherwise.
   replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
   Swearing is deliberately not filtered; the server doesn't want her more PG.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
+- `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
+  its `format` schema and parsing.
 - `finetuning/` — the "Satania" seed, active again (user, 2026-09-26: reuse it until a rented
   GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
   voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
@@ -60,10 +62,18 @@ nothing more, until told otherwise.
 - Bot's Discord username is `Gomihyu`. Always replies when @mentioned — including
   firing back rudely/dramatically if provoked (see `persona.py`: the persona is
   explicitly instructed not to stay polite when insulted).
-- Otherwise replies unprompted with probability `UNPROMPTED_REPLY_CHANCE` (default 1.0 —
-  every message), no cooldown. This was deliberately tuned for a specific slow,
-  low-traffic server (5 people, ~2 actually active) — don't add a cooldown or lower the
-  default without checking first. Exception (user decision): posts that don't need words —
+- Always replies to posts aimed at her: @mention, a Discord reply to her message (ping on or
+  off, `replying_to_her`), her name anywhere outside links (`reactions.names_her`), sad news.
+  Anything else she chimes in on only if it interests her (user, 2026-09-27, replacing
+  `UNPROMPTED_REPLY_CHANCE`, which was 1.0 = every message): `chime.py` rates the newest post
+  0–10 in a short Ollama call (`format`-constrained, anchored scale: her topics, bragging,
+  plans without her, a funny line, a question to the room, someone answering her), and she
+  replies at `CHIME_IN_THRESHOLD` (default 6) or above; 0 skips the call and answers
+  everything. A failed or unparseable rating = quiet. Posts arriving while she decides or
+  writes get one follow-up, rated on the newest post (or just answered if any was aimed at
+  her); a reply covers posts that arrived while she was deciding, so no double reply. No
+  cooldown (slow server, 5 people, ~2 active) — don't add one without checking first.
+  Exception (user decision): posts that don't need words —
   image/sticker/bare-link/emoji-only, or at most `REACT_ONLY_MAX_WORDS` (2) words without "?"
   — get an emoji reaction as her whole response, unless they @mention or name her ("gomi",
   "gomihyu") or look serious; those always get a reply.
@@ -175,7 +185,10 @@ nothing more, until told otherwise.
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
 7. Gemma 4 E4B live (100% GPU at 8192 context confirmed): reply speed, no thinking warning, and
    whether the prompt (tuned on LFM) needs retuning, e.g. asterisk actions or rambling.
-8. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
+8. Tune chiming in live: watch the `Interest n/10` log lines. Small models tend to give most
+   posts the same middling-high number; if she's too chatty or too quiet, move
+   `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`.
+9. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
    me?" still comes back wrong, answer it from code (list the saved notes) instead.
 
 ## Constraints

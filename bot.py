@@ -1,11 +1,12 @@
 """
-Gomihyu — a Discord conversationalist backed by a local LFM2.5-2.6B (via Ollama).
+Gomihyu — a Discord conversationalist backed by a small local model (via Ollama).
 
 Behavior:
-  - Always replies when @mentioned.
-  - Otherwise replies to any message with probability UNPROMPTED_REPLY_CHANCE (default 1.0,
-    i.e. every message), except posts that don't need words (images, emoji-only posts, "lol"):
-    those get an emoji reaction as her whole response (reactions.py, emojis.py).
+  - Always replies when @mentioned, replied to, or named ("gomi"), and to sad news.
+  - Posts that don't need words (images, emoji-only posts, "lol") get an emoji reaction as her
+    whole response instead (reactions.py, emojis.py).
+  - Any other post, she chimes in only if it interests her: a short model call rates it 0-10,
+    and she replies at CHIME_IN_THRESHOLD or above (chime.py).
   - One reply at a time per channel. Messages that arrive while a reply is being written get
     a single follow-up reply to the latest chat, not one reply each.
   - No cooldown — designed for a small, slow server (see README).
@@ -29,17 +30,20 @@ import discord
 from dotenv import load_dotenv
 
 from censor import has_slur
+from chime import INTEREST_FORMAT, interest_messages, parse_interest
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_messages, format_line
-from reactions import media_only, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
+from reactions import media_only, names_her, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
 
 load_dotenv()
 
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
-UNPROMPTED_REPLY_CHANCE = float(os.environ.get("UNPROMPTED_REPLY_CHANCE", "1.0"))
+# Posts not aimed at her are rated 0-10 for how much she'd want to chime in (chime.py); she replies
+# at this or above. Higher is quieter; 0 answers everything without asking.
+CHIME_IN_THRESHOLD = int(os.environ.get("CHIME_IN_THRESHOLD", "6"))
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
@@ -82,7 +86,8 @@ history = defaultdict(lambda: deque(maxlen=HISTORY_LENGTH))
 logged = defaultdict(int)
 # channel_id -> held while a reply is being generated and sent
 reply_locks = defaultdict(asyncio.Lock)
-# channel_id -> whether anything that arrived mid-reply @mentioned the bot; present = one follow-up owed
+# channel_id -> (whether anything that arrived mid-reply @mentioned her, whether anything was aimed at
+# her so it must be answered); present = one follow-up owed
 pending_followup = {}
 # lowercase Discord handle or display name -> user id, for real pings and for "Yuzuki's nickname is..."
 handles = {}
@@ -338,6 +343,28 @@ async def react(message: discord.Message, emoji: str | discord.Emoji) -> None:
         log.warning(f"Couldn't react {emoji} to {message.author.name}: {e}")
 
 
+def replying_to_her(message: discord.Message) -> bool:
+    """A Discord reply to one of her messages, even with the ping turned off."""
+    replied = getattr(getattr(message, "reference", None), "resolved", None)
+    return getattr(getattr(replied, "author", None), "id", None) == client.user.id
+
+
+async def chimes_in(channel_id: int) -> bool:
+    """Whether the newest post, not aimed at her, interests her enough to say something."""
+    if CHIME_IN_THRESHOLD <= 0:
+        return True
+    recent = list(history[channel_id])
+    data = await ollama_chat({"messages": interest_messages(recent), "format": INTEREST_FORMAT})
+    interest = parse_interest(data.get("message", {}).get("content", "")) if data else None
+    newest = recent[-1] if recent else ""
+    if interest is None:
+        log.warning(f"Couldn't tell whether to chime in, staying quiet. Raw response: {json.dumps(data)[:300]}")
+        return False
+    log.info(f"Interest {interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}"
+             + ("" if interest >= CHIME_IN_THRESHOLD else ": staying quiet"))
+    return interest >= CHIME_IN_THRESHOLD
+
+
 @client.event
 async def on_ready():
     log.info(f"Logged in as {client.user} (id: {client.user.id})")
@@ -374,22 +401,26 @@ async def on_message(message: discord.Message):
             await react(message, emoji)
         return
 
-    should_respond = mentioned or (random.random() < UNPROMPTED_REPLY_CHANCE)
-
-    if not should_respond:
-        return
+    # Aimed at her: always answered. Anything else only if it interests her (chimes_in).
+    addressed = mentioned or replying_to_her(message) or names_her(text) or sad_news(text)
 
     lock = reply_locks[channel_id]
     if lock.locked():
-        # Already writing a reply here; answer everything that arrives meanwhile in one follow-up.
-        pending_followup[channel_id] = pending_followup.get(channel_id, False) or mentioned
+        # Already deciding or writing a reply here; everything that arrives meanwhile gets one follow-up.
+        was_mentioned, was_addressed = pending_followup.get(channel_id, (False, False))
+        pending_followup[channel_id] = (was_mentioned or mentioned, was_addressed or addressed)
         return
 
     async with lock:
         try:
-            await reply_to(message.channel, channel_id, mentioned)
-            while channel_id in pending_followup:
-                await reply_to(message.channel, channel_id, pending_followup.pop(channel_id))
+            while True:
+                if addressed or await chimes_in(channel_id):
+                    # What arrived while she was deciding is already in the log, so this reply covers it.
+                    was_mentioned, _ = pending_followup.pop(channel_id, (False, False))
+                    await reply_to(message.channel, channel_id, mentioned or was_mentioned)
+                if channel_id not in pending_followup:
+                    break
+                mentioned, addressed = pending_followup.pop(channel_id)
         finally:
             pending_followup.pop(channel_id, None)
 

@@ -53,11 +53,17 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 ```
 
 ## How it behaves
-- **@mention → always replies**, and the persona is instructed to fire back rudely in
-  character if provoked, rather than staying polite.
-- **Any other message → replies with probability `UNPROMPTED_REPLY_CHANCE`** (default 1.0,
-  i.e. every message, no cooldown — meant for a slow server) — tune this in `.env` without
-  touching code.
+- **Always replies when it's aimed at her:** an @mention, a Discord reply to one of her
+  messages (even with the ping off), her name ("gomi", "Gomihyu") anywhere in the post, and
+  sad news. The persona is instructed to fire back rudely in character if provoked, rather
+  than staying polite.
+- **Anything else, she chimes in only if it interests her**, like a friend in a group chat.
+  A short extra model call rates the post 0–10 for how much she'd want to say something (her
+  topics, someone bragging, plans without her, a funny line to add, a question to the whole
+  chat) and she replies at `CHIME_IN_THRESHOLD` (default 6) or above. Raise it to make her
+  quieter, lower it for chattier; `0` answers every message without the extra call. Each
+  rating is in the console (`Interest 4/10 (chimes in at 6) in "...": staying quiet`), so
+  you can see why she spoke or didn't. No cooldown.
 - **Reacts instead of replying when words aren't needed.** See [Emojis](#emojis).
 - **One reply at a time per channel.** If messages arrive while it's still writing a reply,
   it sends one follow-up afterwards that answers the latest chat, rather than one reply each.
