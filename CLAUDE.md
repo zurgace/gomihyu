@@ -14,9 +14,13 @@ nothing more, until told otherwise.
 - Inference: Ollama serving `gemma4:e4b` (Ollama's official tag; `OLLAMA_MODEL` in `.env`).
   User switched from LFM2.5-2.6B on 2026-09-26 because it felt like "a response bot, not an
   AI" (Liquid built it for agents/tool calling). Gemma 4 E4B: ~4.5B effective params (8B with
-  per-layer embeddings), ~5GB at Q4_K_M, but Ollama's tag is listed at ~9.6GB (bundles image +
-  audio encoders), so it may not load 100% on the GPU; `ollama ps` shows the split. Not yet
-  confirmed live. Thinking is off unless requested (a `<|think|>` token in the system prompt).
+  per-layer embeddings), ~5GB at Q4_K_M; Ollama's tag is listed at ~9.6GB (bundles image + audio
+  encoders). Confirmed 2026-09-27 on the 2070: `ollama ps` shows 3.2GB, 100% GPU, at Ollama's
+  default 4096 context, so there's VRAM headroom. The bot asks for `OLLAMA_NUM_CTX` (8192) on every
+  call: the prompt (system prompt + 8 example chats + 12 messages) is ~1.6–2.5k tokens normally,
+  but long posts can pass 4096, which Ollama silently cuts. Every call must send the same value or
+  Ollama reloads the model between the reply and emoji-picker calls. Thinking is off unless
+  requested (a `<|think|>` token in the system prompt).
   Rejected: Ternary Bonsai 2 27B (needs PrismML's llama.cpp fork, stock Ollama 0.34.2 can't load
   it, 5.95GB of weights is too tight for 8GB, and it's a reasoning model).
 - LFM2.5-2.6B history, kept in `archive/lfm2.5/`: it's a pure reasoning model whose template
@@ -159,8 +163,9 @@ nothing more, until told otherwise.
 4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
-7. Confirm Gemma 4 E4B live: `ollama ps` GPU/CPU split, reply speed, no thinking warning, and
-   whether the prompt (tuned on LFM) needs retuning, e.g. asterisk actions or rambling.
+7. Gemma 4 E4B live (100% GPU confirmed): check `ollama ps` shows CONTEXT 8192 and still 100% GPU
+   after a reply, reply speed, no thinking warning, and whether the prompt (tuned on LFM) needs
+   retuning, e.g. asterisk actions or rambling.
 8. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
    me?" still comes back wrong, answer it from code (list the saved notes) instead.
 

@@ -12,9 +12,11 @@ depending on your install). Sanity-check it, then see where it loaded:
 ollama run gemma4:e4b "say hi in five words"
 ollama ps
 ```
-`ollama ps` should say `100% GPU` under PROCESSOR. Ollama's `gemma4:e4b` is listed at about
-9.6GB (it bundles image and audio encoders), more than an 8GB card holds, so a CPU/GPU split
-there means part of the model runs on the CPU and replies are slower.
+`ollama ps` should say `100% GPU` under PROCESSOR; a CPU/GPU split there means part of the model
+runs on the CPU and replies are slower. On the RTX 2070 it loads 100% on the GPU at about 3.2GB
+(with a 4096-token context). Once the bot has replied, CONTEXT should read 8192: the bot asks for
+`OLLAMA_NUM_CTX` (default 8192) on every call, since her prompt can outgrow Ollama's default
+4096 when people post long messages.
 
 The earlier model, LFM2.5-2.6B, and the Modelfile that stopped it reasoning before every reply
 are in `archive/lfm2.5/`.

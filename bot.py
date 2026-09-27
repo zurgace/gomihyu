@@ -49,6 +49,10 @@ REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
 # Ceiling on a reply's length; one that hits it is cut back to its last full sentence.
 MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
+# Context window, in tokens, for every call. Ollama's default of 4096 can be outgrown by the prompt
+# (system prompt, example chats, 12 messages of chat) when people post long messages, and Ollama then
+# silently cuts the prompt. Every call sends the same value, or Ollama reloads the model between them.
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 # Let a thinking model reason before answering. Off: for chat it only adds delay, and its thinking
 # counts against MAX_REPLY_TOKENS, which can leave no room for the answer.
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
@@ -165,7 +169,8 @@ async def ollama_chat(payload: dict) -> dict | None:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "stream": False, "think": OLLAMA_THINK,
-                                                      **payload},
+                                                      **payload,
+                                                      "options": {"num_ctx": OLLAMA_NUM_CTX} | payload.get("options", {})},
                                     timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status != 200:
                     # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
