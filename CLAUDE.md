@@ -174,7 +174,8 @@ nothing more, until told otherwise.
 1. See how Gemma does with the seed as example chats. First live log (2026-09-27): voice good and
    in character, but 60–90-word replies of 5–7 sentences (the seed's are ~20 words, max 36), an
    @ping at the person every reply, near every reply opening by echoing the message as a question
-   and ending on a question, "Seriously though" filler, :AIEEE: in 3 of 6 replies, melon bread
+   and ending on a question, "Seriously though" filler, :AIEEE: in 3 of 6 replies (posted as plain text: the server's
+   emoji is `AIEEEE`, which the user fixed in `emojis.py`), melon bread
    twice as an insult (4 of the seed's 6 melon bread lines are off-topic too). Fixed: pings, the
    length/question/echo rules. Still to check after that: length, emoji and melon bread frequency.
 2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B.
