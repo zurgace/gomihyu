@@ -65,12 +65,13 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   Discord handle when she doesn't know one. The chat log she sees labels everyone by handle
   (e.g. `kaz0: ...`), with a line listing the nicknames of the people in it. When a reply says
   `@kaz0` or `@Kaz` (handle, display name or nickname), the bot turns it into a real ping.
-  Discord shows a ping as the person's server display name. It never pings `@everyone`,
-  `@here` or roles.
+  Discord shows a ping as the person's server display name. The person she's replying to is
+  never pinged, since they're already in the conversation: their name just loses the `@`. It
+  never pings `@everyone`, `@here` or roles.
 - **Joins in, not just one-liners.** Her prompt makes her an active member of the chat: she
-  answers the newest message but builds on what others said, gives opinions and reasons, and
-  sometimes asks something back. A quick jab can be a few words; a question or a real
-  discussion gets 2–4 sentences. `MAX_REPLY_TOKENS` (default 200) caps a runaway reply, and
+  answers the newest message (a question gets a real answer), builds on what others said,
+  gives opinions, and now and then asks something back. A quick jab or comeback is one short
+  line; a question or a real discussion gets 2–4 sentences, never more. `MAX_REPLY_TOKENS` (default 200) caps a runaway reply, and
   one that hits the cap is cut back to its last full sentence.
 - **Doesn't "think" before replying** (`OLLAMA_THINK=false`): for chat it only adds delay.
   Gemma 4 E4B only reasons when asked to. If a model thinks anyway, the console logs `... thinks

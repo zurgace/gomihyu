@@ -128,12 +128,25 @@ def readable(message: discord.Message) -> str:
     return " ".join([text, *media]).strip()
 
 
+def person(name: str) -> int | None:
+    """The user id behind a handle, display name or nickname, if known."""
+    return handles.get(name.lower()) or memory.find(name)
+
+
 def to_pings(text: str) -> str:
     """Turn "@handle" (or @nickname, @display name) into a real <@id> mention for anyone known."""
     def ping(m: re.Match) -> str:
-        user_id = handles.get(m[1].lower()) or memory.find(m[1])
+        user_id = person(m[1])
         return f"<@{user_id}>" if user_id else m[0]
     return HANDLE.sub(ping, text)
+
+
+def without_ping(text: str, user_id: int) -> str:
+    """text with no @ on user_id's name: they're the one she's answering, already in the conversation,
+    and pinging them on every reply is just noise. A leading "@name" goes; any other loses its @."""
+    if (m := HANDLE.match(text)) and person(m[1]) == user_id:
+        text = text[m.end():].lstrip(" ,:") or m[1]
+    return HANDLE.sub(lambda m: m[1] if person(m[1]) == user_id else m[0], text)
 
 
 def to_server_emojis(text: str, guild: discord.Guild | None) -> str:
@@ -217,6 +230,7 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     reply = OWN_NAME_PREFIX.sub("", strip_thinking(data.get("message", {}).get("content", "")).strip())
     if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
         reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
+    reply = without_ping(reply, author_id)
     # A reply with a slur in it is thrown away whole, before it's sent or kept in the chat
     # history: she just stares instead.
     if has_slur(reply):

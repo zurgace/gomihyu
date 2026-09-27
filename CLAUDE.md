@@ -74,7 +74,10 @@ nothing more, until told otherwise.
   their handle (user decision; this replaced the earlier "full handle, never a nickname"
   trait). The log labels speakers by handle (`author.name`); a "Nicknames, call these people
   by them: ..." line covers everyone in the log. `@handle`, `@display name` or `@nickname` in
-  a reply becomes a real ping. Never pings @everyone/@here/roles.
+  a reply becomes a real ping, except for the person she's answering (user, 2026-09-27: on Gemma
+  she @'d them in every reply and "stop pinging me" didn't stick). Code drops their @
+  (`without_ping`: a leading "@name" goes, others become the plain name), the prompt says never
+  to @ them, and the seed replies have no @. Never pings @everyone/@here/roles.
 - Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
   was removed at the user's request). Media she can't see → a "looking" emoji (👀 /
   :goonerstare:), never a judgment of the image. Emoji-only posts may get the same emoji
@@ -109,9 +112,12 @@ nothing more, until told otherwise.
   spells out who sent the message she's answering ("When X says I/me/my, they mean
   themselves"), because she mixed up "who am I?". Channel-history reading/summaries are out of
   scope here (that's the bigger assistant project); she declines those in character.
-- Reply length matches the moment (user wants her to actively join discussions): a jab can
-  be a few words, a question or real discussion 2–4 sentences, building on others and giving
-  opinions. Don't bring back "a few words, at most 2 sentences" or "don't reuse topics" to fix
+- Reply length matches the moment (user wants her to actively join discussions): a jab or
+  comeback is one short line, a question or real discussion 2–4 sentences ("never more", added
+  when Gemma wrote 5–7), building on others and giving opinions. A question gets a real answer
+  (Gemma dodged "the fuck is Malebolge"); asking something back is "now and then, not every
+  time" (Gemma ended nearly every reply with a question), and she mustn't open by repeating
+  the message back as a question. Don't bring back "a few words, at most 2 sentences" or "don't reuse topics" to fix
   repetition: that turned her into a one-liner machine. Repetition is handled by "don't repeat
   your own earlier lines / pet topics" plus the REPEAT_WORDS retry. `MAX_REPLY_TOKENS` (200)
   is the safety cap; a reply that hits it is trimmed to its last full sentence. The cap counts
@@ -155,8 +161,12 @@ nothing more, until told otherwise.
 - Target dataset size before a training run (likely 1–3k good examples).
 
 ## Next steps
-1. See how Gemma does with the seed as example chats: voice, reply length (the seed replies are
-   ~20 words, 2+ sentences), "Archdemon" frequency (the seed leans on it), copying.
+1. See how Gemma does with the seed as example chats. First live log (2026-09-27): voice good and
+   in character, but 60–90-word replies of 5–7 sentences (the seed's are ~20 words, max 36), an
+   @ping at the person every reply, near every reply opening by echoing the message as a question
+   and ending on a question, "Seriously though" filler, :AIEEE: in 3 of 6 replies, melon bread
+   twice as an insult (4 of the seed's 6 melon bread lines are off-topic too). Fixed: pings, the
+   length/question/echo rules. Still to check after that: length, emoji and melon bread frequency.
 2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B.
 3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
    update `OLLAMA_MODEL` in `.env` and set `FEW_SHOT_EXAMPLES=0`. No bot code changes needed.
