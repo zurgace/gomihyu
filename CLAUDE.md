@@ -45,7 +45,8 @@ nothing more, until told otherwise.
 - `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
   its `format` schema and parsing.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
-  "your last 3 messages" / "all your messages").
+  "your last 3 messages" / "all your messages"), `mute_request` ("gomi mute" / "for 2 hours" /
+  "until i say so") and `unmute_request`.
 - `finetuning/` — the "Satania" seed, active again (user, 2026-09-26: reuse it until a rented
   GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
   voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
@@ -88,6 +89,14 @@ nothing more, until told otherwise.
   the command nor the deleted posts stay in her chat log (`posted` maps message id → log line).
   Non-owners, "don't delete", "I'll delete" → normal chat. No extra permission: bots can always
   delete their own messages.
+- Mute (user, 2026-09-28: for when she's "yapping a bit too much" or "wants to butt in"): an
+  owner's "gomi mute [for 10 minutes / 2h / an hour | until i say so]" silences her in that
+  channel (`muted_until`, in memory, so a restart unmutes; default `MUTE_MINUTES` 30), "gomi
+  unmute" ends it; reacts 🔇 / 🔊. While muted she still logs the chat and saves notes (📝), but
+  sends nothing and reacts to nothing, except 🤐 on posts aimed at her; a reply in progress is
+  dropped before sending and no follow-up runs. Only the literal word "mute": "gomi stfu" is
+  banter the user actually says to her. Negation and first-person ("don't make me mute you",
+  "I'll mute you") are checked only in the words before the verb.
 - One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
   follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
   them so the follow-up prompt still ends on the newest unanswered message.

@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 
 from censor import has_slur
 from chime import INTEREST_FORMAT, interest_messages, parse_interest
-from commands import ALL, delete_request
+from commands import ALL, FOREVER, delete_request, mute_request, unmute_request
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_messages, format_line
@@ -75,6 +75,11 @@ OWNER_USER_IDS = {int(user_id) for user_id in re.findall(r"\d+", os.environ.get(
 DELETE_SCAN = int(os.environ.get("DELETE_SCAN", "200"))
 DELETED_EMOJI = "🗑️"  # reaction confirming her posts were deleted
 NOTHING_TO_DELETE_EMOJI = "🤷"
+# How long an owner's "gomi mute" silences her in that channel when they don't say, in minutes.
+MUTE_MINUTES = float(os.environ.get("MUTE_MINUTES", "30"))
+MUTED_EMOJI = "🔇"  # reaction confirming she's muted
+UNMUTED_EMOJI = "🔊"
+HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know she isn't broken
 # Made-up example chats (the fine-tuning seed) shown in her prompt to set her voice, until a
 # fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
 EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
@@ -107,6 +112,8 @@ last_author = {}
 owner_ids = set(OWNER_USER_IDS)
 # message id -> (channel_id, her chat-log line) for her recent posts, so a deleted post leaves her log too
 posted = {}
+# channel_id -> time.monotonic() when her mute there ends (FOREVER: until unmuted). Not kept across restarts.
+muted_until = {}
 memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
 
 
@@ -143,6 +150,10 @@ def readable(message: discord.Message) -> str:
     media = [f"[{kind if kind in ('image', 'video') else 'file'}]" for kind in kinds]
     media += [f"[sticker: {sticker.name}]" for sticker in message.stickers]
     return " ".join([text, *media]).strip()
+
+
+def muted(channel_id: int) -> bool:
+    return muted_until.get(channel_id, 0) > time.monotonic()
 
 
 def person(name: str) -> int | None:
@@ -269,6 +280,9 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
             # If the retry fails outright, the repetitive reply beats no reply.
             reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
 
+    if reply and muted(channel_id):
+        log.info("Muted while writing a reply; not sending it")
+        return
     if reply:
         # Log the reply right after the messages it answered, ahead of any that arrived while it
         # was being written, so a follow-up's last log line is still the newest unanswered message.
@@ -441,19 +455,39 @@ async def on_message(message: discord.Message):
         handles[user.display_name.lower()] = user.id
         display_names[user.id] = user.display_name
     mentioned = client.user in message.mentions
+    for_her = mentioned or replying_to_her(message) or names_her(text)
 
-    # An owner telling her to delete her posts overrides the persona: done in code, never shown to
-    # the model or kept in her chat log.
-    if (message.author.id in owner_ids and (count := delete_request(text))
-            and (mentioned or replying_to_her(message) or names_her(text))):
-        await delete_posts(message, count)
-        return
+    # An owner telling her to delete her posts or be quiet overrides the persona: done in code,
+    # never shown to the model or kept in her chat log.
+    if message.author.id in owner_ids and for_her:
+        where = f"#{message.channel.name}" if getattr(message.channel, "name", None) else f"channel {channel_id}"
+        if count := delete_request(text):
+            await delete_posts(message, count)
+            return
+        if unmute_request(text):
+            muted_until.pop(channel_id, None)
+            log.info(f"Unmuted in {where} by {message.author.name}")
+            await react(message, UNMUTED_EMOJI)
+            return
+        if (minutes := mute_request(text, MUTE_MINUTES)) is not None:
+            muted_until[channel_id] = time.monotonic() + minutes * 60
+            log.info(f"Muted in {where} " + ("until unmuted" if minutes == FOREVER else f"for {minutes:g} minutes")
+                     + f", by {message.author.name}")
+            await react(message, MUTED_EMOJI)
+            return
 
     history[channel_id].append(format_line(message.author.name, text))
     logged[channel_id] += 1
     last_author[channel_id] = (message.author.id, message.author.name)
 
     await take_notes(message, text, mentioned)
+
+    # Muted here: she keeps following the chat but says nothing and reacts to nothing, except a 🤐
+    # for anyone talking to her.
+    if muted(channel_id):
+        if for_her:
+            await react(message, HUSHED_EMOJI)
+        return
 
     # Sad news gets a sad cat on top of her reply (it never counts as a post that doesn't need words).
     if sad_news(text) and message.guild:
@@ -468,7 +502,7 @@ async def on_message(message: discord.Message):
         return
 
     # Aimed at her: always answered. Anything else only if it interests her (chimes_in).
-    addressed = mentioned or replying_to_her(message) or names_her(text) or sad_news(text)
+    addressed = for_her or sad_news(text)
 
     lock = reply_locks[channel_id]
     if lock.locked():
@@ -479,7 +513,7 @@ async def on_message(message: discord.Message):
 
     async with lock:
         try:
-            while True:
+            while not muted(channel_id):
                 if addressed or await chimes_in(channel_id):
                     # What arrived while she was deciding is already in the log, so this reply covers it.
                     was_mentioned, _ = pending_followup.pop(channel_id, (False, False))

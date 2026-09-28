@@ -158,10 +158,13 @@ Gomihyu, don't forget my birthday is march 3
   remembers something. If the file isn't valid JSON, the bot won't start (it says why), so
   a typo can't wipe it.
 
-## Deleting her posts
-The bot's owner can make her delete her own posts, and this overrides her persona: the bot
-does it in code, so the model never sees the command and can't talk back. Say it to her (her
-name, an @mention, or a Discord reply to one of her posts):
+## Owner commands: deleting her posts, muting her
+The bot's owner can make her delete her own posts or go quiet, and this overrides her persona:
+the bot does it in code, so the model never sees the command and can't talk back. Say it to her
+(her name, an @mention, or a Discord reply to one of her posts). Who counts as the owner is at
+the end of this section.
+
+### Deleting her posts
 - `gomi delete that` / `gomi delete it` / `gomi del`: her newest post in the channel. As a
   Discord reply to one of her posts, just `delete` removes that post.
 - `gomi delete your last 3 messages`: her 3 newest posts.
@@ -172,7 +175,21 @@ She reacts 🗑️ when done (🤷 if there was nothing of hers to delete), does
 deleted posts and the command leave her chat log, so she can't bring them back up. "Don't
 delete that" and "I'll delete that" aren't commands.
 
-Who counts as the owner: whoever owns the bot application in the Developer Portal (you, if you
+### Muting her
+- `gomi mute`: silent in this channel for `MUTE_MINUTES` (default 30).
+- `gomi mute for 10 minutes` / `gomi mute 2h` / `gomi mute for an hour`: for that long.
+- `gomi mute until i say so` / `gomi mute forever`: until you unmute her.
+- `gomi unmute`: talking again.
+
+She reacts 🔇 / 🔊. While muted she keeps following the chat (so she has context when she's
+back) but posts nothing and adds no emoji reactions; anyone who talks to her gets a 🤐 so they
+know she's muted, not broken. "Remember that..." still saves (📝). A reply she was in the middle
+of writing is dropped. It's per channel: muting her in one channel leaves the others alone.
+Only the word "mute" counts, so banter like "gomi stfu" doesn't mute her, and "don't make me
+mute you" / "I'll mute you" aren't commands. A restart unmutes her everywhere.
+
+### Who counts as the owner
+Whoever owns the bot application in the Developer Portal (you, if you
 created it; the console prints the name at startup), plus any Discord user ids in
 `OWNER_USER_IDS` (comma-separated). Anyone else asking just gets a normal, in-character
 reply. No extra Discord permission is needed: a bot can always delete its own messages. Finding
