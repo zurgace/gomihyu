@@ -158,6 +158,26 @@ Gomihyu, don't forget my birthday is march 3
   remembers something. If the file isn't valid JSON, the bot won't start (it says why), so
   a typo can't wipe it.
 
+## Deleting her posts
+The bot's owner can make her delete her own posts, and this overrides her persona: the bot
+does it in code, so the model never sees the command and can't talk back. Say it to her (her
+name, an @mention, or a Discord reply to one of her posts):
+- `gomi delete that` / `gomi delete it` / `gomi del`: her newest post in the channel. As a
+  Discord reply to one of her posts, just `delete` removes that post.
+- `gomi delete your last 3 messages`: her 3 newest posts.
+- `gomi delete all your messages` / `gomi delete those`: all of hers among the channel's last
+  `DELETE_SCAN` (default 200) messages.
+
+She reacts 🗑️ when done (🤷 if there was nothing of hers to delete), doesn't reply, and the
+deleted posts and the command leave her chat log, so she can't bring them back up. "Don't
+delete that" and "I'll delete that" aren't commands.
+
+Who counts as the owner: whoever owns the bot application in the Developer Portal (you, if you
+created it; the console prints the name at startup), plus any Discord user ids in
+`OWNER_USER_IDS` (comma-separated). Anyone else asking just gets a normal, in-character
+reply. No extra Discord permission is needed: a bot can always delete its own messages. Finding
+older posts uses Read Message History, which the bot already has.
+
 ## Training data
 `finetuning/gomihyu_seed.jsonl` holds 58 hand-written example chats in Gomi's voice, one per line,
 with the chat so far as `[handle, message]` pairs and the reply she should give:

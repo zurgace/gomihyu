@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 
 from censor import has_slur
 from chime import INTEREST_FORMAT, interest_messages, parse_interest
+from commands import ALL, delete_request
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_messages, format_line
@@ -67,6 +68,13 @@ model_thinks = OLLAMA_THINK
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
 REMEMBERED_EMOJI = "📝"  # reaction confirming a fact or nickname was stored
+# Who can make her delete her posts ("gomi delete that", commands.py): the bot application's owner,
+# looked up at login, plus these Discord user ids (comma-separated).
+OWNER_USER_IDS = {int(user_id) for user_id in re.findall(r"\d+", os.environ.get("OWNER_USER_IDS", ""))}
+# "Delete all your messages" means her posts among this many of the channel's newest messages.
+DELETE_SCAN = int(os.environ.get("DELETE_SCAN", "200"))
+DELETED_EMOJI = "🗑️"  # reaction confirming her posts were deleted
+NOTHING_TO_DELETE_EMOJI = "🤷"
 # Made-up example chats (the fine-tuning seed) shown in her prompt to set her voice, until a
 # fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
 EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
@@ -95,6 +103,10 @@ handles = {}
 display_names = {}
 # channel_id -> (user id, handle) of the latest message, whose remembered facts a reply gets
 last_author = {}
+# user ids allowed to give owner commands: OWNER_USER_IDS, plus the application's owner(s) at login
+owner_ids = set(OWNER_USER_IDS)
+# message id -> (channel_id, her chat-log line) for her recent posts, so a deleted post leaves her log too
+posted = {}
 memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
 
 
@@ -262,10 +274,14 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
         # was being written, so a follow-up's last log line is still the newest unanswered message.
         lines = history[channel_id]
         newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))]
-        lines.append(format_line(BOT_NAME, reply))
+        line = format_line(BOT_NAME, reply)
+        lines.append(line)
         lines.extend(reversed(newer))
         text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
-        await channel.send(text[:2000])  # Discord's hard message-length limit
+        if sent := await channel.send(text[:2000]):  # Discord's hard message-length limit
+            posted[sent.id] = (channel_id, line)
+            if len(posted) > 1000:
+                del posted[next(iter(posted))]
 
 
 async def choose_reaction(message: discord.Message, text: str) -> str | discord.Emoji | None:
@@ -335,6 +351,40 @@ async def take_notes(message: discord.Message, text: str, mentioned: bool) -> No
         await react(message, REMEMBERED_EMOJI)
 
 
+async def delete_posts(message: discord.Message, count: int) -> None:
+    """An owner's "gomi delete that": delete the post this message replies to, or her newest `count`
+    posts in the channel (ALL: every one among the last DELETE_SCAN messages). She doesn't answer,
+    and the deleted posts leave her chat log, so she can't bring them back up."""
+    try:
+        if count == 1 and replying_to_her(message):
+            targets = [message.reference.resolved]
+        else:
+            targets = [post async for post in message.channel.history(limit=DELETE_SCAN)
+                       if post.author.id == client.user.id]
+            targets = targets if count == ALL else targets[:count]
+    except discord.HTTPException as e:  # e.g. the bot lacks Read Message History here
+        log.warning(f"Couldn't look up her posts to delete: {e}")
+        targets = []
+    deleted = 0
+    for post in targets:
+        try:
+            await post.delete()
+        except discord.NotFound:
+            pass  # already gone
+        except discord.HTTPException as e:
+            log.warning(f"Couldn't delete her post {post.id}: {e}")
+            continue
+        deleted += 1
+        if entry := posted.pop(post.id, None):
+            channel_id, line = entry
+            try:
+                history[channel_id].remove(line)
+            except ValueError:
+                pass  # already scrolled out of her log
+    log.info(f"Deleted {deleted} of her posts, as {message.author.name} asked")
+    await react(message, DELETED_EMOJI if deleted else NOTHING_TO_DELETE_EMOJI)
+
+
 async def react(message: discord.Message, emoji: str | discord.Emoji) -> None:
     try:
         await message.add_reaction(emoji)
@@ -368,6 +418,15 @@ async def chimes_in(channel_id: int) -> bool:
 @client.event
 async def on_ready():
     log.info(f"Logged in as {client.user} (id: {client.user.id})")
+    try:
+        app = await client.application_info()
+    except discord.HTTPException as e:
+        log.warning(f"Couldn't look up the bot's owner ({e}); only OWNER_USER_IDS can make her delete posts")
+        return
+    owners = app.team.members if app.team else [app.owner]
+    owner_ids.update(owner.id for owner in owners)
+    log.info(f"Owner commands (deleting her posts) accepted from: {', '.join(owner.name for owner in owners)}"
+             + (f", and user ids {', '.join(map(str, sorted(OWNER_USER_IDS)))}" if OWNER_USER_IDS else ""))
 
 
 @client.event
@@ -377,15 +436,22 @@ async def on_message(message: discord.Message):
 
     channel_id = message.channel.id
     text = readable(message)
-    history[channel_id].append(format_line(message.author.name, text))
-    logged[channel_id] += 1
     for user in (message.author, *message.mentions):
         handles[user.name.lower()] = user.id
         handles[user.display_name.lower()] = user.id
         display_names[user.id] = user.display_name
-    last_author[channel_id] = (message.author.id, message.author.name)
-
     mentioned = client.user in message.mentions
+
+    # An owner telling her to delete her posts overrides the persona: done in code, never shown to
+    # the model or kept in her chat log.
+    if (message.author.id in owner_ids and (count := delete_request(text))
+            and (mentioned or replying_to_her(message) or names_her(text))):
+        await delete_posts(message, count)
+        return
+
+    history[channel_id].append(format_line(message.author.name, text))
+    logged[channel_id] += 1
+    last_author[channel_id] = (message.author.id, message.author.name)
 
     await take_notes(message, text, mentioned)
 

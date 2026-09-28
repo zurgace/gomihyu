@@ -44,6 +44,8 @@ nothing more, until told otherwise.
 - `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
 - `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
   its `format` schema and parsing.
+- `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
+  "your last 3 messages" / "all your messages").
 - `finetuning/` — the "Satania" seed, active again (user, 2026-09-26: reuse it until a rented
   GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
   voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
@@ -77,6 +79,15 @@ nothing more, until told otherwise.
   image/sticker/bare-link/emoji-only, or at most `REACT_ONLY_MAX_WORDS` (2) words without "?"
   — get an emoji reaction as her whole response, unless they @mention or name her ("gomi",
   "gomihyu") or look serious; those always get a reply.
+- Owner commands override the persona (user, 2026-09-28: "if I tell gomi to delete her posts,
+  I want her to delete them"). An owner (the bot application's owner from `application_info()`
+  at login, or a team's members, plus `OWNER_USER_IDS`) saying "delete that / your last N /
+  all your messages" in a message aimed at her (name, @mention, Discord reply to her) → the bot
+  deletes her own posts (the replied-to post, or her newest N via `channel.history`, "all" =
+  hers among the last `DELETE_SCAN` 200), reacts 🗑️ (🤷 if none), never replies, and neither
+  the command nor the deleted posts stay in her chat log (`posted` maps message id → log line).
+  Non-owners, "don't delete", "I'll delete" → normal chat. No extra permission: bots can always
+  delete their own messages.
 - One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
   follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
   them so the follow-up prompt still ends on the newest unanswered message.
