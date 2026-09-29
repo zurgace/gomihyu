@@ -90,6 +90,13 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   `melee_channel.json`), "gomi stop posting melee" (🔕, saves none, which also beats the env), else
   `MELEE_CHANNEL_ID`. No channel → everything waits in the outbox. The user hadn't set the `.env`
   lines the first design needed, so setup is a chat command now, not config.
+  Match posts say what she'll work on (user, 2026-09-29: "provide more meaningful information ... like
+  mention what she wants to work on and improve"). Since then, AI-Melee's match event also carries her `review`
+  (her own words), `notes` (its match log: what hit her, openings, how stocks went), `goal` (the drill she
+  practises next match) and `drill_result` (last match's goal: its number before -> after, better/worse).
+  `match_facts` quotes them; the prompt asks for 2-4 sentences naming what decided the match, whether
+  her practice paid off, and next match's goal as a scheme, never an apology (it no longer tells her to
+  blame anything but the player). Match posts get `max(MAX_REPLY_TOKENS, 300)` tokens.
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)

@@ -89,6 +89,17 @@ def match_facts(event: dict, player: str, taunts: list[str] = ()) -> str:
         facts += f" During the match you trash-talked (call one back if it fits, don't list them): {said}."
     if line := str(event.get("line") or "").strip():
         facts += f' Right after the match you said: "{line}"'
+    if review := str(event.get("review") or "").strip():
+        facts += f" Your own review of the match: {review}"
+    notes = [str(n).strip() for n in event.get("notes") or [] if str(n).strip()][:3]
+    if notes:
+        facts += " What the match log says: " + " / ".join(n.rstrip(".") for n in notes) + "."
+    result = event.get("drill_result") or {}
+    if result.get("goal"):
+        facts += (f' This match you were practising "{result["goal"]}": {result.get("unit", "your number")} went '
+                  f'{result.get("before")} -> {result.get("after")} ({result.get("verdict", "no change")}).')
+    if goal := str(event.get("goal") or "").strip():
+        facts += f' Next match you will work on: "{goal}"'
     record = event.get("record") or {}
     if record.get("matches_vs"):
         facts += (f" Your record against {player}'s {opponent}: "

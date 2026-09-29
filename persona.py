@@ -133,10 +133,12 @@ def build_match_messages(transcript: list[str], facts: str, player: str, example
            if transcript else "")
     instruction = (
         f"{facts}\n\n"
-        f"Tell the chat how the match went, as {BOT_NICKNAME}, in one Discord message of 1 to 3 sentences. "
-        f"If you won, gloat. If you lost, be dramatic about it and blame something, anything, other than "
-        f"{player} being better. Call them {player}. Talk to the chat like a real message: don't list the "
-        "numbers, don't narrate, and don't repeat your own earlier lines. "
+        f"Tell the chat how the match went, as {BOT_NICKNAME}, in one Discord message of 2 to 4 sentences. "
+        f"If you won, gloat; if you lost, be dramatic about it. Name what actually decided it (the move or "
+        f"situation that beat you, or that won it). If you were practising something this match, say whether it "
+        f"paid off; if you picked something to work on next match, say what it is, as a scheme for revenge or "
+        f"total domination, never as an apology. Call them {player}. Talk to the chat like a real message: at "
+        "most one number, don't narrate, and don't repeat your own earlier lines. "
         "Do not prefix your reply with your own name."
     )
     return [

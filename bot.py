@@ -685,7 +685,7 @@ def melee_player() -> str:
 
 async def match_post(channel_id: int, event: dict, taunts: list[str] = (), temperature: float | None = None) -> str | None:
     """Her message about a Melee match (melee.py), or None if the model didn't answer."""
-    options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}
+    options = {} if model_thinks else {"num_predict": max(MAX_REPLY_TOKENS, 300)}  # 2-4 sentences
     if temperature is not None:
         options["temperature"] = temperature
     player = melee_player()
