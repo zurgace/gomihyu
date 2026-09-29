@@ -85,7 +85,7 @@ def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str 
     if not recap or has_slur(recap):
         recap = None
     handles = {person.casefold(): person for person in people}
-    log_words = [_plain(text) for text in said]
+    log_words = [f" {_plain(text)} " for text in said]
     kept, seen = [], set()
     for item in notes if isinstance(notes, list) else []:
         if not isinstance(item, dict):
@@ -94,7 +94,7 @@ def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str 
         note = " ".join(str(item.get("note", "")).split())
         quote = _plain(str(item.get("quote", "")))
         if (not who or not note or len(note) > MAX_NOTE_LENGTH or has_slur(note) or note.casefold() in seen
-                or len(quote.split()) < 2 or not any(quote in words for words in log_words)):
+                or len(quote.split()) < 2 or not any(f" {quote} " in words for words in log_words)):
             continue
         seen.add(note.casefold())
         kept.append((who, note))

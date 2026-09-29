@@ -83,7 +83,8 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   (`clean_reply` / `send_reply`, shared with `generate_reply` / `reply_to`): slur filter, repeat
   retry, in her chat history and `posted`, holding the channel's reply lock, with any follow-up owed
   answered right after (`converse`). User choices: through her own bot (not a webhook), one post per
-  match. Muted → dropped; model down → kept for the next check; older than
+  match. Muted → dropped; model down → kept, retried after `MELEE_RETRY_SECONDS` (60) instead of every
+  5 s; a post Discord refuses (permissions) → dropped with a warning, never in her history; older than
   `MELEE_MAX_AGE_MINUTES` (30) → dropped; unreadable → renamed `.bad`. The player is `MELEE_PLAYER`,
   else the app owner's nickname / display name / handle. The channel: an owner's "gomi post melee
   here" (commands.py, owner-only like delete/mute, reacts 🎮; saved in gitignored
@@ -174,7 +175,7 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   channel's log since `read_up_to` in ~12k-char parts; a part with <2 human messages is just marked
   read. One `format`-constrained call per part (`who` is an enum of the part's speakers, temperature
   0.3) returns a recap and notes, each note with a quote; `parse_digest` keeps a note only if its
-  quote (2+ words, case/punctuation-insensitive) is in one of the part's messages, the note has no
+  quote (2+ whole words, case/punctuation-insensitive) is in one of the part's messages, the note has no
   slur and is <= 200 chars. Notes → `people.json` "learned" (deduped against facts, at most
   `MAX_LEARNED_PER_PERSON` 10); recaps → `diary.json`. Model down → stop, unread; unparseable → skip
   and mark read. Prompt: the speaker's learned notes (after their asked-for facts) and the channel's

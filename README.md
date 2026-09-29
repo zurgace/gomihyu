@@ -275,9 +275,10 @@ Smash Bros. Melee (its "Gomihyu takes over P2" option). She talks about it here,
 match is over**:
 - **While she plays**, she stays quiet in Discord. The trash talk she writes in AI-Melee isn't
   posted; the bot holds on to it for her match post.
-- **After every match**, she tells the chat how it went in one message, in her own words: she gloats
-  if she won, and blames anything but you if she lost. She may call back one of the lines she said
-  during the match.
+- **After every match**, she tells the chat how it went in one message of 2–4 sentences, in her own
+  words: she gloats if she won and is dramatic if she lost, names what decided it, says whether what
+  she was practising paid off, and what she'll work on next (as a scheme, never an apology). She may
+  call back one of the lines she said during the match.
 
 **Setting it up:** say **"gomi post melee here"** (as the bot's owner) in the channel you want. She
 reacts 🎮, and remembers it across restarts. "gomi stop posting melee" turns it off (🔕). That's all:

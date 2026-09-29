@@ -130,6 +130,7 @@ MELEE_MAX_AGE_MINUTES = float(os.environ.get("MELEE_MAX_AGE_MINUTES", "30"))
 # Who played against her; default: the bot owner's nickname, else their display name.
 MELEE_PLAYER = os.environ.get("MELEE_PLAYER", "").strip()
 MELEE_CHECK_SECONDS = 5
+MELEE_RETRY_SECONDS = 60  # after a match she couldn't post
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -362,13 +363,18 @@ async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: s
     """Post reply and keep it in her chat log. seen: how many messages had been logged when she started
     writing it, so it goes in right after those, ahead of any that arrived meanwhile. about: what kind
     of post (reply, melee, goodnight); only replies can become examples (meld.py)."""
+    text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
+    try:
+        sent = await channel.send(text[:2000])  # Discord's hard message-length limit
+    except discord.HTTPException as e:  # e.g. no Send Messages permission there: she never said it
+        log.warning(f"Couldn't post in {channel_label(channel)}: {e}")
+        return
     lines = history[channel_id]
     newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))] if seen is not None else []
     line = format_line(BOT_NAME, reply)
     lines.append(line)
     lines.extend(reversed(newer))
-    text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
-    if sent := await channel.send(text[:2000]):  # Discord's hard message-length limit
+    if sent:
         posted[sent.id] = (channel_id, line)
         if len(posted) > 1000:
             del posted[next(iter(posted))]
@@ -409,8 +415,8 @@ async def choose_reaction(message: discord.Message, text: str) -> str | discord.
         return as_reaction(random.choice(looks)) if looks else None
 
     options = dict(UNICODE) | {name: use for name, (use, _) in CUSTOM.items() if usable(name)}
-    posted = posted_emoji(text)
-    same = server.get(posted.strip(":").lower()) if posted and posted.startswith(":") else posted
+    theirs = posted_emoji(text)
+    same = server.get(theirs.strip(":").lower()) if theirs and theirs.startswith(":") else theirs
     if same:
         options["same"] = "the same emoji they posted, joining in"
 
@@ -552,7 +558,7 @@ async def on_ready():
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     """A reaction on one of her posts, in a server: logged, since it means the post landed (meld.py)."""
-    if not payload.guild_id or payload.user_id == client.user.id:
+    if not payload.guild_id or payload.user_id == client.user.id or (payload.member and payload.member.bot):
         return
     if getattr(payload, "message_author_id", None) != client.user.id and payload.message_id not in posted:
         return
@@ -698,11 +704,11 @@ async def match_post(channel_id: int, event: dict, taunts: list[str] = (), tempe
     return clean_reply(data, None, start) if data else None
 
 
-async def post_matches(outbox: Path) -> None:
+async def post_matches(outbox: Path) -> bool:
     """Post about every match waiting in AI-Melee's outbox, oldest first. She only talks once a match
     is over: her in-match taunts aren't posted, they're taken out of the outbox and held (melee_taunts)
     for her post about their match. A match stays in the outbox if the model doesn't answer, to be tried
-    again on the next check (until it's too old)."""
+    again later (until it's too old). True if that's why it stopped."""
     max_age = MELEE_MAX_AGE_MINUTES * 60
     events = read_outbox(outbox, log)
     for path, event in events:
@@ -726,14 +732,14 @@ async def post_matches(outbox: Path) -> None:
             forget_taunts(ended)
             continue
         if not channel_id:
-            return  # no channel yet: matches wait (watch_melee said how to pick one)
+            return False  # no channel yet: matches wait (watch_melee said how to pick one)
         channel = client.get_channel(channel_id)
         if channel is None:
             try:
                 channel = await client.fetch_channel(channel_id)
             except discord.HTTPException as e:
                 log.error(f"Can't reach the Melee channel {channel_id} ({e}); her Melee posts wait")
-                return
+                return False
         channel_id = channel.id
         if muted(channel_id):
             log.info(f"Muted in the Melee channel; not posting {path.name}")
@@ -762,7 +768,8 @@ async def post_matches(outbox: Path) -> None:
             finally:
                 pending_followup.pop(channel_id, None)
         if not post:
-            return  # the model didn't answer: try again on the next check
+            return True  # the model didn't answer: try again later
+    return False
 
 
 def forget_taunts(ended: float) -> None:
@@ -788,12 +795,15 @@ async def watch_melee() -> None:
         log.info(f"Melee results: watching {outbox}, but no channel yet. Say 'gomi post melee here' in the "
                  "channel you want (as the bot's owner)")
     while True:
+        stalled = False
         try:
             if outbox.is_dir():
-                await post_matches(outbox)
+                stalled = await post_matches(outbox)
         except Exception:
             log.exception("Posting Melee results failed; trying again")
-        await asyncio.sleep(MELEE_CHECK_SECONDS)
+            stalled = True
+        # Ollama down or a bad file: wait a minute rather than fail every 5 seconds.
+        await asyncio.sleep(MELEE_RETRY_SECONDS if stalled else MELEE_CHECK_SECONDS)
 
 
 melee_watcher = None
@@ -903,9 +913,10 @@ async def go_to_bed(message: discord.Message) -> None:
     await react(message, GOODNIGHT_EMOJI)
     if not muted(channel_id):
         owner = memory.nickname_for(message.author.id) or message.author.display_name
+        start = time.monotonic()
         data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner, diary.vibe()),
                                   "options": {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}})
-        if data and (line := clean_reply(data, message.author.id, time.monotonic())):
+        if data and (line := clean_reply(data, message.author.id, start)):
             await send_reply(message.channel, channel_id, line, about="goodnight")
     await client.close()
 
@@ -941,6 +952,8 @@ async def main() -> None:
         if hasattr(task, "uncancel"):  # Python 3.11+: this cancel is handled, so later awaits run normally
             task.uncancel()
     finally:
+        if melee_watcher:
+            melee_watcher.cancel()  # Discord's gone: nothing to post to
         log.info("Shutting down: writing her diary first (Ctrl+C again to skip it)")
         try:
             await write_diary("shutting down")

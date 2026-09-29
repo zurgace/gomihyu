@@ -54,6 +54,8 @@ def read_outbox(outbox: Path, log) -> list[tuple[Path, dict]]:
             needed = {"text"} if event.get("kind") == "taunt" else {"won", "stocks", "opponent_character"}
             if not needed <= event.keys():
                 raise ValueError(f"not an AI-Melee {event.get('kind', 'match')} file")
+            if not isinstance(event.get("time", 0), (int, float)) or isinstance(event.get("time"), bool):
+                raise ValueError("its time isn't a number")
         except (OSError, ValueError) as e:
             log.warning(f"Skipping {path.name} in the Melee outbox ({e})")
             try:
@@ -70,13 +72,27 @@ def stale(event: dict, max_age_seconds: float, now: float | None = None) -> bool
     return (now if now is not None else time.time()) - float(event.get("time", 0)) > max_age_seconds
 
 
-def _record(wins: int, matches: int) -> str:
-    return f"{wins} wins, {matches - wins} losses"
+def _record(wins, matches) -> str:
+    return f"{_int(wins)} wins, {_int(matches) - _int(wins)} losses"
+
+
+def _int(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _lines(value) -> list[str]:
+    """A list of strings from the file, stripped; anything that isn't a list counts as none."""
+    return [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []
 
 
 def match_facts(event: dict, player: str, taunts: list[str] = ()) -> str:
     """What happened in the match, for her prompt. taunts: what she said during it, oldest first."""
-    her, theirs = (list(event.get("stocks", [0, 0])) + [0, 0])[:2]
+    stocks = event.get("stocks") if isinstance(event.get("stocks"), list) else []
+    her, theirs = [_int(n) for n in (stocks + [0, 0])[:2]]
     opponent = event.get("opponent_character", "someone")
     stage = event.get("stage", "a stage")
     won = bool(event.get("won"))
@@ -91,22 +107,25 @@ def match_facts(event: dict, player: str, taunts: list[str] = ()) -> str:
         facts += f' Right after the match you said: "{line}"'
     if review := str(event.get("review") or "").strip():
         facts += f" Your own review of the match: {review}"
-    notes = [str(n).strip() for n in event.get("notes") or [] if str(n).strip()][:3]
+    notes = _lines(event.get("notes"))[:3]
     if notes:
         facts += " What the match log says: " + " / ".join(n.rstrip(".") for n in notes) + "."
-    result = event.get("drill_result") or {}
+    result = _dict(event.get("drill_result"))
     if result.get("goal"):
-        facts += (f' This match you were practising "{result["goal"]}": {result.get("unit", "your number")} went '
-                  f'{result.get("before")} -> {result.get("after")} ({result.get("verdict", "no change")}).')
+        facts += f' This match you were practising "{result["goal"]}"'
+        if result.get("before") is not None and result.get("after") is not None:
+            facts += (f': {result.get("unit", "your number")} went {result["before"]} -> {result["after"]} '
+                      f'({result.get("verdict", "no change")})')
+        facts += "."
     if goal := str(event.get("goal") or "").strip():
         facts += f' Next match you will work on: "{goal}"'
-    record = event.get("record") or {}
-    if record.get("matches_vs"):
+    record = _dict(event.get("record"))
+    if _int(record.get("matches_vs")):
         facts += (f" Your record against {player}'s {opponent}: "
                   f"{_record(record.get('wins_vs', 0), record['matches_vs'])}.")
-    if record.get("matches"):
+    if _int(record.get("matches")):
         facts += f" Overall: {_record(record.get('wins', 0), record['matches'])}."
-    lessons = [str(ln).strip() for ln in event.get("lessons") or [] if str(ln).strip()][:3]
+    lessons = _lines(event.get("lessons"))[:3]
     if lessons:
         facts += " What you've learned so far: " + " / ".join(lessons)
     return facts
