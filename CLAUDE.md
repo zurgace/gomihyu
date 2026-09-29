@@ -47,7 +47,7 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   its `format` schema and parsing.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
   "your last 3 messages" / "all your messages"), `mute_request` ("gomi mute" / "for 2 hours" /
-  "until i say so") and `unmute_request`.
+  "until i say so"), `quiet_request` ("gomi quiet mode") and `unmute_request` (ends either).
 - `finetuning/` — the "Satania" seed, active again (user, 2026-09-26: reuse it until a rented
   GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
   voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
@@ -65,9 +65,13 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   AI-Melee (`zurgace/aimelee`, where she plays Mario or Fox through Ollama and learns between matches)
   writes one JSON per match and per in-match taunt to an outbox both know by default,
   `~/.local/share/gomihyu/melee-outbox` (atomic, newest 20 kept; `MELEE_OUTBOX` overrides).
-  `bot.py`'s `watch_melee` task (started once in `on_ready`) checks it every 5 s. Taunts (user,
-  2026-09-29: "talk in discord instead" of only the AI-Melee log; at most one per 30 s, dropped after
-  90 s) are posted as she wrote them in AI-Melee, no model call, slur filter applied. Matches are
+  `bot.py`'s `watch_melee` task (started once in `on_ready`) checks it every 5 s. She only talks once
+  a match is over (user, 2026-09-29, same day: she "yaps a bit too often during gameplay"; the first
+  version posted taunts live, at most one per 30 s). Taunt files are taken out of the outbox on sight
+  (so AI-Melee's newest-20 limit never pushes out a match) into `melee_taunts` (in memory), minus
+  slurs; a match post gets the ones said up to `TAUNT_WINDOW_SECONDS` (15 min) before it ended, the
+  last 3 quoted in `match_facts` ("call one back if it fits, don't list them"), and they're dropped
+  with the match (posted, muted, stale). Unmatched taunts expire with `MELEE_MAX_AGE_MINUTES`. Matches are
   posted about through the normal paths
   (`clean_reply` / `send_reply`, shared with `generate_reply` / `reply_to`): slur filter, repeat
   retry, in her chat history and `posted`, holding the channel's reply lock, with any follow-up owed
@@ -117,6 +121,13 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   dropped before sending and no follow-up runs. Only the literal word "mute": "gomi stfu" is
   banter the user actually says to her. Negation and first-person ("don't make me mute you",
   "I'll mute you") are checked only in the words before the verb.
+- Quiet mode, the softer mute (user, 2026-09-29): an owner's "gomi quiet mode [for ... | until i
+  say so]" or "gomi only talk/reply when ..." → in that channel she only answers posts aimed at her
+  (`for_her`); no chime-ins (no interest call), no reply to sad news not aimed at her (the sad cat
+  still goes on), but emoji reactions and Melee match posts continue. `quiet_until`, same default
+  and duration parsing as mute, reacts 🤫. Mute and quiet mode replace each other (the newest wins);
+  "unmute" / "quiet mode off" / "turn off quiet mode" / "you can talk again" end either (🔊).
+  Questions, "don't ..." and "I'll ..." before the phrase aren't commands; "be quiet" is banter.
 - One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
   follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
   them so the follow-up prompt still ends on the newest unanswered message.

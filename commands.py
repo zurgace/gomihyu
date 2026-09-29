@@ -10,7 +10,8 @@ in a message aimed at her.
                                                                 recent messages
     "gomi mute" / "gomi mute for 2 hours"                     -> silent in this channel for a while
     "gomi mute until i say so" / "gomi mute forever"          -> silent until unmuted
-    "gomi unmute"                                             -> talking again
+    "gomi quiet mode" / "gomi only talk when spoken to"       -> only answers people talking to her
+    "gomi unmute" / "gomi quiet mode off"                     -> back to normal (ends either)
     "gomi post melee here" / "gomi melee results here"        -> this channel gets her Melee posts
     "gomi stop posting melee"                                 -> no channel gets them
 """
@@ -67,21 +68,25 @@ UNITS = {"m": 1, "min": 1, "mins": 1, "minute": 1, "minutes": 1,
          "h": 60, "hr": 60, "hrs": 60, "hour": 60, "hours": 60, "d": 1440, "day": 1440, "days": 1440}
 _ANY_UNIT = "|".join(sorted(UNITS, key=len, reverse=True))
 _WORD_UNIT = "|".join(sorted((u for u in UNITS if len(u) > 1), key=len, reverse=True))
-# "10m" / "2 hours" / "1.5h", "an hour" / "two days" (a spelled-out number needs a spelled-out unit,
+# "10m" / "2 hours" / "1.5h", "an hour" / "the next hour" / "two days" (a spelled-out number needs a spelled-out unit,
 # so "and" isn't "a" + "d"), and "half an hour"
 DURATION = re.compile(rf"\b(?:(?P<num>\d+(?:\.\d+)?)\s*(?P<unit>{_ANY_UNIT})"
-                      rf"|(?P<word>an?|{'|'.join(NUMBERS)})\s+(?P<word_unit>{_WORD_UNIT})"
+                      rf"|(?P<word>an?|next|{'|'.join(NUMBERS)})\s+(?P<word_unit>{_WORD_UNIT})"
                       r"|(?P<half>half\s+an?\s+hour))\b", re.IGNORECASE)
 UNTIL_UNMUTED = re.compile(r"\b(?:until|till|til|forever|indefinitely|for\s+good)\b", re.IGNORECASE)
 
 
 def mute_request(text: str, default_minutes: float) -> float | None:
-    """For how many minutes the message asks her to go quiet (FOREVER: until unmuted), or None.
+    """For how many minutes the message asks her to go silent (FOREVER: until unmuted), or None.
     With no duration given, default_minutes."""
     # only the words leading up to it count: "mute till i unmute you" is still a request
     if not (m := MUTE.search(text)) or NOT_A_MUTE.search(text[:m.end()]):
         return None
-    after = text[m.end():]  # "mute for 2 hours", not a number from earlier in the message
+    return _minutes(text[m.end():], default_minutes)  # "mute for 2 hours", not a number from before it
+
+
+def _minutes(after: str, default_minutes: float) -> float | None:
+    """The duration asked for in the words after the command (FOREVER: until unmuted)."""
     if d := DURATION.search(after):
         if d["half"]:
             return 30
@@ -95,9 +100,33 @@ def mute_request(text: str, default_minutes: float) -> float | None:
     return default_minutes
 
 
+# Quiet mode: she only answers people talking to her. Two phrasings, since "be quiet" / "stfu" are
+# banter here: "quiet mode", and "only talk/reply when ..." ("when spoken to", "when pinged").
+QUIET = re.compile(r"\bquiet\s+mode\b|\bonly\s+(?:talk|speak|reply|respond|answer|chime\s+in)\s+(?:when|if)\b",
+                   re.IGNORECASE)
+# Back to normal, from a mute or quiet mode.
+TALK_AGAIN = re.compile(r"\bunmute\b|\bquiet\s+mode\s+off\b"
+                        r"|\b(?:turn\s+off|end|stop|exit|leave|disable|no\s+more)\s+(?:the\s+|ur\s+|your\s+)?quiet\s+mode\b"
+                        r"|\byou\s+can\s+(?:talk|speak|chime\s+in)\s+(?:again|now)\b", re.IGNORECASE)
+# "don't put yourself in quiet mode", "i'll put you in quiet mode": anywhere before the phrase
+HEDGED = re.compile(r"\b(?:don[’']?t|do\s+not|never|i[’']?ll|ill|i\s+will|we[’']?ll|i[’']?m\s+(?:gonna|going\s+to)"
+                    r"|im\s+(?:gonna|going\s+to)|i\s+might|maybe)\b", re.IGNORECASE)
+
+
+def quiet_request(text: str, default_minutes: float) -> float | None:
+    """For how many minutes the message asks her to only answer people talking to her (FOREVER: until
+    unmuted), or None. With no duration given, default_minutes."""
+    if (not (m := QUIET.search(text)) or TALK_AGAIN.search(text) or "?" in text
+            or HEDGED.search(text[:m.start()])):
+        return None
+    return _minutes(text[m.end():], default_minutes)
+
+
 def unmute_request(text: str) -> bool:
-    """Whether the message tells her she can talk again."""
-    return bool(m := UNMUTE.search(text)) and not NOT_A_MUTE.search(text[:m.end()])
+    """Whether the message tells her she can talk again: ends a mute or quiet mode."""
+    if not (m := TALK_AGAIN.search(text)):
+        return False
+    return not (NOT_A_MUTE.search(text[:m.end()]) or HEDGED.search(text[:m.start()]))
 
 
 MELEE = r"(?:melee|smash|ssbm)"

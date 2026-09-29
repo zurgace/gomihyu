@@ -3,10 +3,12 @@ Melee results: posting about the matches she plays in AI-Melee.
 
 AI-Melee (github.com/zurgace/aimelee) can have Gomi play Mario or Fox against the owner. It leaves
 JSON files in an outbox folder both programs know (default_outbox(): ~/.local/share/gomihyu/
-melee-outbox): one per in-match taunt ({"kind": "taunt", "text": ...}, posted as she wrote it) and
-one per match (the result, the stage, the line she said right after, her lessons and her record).
-bot.py watches that folder (MELEE_OUTBOX overrides it) and has her tell the chat about each match in
-her own words, in the channel an owner picked with "gomi post melee here". Everything here is
+melee-outbox): one per in-match taunt ({"kind": "taunt", "text": ...}) and one per match (the result,
+the stage, the line she said right after, her lessons and her record). bot.py watches that folder
+(MELEE_OUTBOX overrides it) and has her tell the chat about each match in her own words, once it's
+over, in the channel an owner picked with "gomi post melee here". Her taunts aren't posted while she
+plays (user, 2026-09-29: she "yaps a bit too often during gameplay"); they're held and given to her
+post about the match, which may call one back. Everything here is
 plain file and text handling; the prompt itself is persona.build_match_messages.
 """
 
@@ -15,7 +17,9 @@ import os
 import time
 from pathlib import Path
 
-TAUNT_MAX_AGE_SECONDS = 90  # a taunt is live trash talk: late, it's dropped
+# A match's post draws on the taunts from up to this long before it ended (a Melee match is 8
+# minutes at most by default), so a match that was quit halfway doesn't lend its lines to the next.
+TAUNT_WINDOW_SECONDS = 15 * 60
 
 
 def default_outbox() -> Path:
@@ -70,8 +74,8 @@ def _record(wins: int, matches: int) -> str:
     return f"{wins} wins, {matches - wins} losses"
 
 
-def match_facts(event: dict, player: str) -> str:
-    """What happened in the match, for her prompt."""
+def match_facts(event: dict, player: str, taunts: list[str] = ()) -> str:
+    """What happened in the match, for her prompt. taunts: what she said during it, oldest first."""
     her, theirs = (list(event.get("stocks", [0, 0])) + [0, 0])[:2]
     opponent = event.get("opponent_character", "someone")
     stage = event.get("stage", "a stage")
@@ -80,6 +84,9 @@ def match_facts(event: dict, player: str) -> str:
     facts = (f"You just played a match of Super Smash Bros. Melee as {character} against {player}, who played "
              f"{opponent}, on {stage}, and you {'WON' if won else 'LOST'}: you had {her} "
              f"stock{'s' if her != 1 else ''} left, {player} had {theirs}.")
+    if taunts:
+        said = " / ".join(f'"{taunt}"' for taunt in taunts[-3:])
+        facts += f" During the match you trash-talked (call one back if it fits, don't list them): {said}."
     if line := str(event.get("line") or "").strip():
         facts += f' Right after the match you said: "{line}"'
     record = event.get("record") or {}

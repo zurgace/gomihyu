@@ -188,6 +188,18 @@ of writing is dropped. It's per channel: muting her in one channel leaves the ot
 Only the word "mute" counts, so banter like "gomi stfu" doesn't mute her, and "don't make me
 mute you" / "I'll mute you" aren't commands. A restart unmutes her everywhere.
 
+### Quiet mode (the softer mute)
+- `gomi quiet mode` / `gomi only talk when spoken to`: in this channel, she only answers people
+  talking to her (her name, an @mention, a Discord reply to her post). Same times as a mute:
+  `gomi quiet mode for an hour`, `gomi quiet mode until i say so`; default `MUTE_MINUTES`.
+- `gomi quiet mode off` / `gomi unmute` / `gomi you can talk again`: back to normal.
+
+She reacts 🤫. In quiet mode she doesn't chime in on her own (the interest check doesn't even
+run) and doesn't reply to sad news that isn't aimed at her, but still adds emoji reactions and
+posts her Melee match results. A mute and quiet mode replace each other: whichever you said last
+counts. "Be quiet" and "stfu" are banter, not commands; so are "don't make me put you in quiet
+mode", "I'll put you in quiet mode" and questions about it.
+
 ### Who counts as the owner
 Whoever owns the bot application in the Developer Portal (you, if you
 created it; the console prints the name at startup), plus any Discord user ids in
@@ -197,10 +209,13 @@ older posts uses Read Message History, which the bot already has.
 
 ## Melee results
 [AI-Melee](https://github.com/zurgace/aimelee) can have Gomi play Mario or Fox against you in Super
-Smash Bros. Melee (its "Gomihyu takes over P2" option). She talks about it here:
-- **While she plays**, her trash talk is posted live, at most one line every 30 seconds.
-- **After every match**, she tells the chat how it went, in her own words: she gloats if she won, and
-  blames anything but you if she lost.
+Smash Bros. Melee (its "Gomihyu takes over P2" option). She talks about it here, **only once a
+match is over**:
+- **While she plays**, she stays quiet in Discord. The trash talk she writes in AI-Melee isn't
+  posted; the bot holds on to it for her match post.
+- **After every match**, she tells the chat how it went in one message, in her own words: she gloats
+  if she won, and blames anything but you if she lost. She may call back one of the lines she said
+  during the match.
 
 **Setting it up:** say **"gomi post melee here"** (as the bot's owner) in the channel you want. She
 reacts 🎮, and remembers it across restarts. "gomi stop posting melee" turns it off (🔕). That's all:
@@ -211,10 +226,11 @@ seconds. Both programs run on the same PC.
   her, put their name in `MELEE_PLAYER`.
 - Her posts are normal messages of hers: they're in her chat history, so replies about the match get
   answered in context, and "gomi delete that" and muting work as usual.
-- While she's muted in that channel, her Melee posts are dropped.
+- While she's muted in that channel, her Melee posts are dropped. Quiet mode doesn't stop them: a
+  match post isn't butting in.
 - A match she can't write about yet (Ollama down) waits for the next check. A match older than
-  `MELEE_MAX_AGE_MINUTES` (30), or a taunt older than 90 seconds, is dropped unposted, so a bot
-  started late doesn't dump old stuff into the channel.
+  `MELEE_MAX_AGE_MINUTES` (30) is dropped unposted, so a bot started late doesn't dump old stuff
+  into the channel. Trash talk from a match that never finished is forgotten.
 - With no channel picked yet, everything waits (AI-Melee keeps the newest 20, and warns that her posts
   are piling up). The bot's console says which folder and channel it uses when it starts.
 - `.env` overrides, rarely needed: `MELEE_OUTBOX` (another folder), `MELEE_CHANNEL_ID` (a channel to

@@ -31,9 +31,10 @@ from dotenv import load_dotenv
 
 from censor import has_slur
 from chime import INTEREST_FORMAT, interest_messages, parse_interest
-from commands import ALL, FOREVER, delete_request, melee_here_request, melee_stop_request, mute_request, unmute_request
+from commands import (ALL, FOREVER, delete_request, melee_here_request, melee_stop_request, mute_request, quiet_request,
+                      unmute_request)
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
-from melee import (TAUNT_MAX_AGE_SECONDS, default_outbox, load_channel, match_facts, read_outbox, save_channel,
+from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, match_facts, read_outbox, save_channel,
                    stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_match_messages, build_messages, format_line
@@ -77,9 +78,11 @@ OWNER_USER_IDS = {int(user_id) for user_id in re.findall(r"\d+", os.environ.get(
 DELETE_SCAN = int(os.environ.get("DELETE_SCAN", "200"))
 DELETED_EMOJI = "🗑️"  # reaction confirming her posts were deleted
 NOTHING_TO_DELETE_EMOJI = "🤷"
-# How long an owner's "gomi mute" silences her in that channel when they don't say, in minutes.
+# How long an owner's "gomi mute" (silent) or "gomi quiet mode" (only answers people talking to her)
+# lasts in that channel when they don't say, in minutes.
 MUTE_MINUTES = float(os.environ.get("MUTE_MINUTES", "30"))
 MUTED_EMOJI = "🔇"  # reaction confirming she's muted
+QUIET_EMOJI = "🤫"  # reaction confirming quiet mode
 UNMUTED_EMOJI = "🔊"
 HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know she isn't broken
 # Made-up example chats (the fine-tuning seed) shown in her prompt to set her voice, until a
@@ -131,6 +134,8 @@ app_owner = None
 posted = {}
 # channel_id -> time.monotonic() when her mute there ends (FOREVER: until unmuted). Not kept across restarts.
 muted_until = {}
+# channel_id -> when her quiet mode there ends (only answers people talking to her). Same rules.
+quiet_until = {}
 memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
 
 
@@ -171,6 +176,10 @@ def readable(message: discord.Message) -> str:
 
 def muted(channel_id: int) -> bool:
     return muted_until.get(channel_id, 0) > time.monotonic()
+
+
+def quiet(channel_id: int) -> bool:
+    return quiet_until.get(channel_id, 0) > time.monotonic()
 
 
 def person(name: str) -> int | None:
@@ -499,6 +508,7 @@ async def on_message(message: discord.Message):
             return
         if unmute_request(text):
             muted_until.pop(channel_id, None)
+            quiet_until.pop(channel_id, None)
             log.info(f"Unmuted in {where} by {message.author.name}")
             await react(message, UNMUTED_EMOJI)
             return
@@ -512,12 +522,16 @@ async def on_message(message: discord.Message):
             log.info(f"No more Melee posts, by {message.author.name}")
             await react(message, NO_MELEE_EMOJI)
             return
-        if (minutes := mute_request(text, MUTE_MINUTES)) is not None:
-            muted_until[channel_id] = time.monotonic() + minutes * 60
-            log.info(f"Muted in {where} " + ("until unmuted" if minutes == FOREVER else f"for {minutes:g} minutes")
-                     + f", by {message.author.name}")
-            await react(message, MUTED_EMOJI)
-            return
+        # The newest of a mute and quiet mode wins.
+        for request, until, other, what, emoji in [(mute_request, muted_until, quiet_until, "Muted", MUTED_EMOJI),
+                                                   (quiet_request, quiet_until, muted_until, "Quiet mode", QUIET_EMOJI)]:
+            if (minutes := request(text, MUTE_MINUTES)) is not None:
+                until[channel_id] = time.monotonic() + minutes * 60
+                other.pop(channel_id, None)
+                log.info(f"{what} in {where} " + ("until unmuted" if minutes == FOREVER else f"for {minutes:g} minutes")
+                         + f", by {message.author.name}")
+                await react(message, emoji)
+                return
 
     history[channel_id].append(format_line(message.author.name, text))
     logged[channel_id] += 1
@@ -544,8 +558,11 @@ async def on_message(message: discord.Message):
             await react(message, emoji)
         return
 
-    # Aimed at her: always answered. Anything else only if it interests her (chimes_in).
-    addressed = for_her or sad_news(text)
+    # Aimed at her: always answered. Anything else only if it interests her (chimes_in), and never in
+    # quiet mode, not even sad news (the sad cat above still says she saw it).
+    addressed = for_her or (sad_news(text) and not quiet(channel_id))
+    if quiet(channel_id) and not addressed:
+        return
 
     lock = reply_locks[channel_id]
     if lock.locked():
@@ -564,7 +581,7 @@ async def on_message(message: discord.Message):
 async def converse(channel: discord.abc.Messageable, channel_id: int, mentioned: bool, addressed: bool) -> None:
     """Reply if she should, then once more for whatever arrived meanwhile. Holds the channel's lock."""
     while not muted(channel_id):
-        if addressed or await chimes_in(channel_id):
+        if addressed or (not quiet(channel_id) and await chimes_in(channel_id)):
             # What arrived while she was deciding is already in the log, so this reply covers it.
             was_mentioned, _ = pending_followup.pop(channel_id, (False, False))
             await reply_to(channel, channel_id, mentioned or was_mentioned)
@@ -583,32 +600,49 @@ def melee_player() -> str:
     return "the owner"
 
 
-async def match_post(channel_id: int, event: dict, temperature: float | None = None) -> str | None:
+async def match_post(channel_id: int, event: dict, taunts: list[str] = (), temperature: float | None = None) -> str | None:
     """Her message about a Melee match (melee.py), or None if the model didn't answer."""
     options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}
     if temperature is not None:
         options["temperature"] = temperature
     player = melee_player()
     shown = random.sample(examples, min(FEW_SHOT_EXAMPLES, len(examples)))
-    payload = {"messages": build_match_messages(list(history[channel_id]), match_facts(event, player), player, shown),
-               "options": options}
+    facts = match_facts(event, player, taunts)
+    payload = {"messages": build_match_messages(list(history[channel_id]), facts, player, shown), "options": options}
     start = time.monotonic()
     data = await ollama_chat(payload)
     return clean_reply(data, None, start) if data else None
 
 
 async def post_matches(outbox: Path) -> None:
-    """Post about every match waiting in AI-Melee's outbox, oldest first. A match stays there if
-    the model doesn't answer, to be tried again on the next check (until it's too old)."""
+    """Post about every match waiting in AI-Melee's outbox, oldest first. She only talks once a match
+    is over: her in-match taunts aren't posted, they're taken out of the outbox and held (melee_taunts)
+    for her post about their match. A match stays in the outbox if the model doesn't answer, to be tried
+    again on the next check (until it's too old)."""
+    max_age = MELEE_MAX_AGE_MINUTES * 60
+    events = read_outbox(outbox, log)
+    for path, event in events:
+        if event.get("kind") == "taunt":
+            path.unlink(missing_ok=True)  # out of the outbox now: AI-Melee only keeps its newest 20 files
+            text = str(event["text"]).strip()
+            if text and not has_slur(text) and not stale(event, max_age):
+                melee_taunts.append((float(event.get("time", 0)), text))
+    # Taunts from a match that never finished
+    melee_taunts[:] = [(said, text) for said, text in melee_taunts if not stale({"time": said}, max_age)]
+
     channel_id = melee_channel()
-    for path, event in read_outbox(outbox, log):
-        taunt = event.get("kind") == "taunt"
-        if stale(event, TAUNT_MAX_AGE_SECONDS if taunt else MELEE_MAX_AGE_MINUTES * 60):
-            log.info(f"Melee {'taunt' if taunt else 'match'} {path.name} is too old to post; dropping it")
+    for path, event in events:
+        if event.get("kind") == "taunt":
+            continue
+        ended = float(event.get("time", 0))
+        taunts = [text for said, text in melee_taunts if ended - TAUNT_WINDOW_SECONDS <= said <= ended]
+        if stale(event, max_age):
+            log.info(f"Melee match {path.name} is too old to post; dropping it")
             path.unlink(missing_ok=True)
+            forget_taunts(ended)
             continue
         if not channel_id:
-            return  # no channel yet: they wait (watch_melee said how to pick one)
+            return  # no channel yet: matches wait (watch_melee said how to pick one)
         channel = client.get_channel(channel_id)
         if channel is None:
             try:
@@ -620,28 +654,22 @@ async def post_matches(outbox: Path) -> None:
         if muted(channel_id):
             log.info(f"Muted in the Melee channel; not posting {path.name}")
             path.unlink(missing_ok=True)
+            forget_taunts(ended)
             continue
         async with reply_locks[channel_id]:
             try:
-                if taunt:
-                    # Written by her in AI-Melee already: posted as is, minus any slur.
-                    post = str(event["text"]).strip() or None
-                    if post and has_slur(post):
-                        post = f":{SLUR_STANDIN}:"
-                else:
-                    async with channel.typing():
-                        post = await match_post(channel_id, event)
-                        if post and repeats_itself(channel_id, post):
-                            post = await match_post(channel_id, event, temperature=RETRY_TEMPERATURE) or post
-                if taunt and not post:
-                    path.unlink(missing_ok=True)
-                    continue
+                async with channel.typing():
+                    post = await match_post(channel_id, event, taunts)
+                    if post and repeats_itself(channel_id, post):
+                        post = await match_post(channel_id, event, taunts, temperature=RETRY_TEMPERATURE) or post
                 if post:
                     path.unlink(missing_ok=True)
+                    forget_taunts(ended)
                     if muted(channel_id):
                         log.info("Muted while writing a Melee post; not sending it")
                     else:
-                        log.info(f"Posting Melee {'taunt' if taunt else 'match'} {path.name}")
+                        log.info(f"Posting about Melee match {path.name}"
+                                 + (f" ({len(taunts)} of her in-match lines to draw on)" if taunts else ""))
                         await send_reply(channel, channel_id, post)
                 # Anything said while she was writing gets its usual answer now.
                 if channel_id in pending_followup:
@@ -651,6 +679,11 @@ async def post_matches(outbox: Path) -> None:
                 pending_followup.pop(channel_id, None)
         if not post:
             return  # the model didn't answer: try again on the next check
+
+
+def forget_taunts(ended: float) -> None:
+    """Drop the held taunts from a match that ended at `ended` (and any older ones)."""
+    melee_taunts[:] = [(said, text) for said, text in melee_taunts if said > ended]
 
 
 def melee_channel() -> int | None:
@@ -680,6 +713,8 @@ async def watch_melee() -> None:
 
 
 melee_watcher = None
+# (time.time() she said it, text) of her in-match taunts, held until their match is over (post_matches)
+melee_taunts = []
 
 
 if __name__ == "__main__":
