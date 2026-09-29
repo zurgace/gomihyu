@@ -9,7 +9,7 @@ Two sources, both read from the chat log (chatlog.py):
     bit by bit, but never below the anchor share (MELD_ANCHOR).
   - the server's voice: people's own messages, as examples of how this server talks. Summed up
     nightly in a short vibe note for her prompt (vibe_messages / parse_vibe), and used as training
-    examples by finetuning/build_dataset.py --meld, whose share grows run by run (SCHEDULE).
+    examples by finetuning/build_dataset.py --meld, whose share grows run by run (persona_share).
 Everything here is plain logic and prompts; bot.py and the dataset builder call it.
 """
 
@@ -27,8 +27,10 @@ CONTEXT_LINES = 6  # chat before an example's reply, at most
 CONTEXT_SECONDS = 30 * 60  # and no older than this before it
 # "stfu gomi" right after: that one didn't land, whatever else happened
 PUT_DOWN = re.compile(r"\b(?:stfu|shut\s+up|nobody\s+asked|cringe|go\s+away|be\s+quiet|so\s+annoying)\b", re.IGNORECASE)
-# Persona share of a training run's data, by run number; the last value (the anchor) stays from then on.
-SCHEDULE = [0.7, 0.55, 0.4, 0.3]
+# Persona share of a training run's data: FIRST_SHARE for run 1, down in even steps to the anchor at run
+# MELD_RUNS, which stays from then on. With weekly runs (finetuning/weekly.py), 11 runs is about 2.5 months.
+FIRST_SHARE = 0.7
+MELD_RUNS = 11
 MAX_VIBE_LINES = 6
 MAX_VIBE_LINE_LENGTH = 150
 
@@ -106,9 +108,12 @@ def pick_examples(seed: list[dict], earned: list[dict], n: int, anchor: float, f
     return picked
 
 
-def persona_share(run: int, anchor: float) -> float:
-    """A training run's share of Satania examples: SCHEDULE by run, never below the anchor."""
-    return max(anchor, SCHEDULE[min(max(run, 1), len(SCHEDULE)) - 1])
+def persona_share(run: int, anchor: float, runs: int = MELD_RUNS) -> float:
+    """A training run's share of Satania examples: FIRST_SHARE at run 1, down to the anchor by run `runs`,
+    never below it."""
+    if anchor >= FIRST_SHARE or runs <= 1 or run >= runs:
+        return anchor
+    return round(FIRST_SHARE - (FIRST_SHARE - anchor) * (max(run, 1) - 1) / (runs - 1), 4)
 
 
 def vibe_messages(current: list[str], lines: list[str]) -> list[dict]:

@@ -191,8 +191,8 @@ fits what's in it, instead of a fixed 👀. The console logs each look:
 - Text written in a picture never counts as someone telling her to remember something, and a
   description with a slur is dropped (she treats the picture as unseen).
 - `VISION=false` turns it off (back to the 👀 reaction). `VISION_MODEL` lets a different model do the
-  looking; by default it's her own. After the first picture, `ollama ps` shows how much VRAM the
-  vision part added.
+  looking; by default it's her own (after a weekly fine-tune, the stock one: hers is text only). After
+  the first picture, `ollama ps` shows how much VRAM the vision part added.
 - `venv/bin/python tools/vision_check.py` checks your setup: it asks the model what colour a few
   plain pictures are. Some Ollama versions hand gemma4:e4b a blank image
   ([ollama#18560](https://github.com/ollama/ollama/issues/18560)); on this setup (0.34.2, Linux,
@@ -245,10 +245,12 @@ server agreed to their chat being used for this). It happens in two places:
   you, but you're still you") and is kept in `diary.json`.
 The console prints the replies that landed and the updated note at each shutdown.
 
-**Every training run** (on the rented GPU, see [Training data](#training-data)), the dataset mixes
-the Satania examples with the server: her landed replies, and people's own messages from the chat
-logs as examples of how the server talks. Each run tilts further: 70% Satania for run 1, then 55%,
-40%, and 30% from run 4 on, where it stays.
+**Every week, in her model** (a fine-tune on Kaggle's free GPU, see
+[Weekly fine-tune](#weekly-fine-tune-on-kaggle-free)), the training data mixes the Satania examples
+with the server: her landed replies, and people's own messages from the chat logs as examples of how
+the server talks. Each run tilts a little further: 70% Satania for run 1, 66% for run 2, and so on
+down to `MELD_ANCHOR` (30%) at run `MELD_RUNS` (11, about two and a half months of weekly runs), where
+it stays. A week with little new chat is skipped, which just pauses it.
 
 
 ## Owner commands: deleting her posts, muting her, putting her to bed
@@ -359,17 +361,59 @@ so the model is trained on exactly the prompt format it's served (without the ex
 training run, build the data with `--meld` and the run's number:
 ```bash
 venv/bin/python finetuning/build_dataset.py --meld --run 1   # the first run: 70% Satania
-venv/bin/python finetuning/build_dataset.py --meld --run 2   # the next one: 55%, then 40%, then 30%
+venv/bin/python finetuning/build_dataset.py --meld --run 2   # the next one: 66%, then 62%, ... 30%
 ```
 It mixes the seed (3 times over, `--seed-repeat`) with her landed replies and people's messages from
 the chat logs, and prints what went in and the actual Satania share: early on, with little chat
 logged, there may not be enough server data to reach the aimed-for share. `--persona-share 0.5` sets
 the share by hand. The same run number always gives the same data. `train.jsonl` holds real chat:
-it's gitignored, keep it that way.
+it's gitignored, keep it that way. The weekly fine-tune below does this for you.
 
-Fine-tuning Gemma 4 E4B with QLoRA reportedly needs about 10GB of VRAM, more than the RTX 2070
-has, so training will run on a rented GPU. Serving the result doesn't need bot changes: build it
-into Ollama, point `OLLAMA_MODEL` at it, and set `FEW_SHOT_EXAMPLES=0`.
+### Weekly fine-tune on Kaggle (free)
+Fine-tuning Gemma 4 E4B needs more VRAM than the RTX 2070 has, so it runs on Kaggle's free T4 GPU
+(16GB, 30 GPU hours a week; a run should take about an hour), once a week, and the result is served
+from the 2070 as before. `finetuning/weekly.py` does the whole round trip.
+
+**Setting it up (once):**
+1. Make a [Kaggle](https://www.kaggle.com) account and verify your phone number (Settings): Kaggle
+   only gives GPUs and internet to verified accounts.
+2. Get an API token under Settings → API and put it where that page says (`~/.kaggle/`).
+3. `venv/bin/pip install kaggle`
+4. In `.env`: `WEEKLY_KAGGLE_USER=` your Kaggle username.
+
+**Every week:**
+```bash
+venv/bin/python finetuning/weekly.py all      # build, upload, train (~1 hour), download, install, check
+venv/bin/python finetuning/weekly.py switch   # once the check reads right; then restart the bot
+```
+`all` stops at the check and never switches her by itself. The steps one at a time are `build`,
+`upload`, `fetch`, `install` and `check`; `status` shows the runs so far and what's next, and
+`rollback` undoes the last switch. `venv/bin/python finetuning/weekly.py --help` lists the options.
+
+What each run does:
+- **build**: this week's data (the meld mix above), if there are at least `WEEKLY_MIN_NEW` (50) new
+  examples from the server since the last run; otherwise it says so and skips the week (`--force`
+  builds anyway).
+- **upload**: to Kaggle as a private dataset, and starts `finetuning/kaggle_train.py` there as a
+  private notebook on a T4. It trains the stock Gemma 4 E4B again (never last week's model, so changes
+  don't pile up and her own habits don't feed on themselves) on her replies only, merges it, and makes
+  a Q4_K_M GGUF like the stock model's. Its log has counts and losses, never chat.
+- **fetch**: waits for it, downloads the model (about 5GB), and deletes the data from Kaggle.
+- **install**: creates `gomi-wN` in Ollama with the stock model's chat template and settings, and
+  deletes the download (Ollama keeps its own copy). Every week's model stays, so any can come back.
+- **check**: the same made-up test chats (`finetuning/check_chats.jsonl`) answered by what she runs on
+  now and by `gomi-wN`, side by side, plus whether `gomi-wN` still reads the room and writes her diary
+  properly, whether it sees pictures, and whether it fits on the GPU next to the stock model. The
+  report is also saved in `finetuning/runs/wN/check.md`.
+- **switch**: points `.env` at it: `OLLAMA_MODEL=gomi-wN` and `FEW_SHOT_EXAMPLES=0` (the example chats
+  are in the model now). The fine-tune is text only, so pictures go to the stock model
+  (`VISION_MODEL=gemma4:e4b`), and if both fit on the GPU, so do reading the room and her diary
+  (`TASK_MODEL=gemma4:e4b`), which she wasn't trained for. `--tasks her` keeps those on her.
+
+Everything is kept in `finetuning/runs/` (gitignored). This hasn't been run on Kaggle yet, so watch
+the first one on its notebook page (the `upload` step prints the link). If Kaggle's setup stops
+installing Unsloth, compare the `PIP` list at the top of `kaggle_train.py` with Unsloth's Gemma 4
+notebook, which it names.
 
 **Parked for then:** `archive/discord-pipeline/` turns your own Discord data export into training
 data, so she learns to text like you. It reads public server channels only, never DMs, and

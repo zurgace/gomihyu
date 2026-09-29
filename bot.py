@@ -139,6 +139,9 @@ MELEE_CHECK_SECONDS = 5
 # VISION_MAX_IMAGES per post. VISION=false: she's text-only again, with a looking emoji for pictures.
 VISION = os.environ.get("VISION", "true").strip().lower() in ("1", "true", "yes", "on")
 VISION_MODEL = os.environ.get("VISION_MODEL", "").strip() or MODEL_NAME
+# Her jobs that aren't her voice: reading the room, her diary and the vibe note (her own model unless
+# set). Once a fine-tune serves her voice (finetuning/weekly.py), these can stay on the stock model.
+TASK_MODEL = os.environ.get("TASK_MODEL", "").strip() or MODEL_NAME
 VISION_MAX_IMAGES = int(os.environ.get("VISION_MAX_IMAGES", "3"))
 VISION_MAX_BYTES = 10 * 1024 * 1024
 EMBED_WAIT_SECONDS = 2.5  # Discord adds a link's preview a moment after the post
@@ -323,7 +326,8 @@ async def ollama_chat(payload: dict) -> dict | None:
                                     timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status != 200:
                     # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
-                    log.error(f"Ollama returned HTTP {resp.status} for model {MODEL_NAME!r}: {(await resp.text())[:500]}")
+                    log.error(f"Ollama returned HTTP {resp.status} for model {payload.get('model', MODEL_NAME)!r}: "
+                              f"{(await resp.text())[:500]}")
                     return None
                 data = await resp.json()
     except Exception:
@@ -331,8 +335,9 @@ async def ollama_chat(payload: dict) -> dict | None:
         return None
     if not model_thinks and data.get("message", {}).get("thinking"):
         model_thinks = True
-        log.warning(f"{MODEL_NAME} thinks before answering even with OLLAMA_THINK=false, so replies take longer. "
-                    f"They're no longer capped at MAX_REPLY_TOKENS ({MAX_REPLY_TOKENS}), which the thinking counts against.")
+        log.warning(f"{payload.get('model', MODEL_NAME)} thinks before answering even with OLLAMA_THINK=false, so "
+                    f"replies take longer. They're no longer capped at MAX_REPLY_TOKENS ({MAX_REPLY_TOKENS}), which "
+                    "the thinking counts against.")
     return data
 
 
@@ -449,7 +454,8 @@ async def read_room(message: discord.Message, text: str = "") -> tuple[Reading |
     options = {name: use for name, use in options.items() if name not in used} or options
     replied = getattr(getattr(message, "reference", None), "resolved", None)
     replying_to = getattr(getattr(replied, "author", None), "name", None)
-    data = await ollama_chat({"messages": room_messages(list(history[channel_id]), options, diary.vibe(),
+    data = await ollama_chat({"model": TASK_MODEL,
+                              "messages": room_messages(list(history[channel_id]), options, diary.vibe(),
                                                         message.author.name, replying_to, used),
                               "format": room_format(options)})
     reading = parse_room(data.get("message", {}).get("content", ""), options) if data else None
@@ -631,6 +637,9 @@ async def download(url: str) -> bytes | None:
 async def on_ready():
     global app_owner, melee_watcher
     log.info(f"Logged in as {client.user} (id: {client.user.id})")
+    others = {"reading the room, diary": TASK_MODEL, "pictures": VISION_MODEL if VISION else MODEL_NAME}
+    log.info(f"Her voice: {MODEL_NAME}" + "".join(f"; {job}: {model}" for job, model in others.items()
+                                                    if model != MODEL_NAME))
     # on_ready runs again after a reconnect: one watcher is enough.
     if melee_watcher is None:
         melee_watcher = asyncio.create_task(watch_melee())
@@ -979,7 +988,8 @@ async def update_vibe(said: list[dict]) -> None:
             break
         lines.append(line)
     lines.reverse()
-    data = await ollama_chat({"messages": vibe_messages(diary.vibe(), lines), "format": VIBE_FORMAT,
+    data = await ollama_chat({"model": TASK_MODEL, "messages": vibe_messages(diary.vibe(), lines),
+                              "format": VIBE_FORMAT,
                               "options": {"temperature": 0.3} | ({} if model_thinks else {"num_predict": 400})})
     if data is None:
         log.warning("Couldn't update her note on how the server talks; next time")
@@ -998,8 +1008,8 @@ async def diary_entry(channel_id: int, part: list[dict]) -> bool:
     day, where = local_day(part[0]["time"]), part[-1].get("channel") or f"channel {channel_id}"
     if sum(entry["author"] != BOT_NAME for entry in part) >= 2:
         options = {"temperature": 0.3} | ({} if model_thinks else {"num_predict": 700})
-        data = await ollama_chat({"messages": digest_messages(where, day, [format_line(e["author"], e["text"])
-                                                                         for e in part]),
+        lines = [format_line(e["author"], e["text"]) for e in part]
+        data = await ollama_chat({"model": TASK_MODEL, "messages": digest_messages(where, day, lines),
                                   "format": digest_format(sorted(ids)), "options": options})
         if data is None:
             return False

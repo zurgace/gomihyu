@@ -62,7 +62,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
   voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
   no copied dialogue), and `build_dataset.py` (renders them through `persona.build_messages`).
-  Nothing has ever been trained on it. Right now it's used as few-shot example chats (below).
+  Nothing has ever been trained on it yet. Right now it's used as few-shot example chats (below).
+  The weekly fine-tune (see its locked-in decision): `weekly.py` (the round trip), `kaggle_train.py`
+  (runs on Kaggle), `check_chats.jsonl` (made-up test chats for its check); state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked until the rented GPU: turns the user's Discord export
   into training data in their texting style. `extract.py` (export → cleaned server replies),
   `backtranslate.py` (Ollama writes 1–3 friend messages before each reply; resumable, fixed
@@ -229,9 +231,10 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   builders). Training: `finetuning/build_dataset.py --meld --run N`: seed x3 + all earned + a
   `Random(run)` pick of `meld.voice_examples` (people's messages answering someone else, 3+ words,
   not naming her, no slur, not a link, not a burst continuation, <= 10 min after the previous line)
-  so the seed share is `meld.SCHEDULE` 0.7 / 0.55 / 0.4 / 0.3 for runs 1-4, never below the anchor;
-  it prints the actual share (short on data early). Training data keeps the prompt without examples
-  and vibe, like recaps and notes.
+  so the seed share is `meld.persona_share`: 0.7 at run 1 down in even steps to the anchor at run
+  `MELD_RUNS` (11; 0.7 / 0.66 / 0.62 ...; was 0.7 / 0.55 / 0.4 / 0.3 over 4 runs until the user chose
+  weekly runs, 2026-09-29), never below it; it prints the actual share (short on data early). Training
+  data keeps the prompt without examples and vibe, like recaps and notes.
 - Person memory, explicit part: a "remember (that) ..." / "don't forget ..." message aimed
   at her (@mention, reply-ping, or "Gomi"/"Gomihyu" within the first 4 words) stores the rest verbatim for its
   author (her own picked-up notes come only from the diary, above); questions ("remember when...?") are skipped. She
@@ -276,7 +279,26 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   Training data is built without them; set `FEW_SHOT_EXAMPLES=0` once a fine-tuned model serves.
 - Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full fine-tuning.
   Gemma 4 E4B QLoRA reportedly needs ~10GB VRAM, so it won't train on the 2070: training
-  happens on a GPU the user will rent; serving stays on the 2070.
+  happens elsewhere (now Kaggle, below); serving stays on the 2070.
+- Weekly fine-tune (user, 2026-09-29: "running the fine tuning once a week on gomi to slowly meld the
+  personality", then "go ahead and build it"): `finetuning/weekly.py` build → upload → fetch → install
+  → check → switch (`all` = build..check, never switches; `rollback`; `status`). Kaggle's free T4
+  (machine_shape `NvidiaTeslaT4`: Unsloth doesn't support the P100), private per-run dataset
+  `gomi-meld-wN` deleted after download, one private script notebook `gomi-meld`. Rules: every run
+  trains stock `unsloth/gemma-4-E4B-it` again on all data so far (never last week's model: no
+  compounding, no feedback loop on her own tics, redoable); the mix is the meld (`persona_share`); a
+  week with < `WEEKLY_MIN_NEW` (50) new server examples (landed + voice pool, vs the last installed
+  run) is skipped; each run is kept as `gomi-wN` in Ollama; switch needs a check. `kaggle_train.py`:
+  QLoRA r16, 1 epoch, lr 2e-4, max 2048 tokens (longer examples dropped, not cut), responses only
+  (verified on the first example, else it stops), merged → llama.cpp `convert_hf_to_gguf.py` f16 →
+  `llama-quantize` Q4_K_M (Unsloth's own GGUF export only does Q8_0/BF16/F16 for Gemma 4); the log
+  has counts and losses only; `result.json` carries the run number, which `fetch` checks. Install:
+  Ollama's docs no longer have `ADAPTER` and only import GGUF unquantized, hence the full GGUF;
+  the Modelfile is the stock one from `/api/show` with only FROM replaced (template, renderer,
+  parameters kept). The fine-tune is text only, so switch sets `VISION_MODEL` to the stock model
+  unless the check saw it see, `TASK_MODEL` (bot: room reads, diary, vibe note) to stock if both
+  models fit on the GPU (check: `/api/ps` size_vram) or `--tasks stock/her`, `FEW_SHOT_EXAMPLES=0`.
+  Kaggle username: `WEEKLY_KAGGLE_USER` (a blank `KAGGLE_*` variable would blank the CLI's login).
 - Training data must never be committed: the user's Discord export (`Messages/`, `*.zip`) holds
   personal messages including DMs, and is gitignored. Builders read it from a local path.
 
@@ -305,9 +327,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   which data the first Gemma training run uses: the seed (58, active), the Discord pipeline's
   output (parked), or a mix. Decide when the rented GPU is set up.
 - Target dataset size before a training run (likely 1–3k good examples). User, 2026-09-29: the diary
-  only started that day, so they'll check the data later that week before any run. Free training
-  options discussed: Kaggle (30 GPU-h/week, 16GB) first, Colab free T4 as backup; the 2070 alone is
-  short of Unsloth's ~10GB for E4B QLoRA even with Ollama moved to CPU.
+  only started that day, so they'll check the data later that week before any run. Free training:
+  Kaggle (30 GPU-h/week, 16GB) chosen and built (weekly fine-tune above), Colab free T4 as backup; the
+  2070 alone is short of Unsloth's ~10GB for E4B QLoRA even with Ollama moved to CPU.
 - (Settled 2026-09-29: vision works on the user's setup and is built; see the Vision decision. Gemma 4
   E4B's encoder is 150M, ~280 image tokens by default. ollama#18560, a dup of the open #16532, reports
   blank images on some setups, so re-run `tools/vision_check.py` after Ollama or model changes.)
@@ -320,12 +342,18 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
    emoji is `AIEEEE`, which the user fixed in `emojis.py`), melon bread
    twice as an insult (4 of the seed's 6 melon bread lines are off-topic too). Fixed: pings, the
    length/question/echo rules. Still to check after that: length, emoji and melon bread frequency.
-2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B, trained on
-   `build_dataset.py --meld --run N`, one run number up each time. Watch the nightly meld meanwhile:
-   the vibe note (console / `diary.json`), which replies count as landed (`earned_examples.jsonl`), and
-   whether she drifts too far or too little (`MELD_ANCHOR`, `MELD_FULL_AT`).
-3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
-   update `OLLAMA_MODEL` in `.env` and set `FEW_SHOT_EXAMPLES=0`. No bot code changes needed.
+2. The first weekly run, step by step (never run on real Kaggle yet; tested with a fake CLI, fake
+   Ollama and faked Unsloth): Kaggle setup (phone verification, API token, `pip install kaggle`,
+   `WEEKLY_KAGGLE_USER`), then watch the notebook page. Unknowns: whether `machine_shape`
+   `NvidiaTeslaT4` is honored, the Unsloth/transformers pins (from Unsloth's Gemma 4 notebook), disk
+   on Kaggle for merged 16-bit + F16 GGUF, llama.cpp's converter on Gemma 4, and whether Ollama 0.34.2
+   runs a llama.cpp-converted Gemma 4 GGUF with the stock Modelfile (template/renderer) and matches
+   the training chat template. Also `ollama ps` with gomi-wN + the stock model loaded together.
+   Watch the nightly meld meanwhile: the vibe note (console / `diary.json`), which replies count as
+   landed (`earned_examples.jsonl`), and whether she drifts too far or too little (`MELD_ANCHOR`,
+   `MELD_FULL_AT`, `MELD_RUNS`).
+3. After a run is switched in: watch whether the fine-tune's voice holds without example chats
+   (`FEW_SHOT_EXAMPLES=0`), and whether earned replies still land. No bot code changes needed.
 4. Read the first diary entries (console at shutdown, `diary.json`, "learned" in `people.json`):
    are notes lasting facts or chatter, does the quote check drop real notes (paraphrased quotes)
    or let junk through, are recaps useful in her replies, how long shutdown takes.

@@ -40,8 +40,8 @@ def png(rgb: tuple[int, int, int], size: int = 96) -> bytes:
             + chunk(b"IDAT", zlib.compress(row * size)) + chunk(b"IEND", b""))
 
 
-def ask(image: bytes) -> str:
-    body = {"model": MODEL, "stream": False, "think": False, "options": {"num_ctx": NUM_CTX, "temperature": 0},
+def ask(image: bytes, model: str = MODEL) -> str:
+    body = {"model": model, "stream": False, "think": False, "options": {"num_ctx": NUM_CTX, "temperature": 0},
             "messages": [{"role": "user", "content": "What colour fills this whole picture? Answer with one word.",
                           "images": [base64.b64encode(image).decode()]}]}
     request = urllib.request.Request(URL, json.dumps(body).encode(), {"Content-Type": "application/json"})

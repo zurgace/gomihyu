@@ -21,6 +21,8 @@ diary.json
 diary.json.tmp
 # Her replies that landed (meld.py), with the chat around them
 earned_examples.jsonl
+# Weekly fine-tune runs (finetuning/weekly.py): the uploaded data, downloaded models, check reports
+finetuning/runs/
 
 # Where her Melee posts go ("gomi post melee here"); per server
 melee_channel.json

@@ -16,8 +16,9 @@ the data mixes:
   - her replies that landed (EARNED_FILE, earned_examples.jsonl), all of them first;
   - people's own messages from the chat logs (CHAT_LOG_DIR, chatlogs/): the server's voice, a fixed
     random pick per run.
-The seed's share goes 70% -> 55% -> 40% -> 30% over runs 1 to 4 (meld.SCHEDULE), never below
-MELD_ANCHOR (30%); --persona-share overrides it. Paths and MELD_ANCHOR come from .env like the bot's.
+The seed's share goes from 70% at run 1 down in even steps to MELD_ANCHOR (30%) at run MELD_RUNS (11),
+and stays there (meld.persona_share: 70%, 66%, 62%, ...); --persona-share overrides it. Paths,
+MELD_ANCHOR and MELD_RUNS come from .env like the bot's. finetuning/weekly.py runs this once a week.
 train.jsonl holds real chat: it's gitignored, never commit it.
 """
 
@@ -35,7 +36,7 @@ sys.path.insert(0, str(ROOT))  # so persona.py imports when run from anywhere
 from dotenv import load_dotenv  # noqa: E402
 
 from chatlog import ChatLog  # noqa: E402
-from meld import persona_share, voice_examples  # noqa: E402
+from meld import MELD_RUNS, persona_share, voice_examples  # noqa: E402
 from persona import BOT_NAME, build_messages, format_line  # noqa: E402
 
 SEED = HERE / "gomihyu_seed.jsonl"
@@ -63,22 +64,27 @@ def read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def voice_pool(chat_log: ChatLog) -> list[dict]:
+    """Every message in the chat logs that can stand for the server's voice (meld.voice_examples)."""
+    return [example for channel_id in sorted(chat_log.channels())
+            for example in voice_examples(chat_log.read(channel_id))]
+
+
 def meld_examples(seed: list[dict], run: int, share: float | None, seed_repeat: int, chat_log: ChatLog,
-                  earned: list[dict], anchor: float) -> tuple[list[dict], str]:
+                  earned: list[dict], anchor: float, runs: int = MELD_RUNS) -> tuple[list[dict], str]:
     """The run's examples and a line saying what's in them."""
-    share = share if share is not None else persona_share(run, anchor)
+    share = share if share is not None else persona_share(run, anchor, runs)
     persona = seed * seed_repeat
     server_n = round(len(persona) * (1 - share) / share)
     rng = random.Random(run)
     landed = earned if len(earned) <= server_n else rng.sample(earned, server_n)
-    voice_pool = [example for channel_id in sorted(chat_log.channels())
-                  for example in voice_examples(chat_log.read(channel_id))]
-    voice = rng.sample(voice_pool, min(len(voice_pool), server_n - len(landed)))
+    pool = voice_pool(chat_log)
+    voice = rng.sample(pool, min(len(pool), server_n - len(landed)))
     rows = persona + landed + voice
     rng.shuffle(rows)
     actual = len(persona) / len(rows) if rows else 1
     summary = (f"Run {run}: {len(seed)} seed x {seed_repeat} = {len(persona)} persona examples, {len(landed)} of her "
-               f"{len(earned)} landed replies, {len(voice)} of {len(voice_pool)} server messages: {len(rows)} examples, "
+               f"{len(earned)} landed replies, {len(voice)} of {len(pool)} server messages: {len(rows)} examples, "
                f"{actual:.0%} persona (aimed for {share:.0%})")
     return rows, summary
 
@@ -99,7 +105,9 @@ def main():
         chat_log = ChatLog(ROOT / os.environ.get("CHAT_LOG_DIR", "chatlogs"))
         earned = read_jsonl(ROOT / os.environ.get("EARNED_FILE", "earned_examples.jsonl"))
         anchor = float(os.environ.get("MELD_ANCHOR", "0.3"))
-        rows, summary = meld_examples(seed, args.run, args.persona_share, args.seed_repeat, chat_log, earned, anchor)
+        runs = int(os.environ.get("MELD_RUNS", str(MELD_RUNS)))
+        rows, summary = meld_examples(seed, args.run, args.persona_share, args.seed_repeat, chat_log, earned, anchor,
+                                      runs)
     OUT.write_text("".join(json.dumps(render(row), ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
     print(f"Wrote {len(rows)} examples to {OUT} ({summary})")
 
