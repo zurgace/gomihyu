@@ -197,29 +197,28 @@ older posts uses Read Message History, which the bot already has.
 
 ## Melee results
 [AI-Melee](https://github.com/zurgace/aimelee) can have Gomi play Mario or Fox against you in Super
-Smash Bros. Melee (its "Gomihyu takes over P2" option). After every match she tells the chat how it went,
-in her own words: she gloats if she won, and blames anything but you if she lost.
+Smash Bros. Melee (its "Gomihyu takes over P2" option). She talks about it here:
+- **While she plays**, her trash talk is posted live, at most one line every 30 seconds.
+- **After every match**, she tells the chat how it went, in her own words: she gloats if she won, and
+  blames anything but you if she lost.
 
-How it works: AI-Melee leaves one small file per match in its `tools/agent/gomi/outbox/` folder.
-It holds the result, the stage, the line she said right after the match, her lessons and her
-record. The bot checks that folder every 5 seconds, posts about each match in one channel, and
-deletes the file.
+**Setting it up:** say **"gomi post melee here"** (as the bot's owner) in the channel you want. She
+reacts 🎮, and remembers it across restarts. "gomi stop posting melee" turns it off (🔕). That's all:
+AI-Melee leaves her lines in `~/.local/share/gomihyu/melee-outbox`, which the bot checks every 5
+seconds. Both programs run on the same PC.
 
-Set it up in `.env` (both programs run on the same PC), then restart the bot:
-```
-MELEE_OUTBOX=/home/you/src/ai-melee/tools/agent/gomi/outbox
-MELEE_CHANNEL_ID=123456789012345678
-```
-- To get a channel's id, turn on Developer Mode (Discord settings → Advanced), then right-click
-  the channel → Copy Channel ID.
 - She calls you by your nickname if she has one, else your display name. If someone else plays
   her, put their name in `MELEE_PLAYER`.
-- Her post is a normal message of hers: it's in her chat history, so replies about the match get
+- Her posts are normal messages of hers: they're in her chat history, so replies about the match get
   answered in context, and "gomi delete that" and muting work as usual.
-- While she's muted in that channel, matches are dropped unposted.
-- A match she can't write about yet (Ollama down) stays in the folder and is tried again on the next
-  check. Files older than `MELEE_MAX_AGE_MINUTES` (30) are dropped unposted, so a bot started after a
-  long session doesn't dump every old match into the channel.
+- While she's muted in that channel, her Melee posts are dropped.
+- A match she can't write about yet (Ollama down) waits for the next check. A match older than
+  `MELEE_MAX_AGE_MINUTES` (30), or a taunt older than 90 seconds, is dropped unposted, so a bot
+  started late doesn't dump old stuff into the channel.
+- With no channel picked yet, everything waits (AI-Melee keeps the newest 20, and warns that her posts
+  are piling up). The bot's console says which folder and channel it uses when it starts.
+- `.env` overrides, rarely needed: `MELEE_OUTBOX` (another folder), `MELEE_CHANNEL_ID` (a channel to
+  start with, until one is picked with the command).
 
 ## Training data
 `finetuning/gomihyu_seed.jsonl` holds 58 hand-written example chats in Gomi's voice, one per line,

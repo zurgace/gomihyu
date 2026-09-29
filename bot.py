@@ -31,9 +31,10 @@ from dotenv import load_dotenv
 
 from censor import has_slur
 from chime import INTEREST_FORMAT, interest_messages, parse_interest
-from commands import ALL, FOREVER, delete_request, mute_request, unmute_request
+from commands import ALL, FOREVER, delete_request, melee_here_request, melee_stop_request, mute_request, unmute_request
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
-from melee import match_facts, read_outbox, stale
+from melee import (TAUNT_MAX_AGE_SECONDS, default_outbox, load_channel, match_facts, read_outbox, save_channel,
+                   stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_match_messages, build_messages, format_line
 from reactions import media_only, names_her, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
@@ -85,11 +86,15 @@ HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know
 # fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
 EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
 FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
-# Melee results (melee.py): AI-Melee's outbox folder, where it leaves a file after each match she plays
-# as Mario, and the channel she posts about them in. An empty MELEE_OUTBOX turns this off. Files older
-# than MELEE_MAX_AGE_MINUTES (played while the bot was off) are dropped unposted.
-MELEE_OUTBOX = os.environ.get("MELEE_OUTBOX", "").strip()
+# Melee results (melee.py): the outbox folder AI-Melee leaves her taunts and matches in (by default the
+# one both programs know, ~/.local/share/gomihyu/melee-outbox), and the channel she posts them in: the
+# one an owner picked with "gomi post melee here" (kept in MELEE_CHANNEL_FILE), else MELEE_CHANNEL_ID.
+# Matches older than MELEE_MAX_AGE_MINUTES (played while the bot was off) are dropped unposted.
+MELEE_OUTBOX = Path(os.environ.get("MELEE_OUTBOX", "").strip() or default_outbox()).expanduser()
+MELEE_CHANNEL_FILE = Path(__file__).resolve().parent / "melee_channel.json"
 MELEE_CHANNEL_ID = int(os.environ.get("MELEE_CHANNEL_ID", "0").strip() or "0")
+MELEE_EMOJI = "🎮"  # reaction confirming this channel gets her Melee posts
+NO_MELEE_EMOJI = "🔕"
 MELEE_MAX_AGE_MINUTES = float(os.environ.get("MELEE_MAX_AGE_MINUTES", "30"))
 # Who played against her; default: the bot owner's nickname, else their display name.
 MELEE_PLAYER = os.environ.get("MELEE_PLAYER", "").strip()
@@ -457,10 +462,8 @@ async def on_ready():
     global app_owner, melee_watcher
     log.info(f"Logged in as {client.user} (id: {client.user.id})")
     # on_ready runs again after a reconnect: one watcher is enough.
-    if MELEE_OUTBOX and MELEE_CHANNEL_ID and melee_watcher is None:
+    if melee_watcher is None:
         melee_watcher = asyncio.create_task(watch_melee())
-    elif MELEE_OUTBOX and not MELEE_CHANNEL_ID:
-        log.warning("MELEE_OUTBOX is set but MELEE_CHANNEL_ID isn't; not posting Melee results")
     try:
         app = await client.application_info()
     except discord.HTTPException as e:
@@ -498,6 +501,16 @@ async def on_message(message: discord.Message):
             muted_until.pop(channel_id, None)
             log.info(f"Unmuted in {where} by {message.author.name}")
             await react(message, UNMUTED_EMOJI)
+            return
+        if melee_here_request(text):
+            save_channel(MELEE_CHANNEL_FILE, channel_id)
+            log.info(f"Melee posts go to {where} now, set by {message.author.name}")
+            await react(message, MELEE_EMOJI)
+            return
+        if melee_stop_request(text):
+            save_channel(MELEE_CHANNEL_FILE, None)
+            log.info(f"No more Melee posts, by {message.author.name}")
+            await react(message, NO_MELEE_EMOJI)
             return
         if (minutes := mute_request(text, MUTE_MINUTES)) is not None:
             muted_until[channel_id] = time.monotonic() + minutes * 60
@@ -587,17 +600,21 @@ async def match_post(channel_id: int, event: dict, temperature: float | None = N
 async def post_matches(outbox: Path) -> None:
     """Post about every match waiting in AI-Melee's outbox, oldest first. A match stays there if
     the model doesn't answer, to be tried again on the next check (until it's too old)."""
+    channel_id = melee_channel()
     for path, event in read_outbox(outbox, log):
-        if stale(event, MELEE_MAX_AGE_MINUTES * 60):
-            log.info(f"Melee match {path.name} is older than {MELEE_MAX_AGE_MINUTES:g} minutes; not posting it")
+        taunt = event.get("kind") == "taunt"
+        if stale(event, TAUNT_MAX_AGE_SECONDS if taunt else MELEE_MAX_AGE_MINUTES * 60):
+            log.info(f"Melee {'taunt' if taunt else 'match'} {path.name} is too old to post; dropping it")
             path.unlink(missing_ok=True)
             continue
-        channel = client.get_channel(MELEE_CHANNEL_ID)
+        if not channel_id:
+            return  # no channel yet: they wait (watch_melee said how to pick one)
+        channel = client.get_channel(channel_id)
         if channel is None:
             try:
-                channel = await client.fetch_channel(MELEE_CHANNEL_ID)
+                channel = await client.fetch_channel(channel_id)
             except discord.HTTPException as e:
-                log.error(f"Can't reach MELEE_CHANNEL_ID {MELEE_CHANNEL_ID} ({e}); Melee results stay unposted")
+                log.error(f"Can't reach the Melee channel {channel_id} ({e}); her Melee posts wait")
                 return
         channel_id = channel.id
         if muted(channel_id):
@@ -606,16 +623,25 @@ async def post_matches(outbox: Path) -> None:
             continue
         async with reply_locks[channel_id]:
             try:
-                async with channel.typing():
-                    post = await match_post(channel_id, event)
-                    if post and repeats_itself(channel_id, post):
-                        post = await match_post(channel_id, event, temperature=RETRY_TEMPERATURE) or post
+                if taunt:
+                    # Written by her in AI-Melee already: posted as is, minus any slur.
+                    post = str(event["text"]).strip() or None
+                    if post and has_slur(post):
+                        post = f":{SLUR_STANDIN}:"
+                else:
+                    async with channel.typing():
+                        post = await match_post(channel_id, event)
+                        if post and repeats_itself(channel_id, post):
+                            post = await match_post(channel_id, event, temperature=RETRY_TEMPERATURE) or post
+                if taunt and not post:
+                    path.unlink(missing_ok=True)
+                    continue
                 if post:
                     path.unlink(missing_ok=True)
                     if muted(channel_id):
                         log.info("Muted while writing a Melee post; not sending it")
                     else:
-                        log.info(f"Posting about Melee match {path.name}")
+                        log.info(f"Posting Melee {'taunt' if taunt else 'match'} {path.name}")
                         await send_reply(channel, channel_id, post)
                 # Anything said while she was writing gets its usual answer now.
                 if channel_id in pending_followup:
@@ -627,9 +653,23 @@ async def post_matches(outbox: Path) -> None:
             return  # the model didn't answer: try again on the next check
 
 
+def melee_channel() -> int | None:
+    """Where her Melee posts go: the channel an owner picked (or none, after "stop posting melee"),
+    else MELEE_CHANNEL_ID."""
+    if MELEE_CHANNEL_FILE.exists():
+        return load_channel(MELEE_CHANNEL_FILE)
+    return MELEE_CHANNEL_ID or None
+
+
 async def watch_melee() -> None:
-    outbox = Path(MELEE_OUTBOX).expanduser()
-    log.info(f"Posting Melee results from {outbox} in channel {MELEE_CHANNEL_ID}")
+    outbox = MELEE_OUTBOX
+    if channel_id := melee_channel():
+        channel = client.get_channel(channel_id)
+        where = f"#{channel.name}" if getattr(channel, "name", None) else f"channel {channel_id}"
+        log.info(f"Melee results: posting from {outbox} in {where}")
+    else:
+        log.info(f"Melee results: watching {outbox}, but no channel yet. Say 'gomi post melee here' in the "
+                 "channel you want (as the bot's owner)")
     while True:
         try:
             if outbox.is_dir():

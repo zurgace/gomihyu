@@ -15,6 +15,10 @@ train.jsonl
 people.json
 people.json.tmp
 
+# Where her Melee posts go ("gomi post melee here"); per server
+melee_channel.json
+melee_channel.json.tmp
+
 # Model weights (e.g. the archived LFM2.5 Modelfile's GGUF)
 *.gguf
 

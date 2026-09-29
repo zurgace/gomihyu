@@ -1,6 +1,7 @@
 """
 Commands from the bot's owner(s), handled in code so her persona can't argue with them: deleting
-her own posts, and muting her. bot.py only acts on them from an owner, in a message aimed at her.
+her own posts, muting her, and where she posts about Melee. bot.py only acts on them from an owner,
+in a message aimed at her.
 
     "gomi delete that" / "@Gomihyu delete it" / "gomi del"   -> her newest post (or, in a Discord
                                                                 reply to one of her posts, that one)
@@ -10,6 +11,8 @@ her own posts, and muting her. bot.py only acts on them from an owner, in a mess
     "gomi mute" / "gomi mute for 2 hours"                     -> silent in this channel for a while
     "gomi mute until i say so" / "gomi mute forever"          -> silent until unmuted
     "gomi unmute"                                             -> talking again
+    "gomi post melee here" / "gomi melee results here"        -> this channel gets her Melee posts
+    "gomi stop posting melee"                                 -> no channel gets them
 """
 
 import math
@@ -95,3 +98,22 @@ def mute_request(text: str, default_minutes: float) -> float | None:
 def unmute_request(text: str) -> bool:
     """Whether the message tells her she can talk again."""
     return bool(m := UNMUTE.search(text)) and not NOT_A_MUTE.search(text[:m.end()])
+
+
+MELEE = r"(?:melee|smash|ssbm)"
+MELEE_HERE = re.compile(rf"\b(?:(?:post|put|send|do)\s+(?:(?:the|your|ur)\s+)?)?{MELEE}"
+                        r"(?:\s+(?:results?|matches|games|stuff|posts?))?\s+(?:in\s+)?here\b", re.IGNORECASE)
+MELEE_STOP = re.compile(rf"\b(?:stop|quit|no\s+more)\s+(?:posting\s+)?(?:(?:the|your|ur)\s+)?{MELEE}\b",
+                        re.IGNORECASE)
+NOT_A_MELEE = not_a_request(r"(?:post|put|send|do|stop|quit)")
+
+
+def melee_here_request(text: str) -> bool:
+    """Whether the message asks her to post about Melee matches in this channel (not a question)."""
+    return (bool(m := MELEE_HERE.search(text)) and "?" not in text
+            and not NOT_A_MELEE.search(text[:m.end()]))
+
+
+def melee_stop_request(text: str) -> bool:
+    """Whether the message asks her to stop posting about Melee matches."""
+    return bool(m := MELEE_STOP.search(text)) and "?" not in text and not NOT_A_MELEE.search(text[:m.end()])

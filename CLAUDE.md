@@ -63,15 +63,22 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 - `melee.py` + `persona.build_match_messages` — Melee results (user, 2026-09-29: "lets have her
   start yapping in discord on the outcome"). The first step past "just a Discord conversationalist":
   AI-Melee (`zurgace/aimelee`, where she plays Mario or Fox through Ollama and learns between matches)
-  writes one JSON per match to its outbox (`tools/agent/gomi/outbox/`, atomic, newest 20 kept).
-  `bot.py`'s `watch_melee` task (started once in `on_ready`, only with `MELEE_OUTBOX` and
-  `MELEE_CHANNEL_ID`) checks it every 5 s and posts about each match through the normal paths
+  writes one JSON per match and per in-match taunt to an outbox both know by default,
+  `~/.local/share/gomihyu/melee-outbox` (atomic, newest 20 kept; `MELEE_OUTBOX` overrides).
+  `bot.py`'s `watch_melee` task (started once in `on_ready`) checks it every 5 s. Taunts (user,
+  2026-09-29: "talk in discord instead" of only the AI-Melee log; at most one per 30 s, dropped after
+  90 s) are posted as she wrote them in AI-Melee, no model call, slur filter applied. Matches are
+  posted about through the normal paths
   (`clean_reply` / `send_reply`, shared with `generate_reply` / `reply_to`): slur filter, repeat
   retry, in her chat history and `posted`, holding the channel's reply lock, with any follow-up owed
   answered right after (`converse`). User choices: through her own bot (not a webhook), one post per
   match. Muted → dropped; model down → kept for the next check; older than
   `MELEE_MAX_AGE_MINUTES` (30) → dropped; unreadable → renamed `.bad`. The player is `MELEE_PLAYER`,
-  else the app owner's nickname / display name / handle.
+  else the app owner's nickname / display name / handle. The channel: an owner's "gomi post melee
+  here" (commands.py, owner-only like delete/mute, reacts 🎮; saved in gitignored
+  `melee_channel.json`), "gomi stop posting melee" (🔕, saves none, which also beats the env), else
+  `MELEE_CHANNEL_ID`. No channel → everything waits in the outbox. The user hadn't set the `.env`
+  lines the first design needed, so setup is a chat command now, not config.
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)
