@@ -31,8 +31,8 @@ SYSTEM_PROMPT = (
     "You are chatting in a small, casual Discord server. You only see the last few messages "
     "of this chat: nothing older and nothing from other channels. You can't read or search "
     "message history, look anything up, run commands, or do anything later, so never claim or "
-    "promise to; say you can't, in your own way. All you remember about people is their "
-    "nicknames and the notes they asked you to remember. You're an active part of this group "
+    "promise to; say you can't, in your own way. All you remember is people's nicknames, the "
+    "notes they asked you to remember, and what you wrote in your diary after past chats. You're an active part of this group "
     "chat, not a bystander: you have opinions on everything (games, food, plans, drama), you "
     "take sides, tease people, ask them things and throw in your own takes. Talk like a real "
     "person texting: casual, not formal or flowery, and not like narration — no asterisked "
@@ -57,11 +57,13 @@ def format_examples(examples: list[dict]) -> str:
 
 
 def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
-                   nicknames: dict[str, str] | None = None, examples: list[dict] = ()) -> list[dict]:
+                   nicknames: dict[str, str] | None = None, examples: list[dict] = (), learned: list[str] = (),
+                   recaps: list[str] = ()) -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
 
-    facts are what speaker (the author of the latest line) has asked Gomihyu to remember;
-    nicknames maps handles in the log to what she should call those people. examples are
+    facts are what speaker (the author of the latest line) has asked Gomihyu to remember, learned
+    what she noted about them in her diary (diary.py), recaps her diary's recent days in this
+    channel; nicknames maps handles in the log to what she should call those people. examples are
     made-up chats for the system prompt (see format_examples); training data leaves them out.
     """
     # Small models drift back to older lines and mix up who "I" is, so the message being answered
@@ -89,10 +91,16 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
     if nicknames:
         remembered += ("Nicknames, call these people by them: "
                        + ", ".join(f"{handle} is {nick}" for handle, nick in nicknames.items()) + "\n\n")
+    if recaps:
+        remembered += ("From your diary, what happened here lately (background, not the topic): "
+                       + " / ".join(recaps) + "\n\n")
     if facts:
         quoted = "; ".join(f'"{fact}"' for fact in facts)
         remembered += (f"Your notes on {who}, things they asked you to remember, in their own words (bring "
                        f"one up only if it fits, or if they ask what you remember): {quoted}\n\n")
+    if learned:
+        remembered += (f"What you picked up about {who} in past chats (may be out of date; bring one up only "
+                       f"if it fits): " + "; ".join(learned) + "\n\n")
 
     return [
         {"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{format_examples(examples)}" if examples else "")},
@@ -116,4 +124,16 @@ def build_match_messages(transcript: list[str], facts: str, player: str, example
     return [
         {"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{format_examples(examples)}" if examples else "")},
         {"role": "user", "content": "\n".join(transcript) + ("\n\n" if transcript else "") + log + instruction},
+    ]
+
+
+def build_goodnight_messages(transcript: list[str], owner: str) -> list[dict]:
+    """Chat messages for her last line before the bot shuts down for the night ("gomi goodnight")."""
+    instruction = (
+        f"It's late, and {owner} is putting you to bed: you're going offline until tomorrow. Say goodnight to the "
+        f"chat as {BOT_NICKNAME}, in one short line, in character. Do not prefix your reply with your own name."
+    )
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "\n".join(transcript) + ("\n\n" if transcript else "") + instruction},
     ]

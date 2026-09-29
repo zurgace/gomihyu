@@ -12,6 +12,7 @@ in a message aimed at her.
     "gomi mute until i say so" / "gomi mute forever"          -> silent until unmuted
     "gomi quiet mode" / "gomi only talk when spoken to"       -> only answers people talking to her
     "gomi unmute" / "gomi quiet mode off"                     -> back to normal (ends either)
+    "gomi goodnight" / "gomi go to sleep"                     -> says goodnight, writes her diary, shuts down
     "gomi post melee here" / "gomi melee results here"        -> this channel gets her Melee posts
     "gomi stop posting melee"                                 -> no channel gets them
 """
@@ -146,3 +147,15 @@ def melee_here_request(text: str) -> bool:
 def melee_stop_request(text: str) -> bool:
     """Whether the message asks her to stop posting about Melee matches."""
     return bool(m := MELEE_STOP.search(text)) and "?" not in text and not NOT_A_MELEE.search(text[:m.end()])
+
+
+GOODNIGHT = re.compile(r"\b(?:good\s*night|gn|nighty?\s*night|night\s+night|go\s+to\s+(?:sleep|bed)"
+                       r"|time\s+(?:to|for)\s+(?:bed|sleep)|bed\s*time|sleep\s+time)\b", re.IGNORECASE)
+# "gomi say goodnight to kaz" is asking her to say it, not to go
+SAY_GOODNIGHT = re.compile(r"\b(?:say|tell|wish)\s+(?:\w+\s+){0,2}(?:good\s*night|gn)\b", re.IGNORECASE)
+
+
+def goodnight_request(text: str) -> bool:
+    """Whether the message puts her to bed for the night (the bot shuts down)."""
+    return (bool(m := GOODNIGHT.search(text)) and "?" not in text and not SAY_GOODNIGHT.search(text)
+            and not HEDGED.search(text[:m.start()]))

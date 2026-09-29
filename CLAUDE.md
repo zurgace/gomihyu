@@ -42,7 +42,12 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 - `censor.py` + `slurs.txt` — a reply containing any slur (whole words, optional plural s) is
   replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
   Swearing is deliberately not filtered; the server doesn't want her more PG.
-- `memory.py` — person memory: "remember that ..." parsing + `people.json` store.
+- `memory.py` — person memory: "remember that ..." parsing + `people.json` store (asked-for facts,
+  nicknames, and her diary's "learned" notes, kept apart).
+- `chatlog.py` — every server-channel message (hers too) on disk, `chatlogs/<date>/<channel>.jsonl`;
+  never DMs or owner commands; deleted posts taken out. Kept (user choice), gitignored.
+- `diary.py` — her diary: prompt, `format` schema and checks for the nightly write-up, and `diary.json`
+  (recaps + how far each channel's log has been read).
 - `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
   its `format` schema and parsing.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
@@ -150,9 +155,26 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   emoji at send time). Only `in_text=True` ones are listed in her prompt; `aryanosaka` and
   `goonerstare` are reaction-only so those names aren't listed there. `goonerstare` is also
   the slur stand-in, so it's always postable and can appear in her chat log.
-- Person memory is explicit only: a "remember (that) ..." / "don't forget ..." message aimed
+- Her diary (user, 2026-09-29: "have gomi store conversations into her memory whenever I shut down
+  gomi for the night"; this ended "person memory is explicit only, no auto-extraction"). Chosen: notes
+  + daily recaps; triggered by Ctrl+C / SIGTERM / SIGHUP (own `main()` instead of `client.run`; a
+  second Ctrl+C skips it) or an owner's "gomi goodnight" (💤, a goodnight line unless muted, then
+  `client.close()`), with a background catch-up at the next start for chat older than the start;
+  everyone in the server, no opt-out; raw logs kept. Every server-channel message goes to the chat
+  log (`chatlog.py`; DMs never, owner commands never, deleted posts removed). `write_diary` reads each
+  channel's log since `read_up_to` in ~12k-char parts; a part with <2 human messages is just marked
+  read. One `format`-constrained call per part (`who` is an enum of the part's speakers, temperature
+  0.3) returns a recap and notes, each note with a quote; `parse_digest` keeps a note only if its
+  quote (2+ words, case/punctuation-insensitive) is in one of the part's messages, the note has no
+  slur and is <= 200 chars. Notes → `people.json` "learned" (deduped against facts, at most
+  `MAX_LEARNED_PER_PERSON` 10); recaps → `diary.json`. Model down → stop, unread; unparseable → skip
+  and mark read. Prompt: the speaker's learned notes (after their asked-for facts) and the channel's
+  last `RECAP_DAYS` (3) of recaps, both ahead of the log; the system prompt's limits say she
+  remembers "what you wrote in your diary after past chats". Restarts reload each channel's last
+  `HISTORY_LENGTH` log lines from the last `HISTORY_RELOAD_HOURS` (12) and prefill `handles`.
+- Person memory, explicit part: a "remember (that) ..." / "don't forget ..." message aimed
   at her (@mention, reply-ping, or "Gomi"/"Gomihyu" within the first 4 words) stores the rest verbatim for its
-  author. No auto-extraction from chat; questions ("remember when...?") are skipped. She
+  author (her own picked-up notes come only from the diary, above); questions ("remember when...?") are skipped. She
   reacts 📝 on store. Nicknames ("call me X", "my nickname is X", "Y's nickname is X",
   "call @y X") are stored on the person they're about (resolved by handle / display name /
   mention / people.json), never with a slur, never for her. `people.json` (gitignored),
@@ -199,8 +221,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   personal messages including DMs, and is gitignored. Builders read it from a local path.
 
 ## Open / not yet decided
-- Whether to persist channel history across bot restarts (currently in-memory, resets
-  on restart).
+- (Settled 2026-09-29: channel history now survives restarts, reloaded from the chat log.)
+- The kept chat logs are the natural source for training-data option (a) below; that still needs
+  the other members' consent before any training.
 - Training data from the user's own Discord export (received 2026-09-26, analysed in a
   scratch space, not in the repo): 83,656 messages, 2017-05 to 2026-09. 56k from server
   channels (4 servers still named in the export, plus 18k from ones that aren't), 27.6k from
@@ -232,7 +255,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B.
 3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
    update `OLLAMA_MODEL` in `.env` and set `FEW_SHOT_EXAMPLES=0`. No bot code changes needed.
-4. Revisit history persistence if in-memory-only turns out to be annoying in practice.
+4. Read the first diary entries (console at shutdown, `diary.json`, "learned" in `people.json`):
+   are notes lasting facts or chatter, does the quote check drop real notes (paraphrased quotes)
+   or let junk through, are recaps useful in her replies, how long shutdown takes.
 5. Tell the server she remembers things people tell her to (if not done yet).
 6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
 7. Gemma 4 E4B live (100% GPU at 8192 context confirmed): reply speed, no thinking warning, and

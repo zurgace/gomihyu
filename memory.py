@@ -1,9 +1,10 @@
 """
-Person memory: facts people explicitly ask Gomihyu to remember, kept in one small JSON file.
+Person memory, kept in one small JSON file: facts people explicitly ask Gomihyu to remember, and
+notes she picked up herself from the chat when writing her diary (diary.py), kept apart.
 
-Explicit only. A message aimed at her ("@Gomihyu remember that ...", "ok gomi, don't forget
-...") stores the rest of the message verbatim against its author's Discord ID. Nothing is
-inferred from ordinary chat, so sarcasm and banter never end up stored as facts.
+A message aimed at her ("@Gomihyu remember that ...", "ok gomi, don't forget ...") stores the rest
+of the message verbatim against its author's Discord ID. Her own notes ("learned") only come from
+the diary, each checked against the words it came from.
 
 Nicknames are stored against the person they belong to, not whoever said them, so she can
 use them whenever that person is around: "call me Rex", "my nickname is Rex",
@@ -67,12 +68,13 @@ def fact_to_remember(text: str, mentioned: bool) -> str | None:
 
 
 class PeopleMemory:
-    """people.json: {user_id: {"display_name": ..., "facts": [...], "nickname"?: ...}}.
-    IDs are strings, as JSON keys must be."""
+    """people.json: {user_id: {"display_name": ..., "facts": [...], "nickname"?: ...,
+    "learned"?: [{"note": ..., "day": "YYYY-MM-DD"}]}}. IDs are strings, as JSON keys must be."""
 
-    def __init__(self, path: Path, max_facts: int):
+    def __init__(self, path: Path, max_facts: int, max_learned: int = 10):
         self.path = path
         self.max_facts = max_facts
+        self.max_learned = max_learned
         try:
             self.people = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         except json.JSONDecodeError as e:
@@ -81,6 +83,9 @@ class PeopleMemory:
 
     def facts_for(self, user_id: int) -> list[str]:
         return self.people.get(str(user_id), {}).get("facts", [])
+
+    def learned_for(self, user_id: int) -> list[str]:
+        return [item["note"] for item in self.people.get(str(user_id), {}).get("learned", [])]
 
     def nickname_for(self, user_id: int) -> str | None:
         return self.people.get(str(user_id), {}).get("nickname")
@@ -99,6 +104,17 @@ class PeopleMemory:
         if fact.casefold() not in (known.casefold() for known in person["facts"]):
             person["facts"] = (person["facts"] + [fact])[-self.max_facts:]
         self._save()
+
+    def learn(self, user_id: int, display_name: str | None, note: str, day: str) -> bool:
+        """Keep a note from her diary (once, and not if they already asked her to remember it). Past
+        max_learned, their oldest notes drop off. Whether it was new."""
+        person = self._person(user_id, display_name)
+        known = {item["note"].casefold() for item in person.get("learned", [])} | {f.casefold() for f in person["facts"]}
+        if note.casefold() in known:
+            return False
+        person["learned"] = (person.get("learned", []) + [{"note": note, "day": day}])[-self.max_learned:]
+        self._save()
+        return True
 
     def set_nickname(self, user_id: int, display_name: str | None, nickname: str) -> None:
         self._person(user_id, display_name)["nickname"] = nickname

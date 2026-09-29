@@ -15,6 +15,11 @@ train.jsonl
 people.json
 people.json.tmp
 
+# Her chat log and diary: the server's messages and what she wrote about them; local only
+chatlogs/
+diary.json
+diary.json.tmp
+
 # Where her Melee posts go ("gomi post melee here"); per server
 melee_channel.json
 melee_channel.json.tmp

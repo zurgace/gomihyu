@@ -42,6 +42,10 @@ venv/bin/python bot.py
 ```
 You should see `Logged in as Gomihyu (id: ...)` in the console once it's connected.
 
+**To stop her for the night**, press Ctrl+C (or say `gomi goodnight`, see [Her diary](#her-diary)).
+She writes her diary before the bot exits, which takes a few seconds per channel; Ctrl+C again
+skips it, and she catches up at the next start.
+
 Running through `venv/bin/python` uses the venv without activating it, so it works the same in
 bash, zsh or fish. (If you do activate it in fish, the command is `source venv/bin/activate.fish`.)
 
@@ -138,7 +142,8 @@ Gomihyu, don't forget my birthday is march 3
 - It only counts if the message is aimed at her: it @mentions her, replies to one of her
   messages with the ping left on, or has "Gomi"/"Gomihyu" within its first few words
   ("ok then gomi remember that ..."). "remember that party lol" in normal chat is ignored, and so are questions
-  like "@Gomihyu remember when...?". Nothing is picked up from ordinary conversation.
+  like "@Gomihyu remember when...?". (What she picks up from ordinary chat on her own is in
+  [Her diary](#her-diary), kept separately.)
 - When a fact is stored she reacts 📝 and the console logs `Remembered for <handle>: ...`.
   Everything after "remember (that)" / "don't forget (that)" is stored word for word.
 - **Nicknames** are saved for the person they belong to, not whoever said them, so she uses
@@ -158,7 +163,34 @@ Gomihyu, don't forget my birthday is march 3
   remembers something. If the file isn't valid JSON, the bot won't start (it says why), so
   a typo can't wipe it.
 
-## Owner commands: deleting her posts, muting her
+## Her diary
+When she's shut down for the night, she reads the day's chat and writes her diary, so she learns
+from the server without anyone telling her "remember that":
+- **During the day**, every message in the server's channels she can see (hers too) goes into a
+  chat log on disk: `chatlogs/<date>/<channel id>.jsonl` (`CHAT_LOG_DIR`). DMs are never logged;
+  owner commands aren't either, and posts you have her delete are taken out. The logs are kept
+  (gitignored, they stay on your PC).
+- **At shutdown** (Ctrl+C, a system stop, or you saying **`gomi goodnight`**: she reacts 💤, says
+  goodnight in character, then the bot shuts down), she reads each channel's chat since her last
+  entry and writes:
+  - **a recap**: what happened, 1–3 sentences, as her diary ("Kaz started guitar lessons and Rex
+    asked what song he's learning"), kept in `diary.json` (`DIARY_FILE`);
+  - **notes on people** ("kaz0 is taking guitar lessons"), kept in `people.json` under "learned",
+    next to (not mixed with) the notes people asked her to remember. Each note must come with the
+    exact words it's based on, and the code throws out any note whose words aren't in the log, that's
+    about someone who didn't talk, or that has a slur, so she can't just make things up about people.
+    Each person keeps at most `MAX_LEARNED_PER_PERSON` (10); the oldest drop off.
+  The console prints every recap and note as it's written. A stretch of chat with fewer than two
+  messages from people is skipped. If Ollama isn't running, the chat stays unread for next time.
+- **If the bot didn't shut down cleanly** (crash, terminal closed), she catches up on the unread
+  chat at the next start, in the background.
+- **The next day**: when she replies, her prompt has the last `RECAP_DAYS` (3) days of recaps for
+  that channel, and what she learned about the person she's answering. After a restart she also
+  picks the conversation back up: each channel's last messages from the log, if they're from the
+  last `HISTORY_RELOAD_HOURS` (12).
+- To fix or remove a note or recap, stop the bot, edit `people.json` / `diary.json`, start it again.
+
+## Owner commands: deleting her posts, muting her, putting her to bed
 The bot's owner can make her delete her own posts or go quiet, and this overrides her persona:
 the bot does it in code, so the model never sees the command and can't talk back. Say it to her
 (her name, an @mention, or a Discord reply to one of her posts). Who counts as the owner is at
@@ -199,6 +231,11 @@ run) and doesn't reply to sad news that isn't aimed at her, but still adds emoji
 posts her Melee match results. A mute and quiet mode replace each other: whichever you said last
 counts. "Be quiet" and "stfu" are banter, not commands; so are "don't make me put you in quiet
 mode", "I'll put you in quiet mode" and questions about it.
+
+### Putting her to bed
+`gomi goodnight` (or `gomi go to sleep` / `gomi gn` / `gomi bedtime`): she reacts 💤, says goodnight
+in character (not while muted), and the bot shuts down after writing her diary; see
+[Her diary](#her-diary). "Gomi, say goodnight to Kaz", questions and "I'll..." aren't commands.
 
 ### Who counts as the owner
 Whoever owns the bot application in the Developer Portal (you, if you
@@ -274,7 +311,7 @@ gitignored too.
   for facts; anything that must be right (memory, the slur filter) is handled in code.
 - Text-only: it can't see images, only whatever caption/text comes with them. Image posts
   appear to her as `[image]`, and on their own they get a 👀-style reaction, not a reply.
-- Chat history is in-memory only and resets when the bot restarts. Remembered facts
-  (`people.json`) do persist.
-- Single-server assumption: history is keyed by Discord channel ID, so it naturally
-  won't cross-contaminate between channels/servers, but there's no persistence yet.
+- Her recent chat is picked back up from the chat log after a restart (last
+  `HISTORY_RELOAD_HOURS`); older days reach her only as diary recaps.
+- Single-server assumption: history, logs and recaps are keyed by Discord channel ID, so they
+  naturally won't cross-contaminate between channels/servers.

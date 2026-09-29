@@ -10,6 +10,8 @@ Behavior:
   - One reply at a time per channel. Messages that arrive while a reply is being written get
     a single follow-up reply to the latest chat, not one reply each.
   - No cooldown — designed for a small, slow server (see README).
+  - Logs the server's chat to disk (chatlog.py) and, at shutdown (Ctrl+C or an owner's "gomi
+    goodnight"), writes her diary from it: recaps and checked notes on people (diary.py).
 
 Setup is in README.md. Persona and prompt format live in persona.py, shared with the
 fine-tuning data builder, so they're easy to swap out without touching the bot logic.
@@ -22,6 +24,7 @@ import time
 import random
 import asyncio
 import logging
+import signal
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -30,14 +33,17 @@ import discord
 from dotenv import load_dotenv
 
 from censor import has_slur
+from chatlog import ChatLog, local_day
 from chime import INTEREST_FORMAT, interest_messages, parse_interest
-from commands import (ALL, FOREVER, delete_request, melee_here_request, melee_stop_request, mute_request, quiet_request,
+from commands import (ALL, FOREVER, delete_request, goodnight_request, melee_here_request, melee_stop_request, mute_request,
+                      quiet_request,
                       unmute_request)
+from diary import Diary, chunks, digest_format, digest_messages, parse_digest
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, match_facts, read_outbox, save_channel,
                    stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
-from persona import BOT_NAME, BOT_NICKNAME, build_match_messages, build_messages, format_line
+from persona import BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_match_messages, build_messages, format_line
 from reactions import media_only, names_her, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
 
 load_dotenv()
@@ -70,6 +76,18 @@ model_thinks = OLLAMA_THINK
 # Facts people ask her to remember; relative paths are next to this file. Survives restarts.
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
+# Her diary (diary.py): when the bot shuts down she reads the day's chat log (every message in the
+# server's channels, kept in CHAT_LOG_DIR; never DMs) and writes a recap per channel (DIARY_FILE)
+# and notes on people (people.json, at most MAX_LEARNED_PER_PERSON each, oldest dropping off). Her
+# prompt gets the last RECAP_DAYS days of recaps, and after a restart she picks the chat back up
+# from the log if it's newer than HISTORY_RELOAD_HOURS.
+CHAT_LOG_DIR = Path(__file__).resolve().parent / os.environ.get("CHAT_LOG_DIR", "chatlogs")
+DIARY_FILE = Path(__file__).resolve().parent / os.environ.get("DIARY_FILE", "diary.json")
+MAX_LEARNED_PER_PERSON = int(os.environ.get("MAX_LEARNED_PER_PERSON", "10"))
+RECAP_DAYS = int(os.environ.get("RECAP_DAYS", "3"))
+HISTORY_RELOAD_HOURS = float(os.environ.get("HISTORY_RELOAD_HOURS", "12"))
+DIARY_PART_CHARS = 12000  # chat per diary call: ~3k tokens, well inside OLLAMA_NUM_CTX with the answer
+GOODNIGHT_EMOJI = "💤"
 REMEMBERED_EMOJI = "📝"  # reaction confirming a fact or nickname was stored
 # Who can make her delete her posts ("gomi delete that", commands.py): the bot application's owner,
 # looked up at login, plus these Discord user ids (comma-separated).
@@ -136,7 +154,12 @@ posted = {}
 muted_until = {}
 # channel_id -> when her quiet mode there ends (only answers people talking to her). Same rules.
 quiet_until = {}
-memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON)
+memory = PeopleMemory(PEOPLE_FILE, MAX_FACTS_PER_PERSON, MAX_LEARNED_PER_PERSON)
+chat_log = ChatLog(CHAT_LOG_DIR)
+diary = Diary(DIARY_FILE)
+# held while she writes her diary, so a shutdown waits for a catch-up that's still going
+diary_lock = asyncio.Lock()
+started = time.time()
 
 
 def load_examples(path: Path) -> list[dict]:
@@ -266,7 +289,8 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
     shown = random.sample(examples, min(FEW_SHOT_EXAMPLES, len(examples)))
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
-                                          author_handle, memory.facts_for(author_id), nicknames, shown),
+                                          author_handle, memory.facts_for(author_id), nicknames, shown,
+                                          memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS)),
                "options": options}
 
     start = time.monotonic()
@@ -315,6 +339,8 @@ async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: s
         posted[sent.id] = (channel_id, line)
         if len(posted) > 1000:
             del posted[next(iter(posted))]
+        if getattr(channel, "guild", None):
+            chat_log.add(channel_id, channel_label(channel), sent.id, client.user.id, BOT_NAME, reply)
 
 
 async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned: bool) -> None:
@@ -416,7 +442,7 @@ async def delete_posts(message: discord.Message, count: int) -> None:
     except discord.HTTPException as e:  # e.g. the bot lacks Read Message History here
         log.warning(f"Couldn't look up her posts to delete: {e}")
         targets = []
-    deleted = 0
+    deleted, gone = 0, set()
     for post in targets:
         try:
             await post.delete()
@@ -426,12 +452,15 @@ async def delete_posts(message: discord.Message, count: int) -> None:
             log.warning(f"Couldn't delete her post {post.id}: {e}")
             continue
         deleted += 1
+        gone.add(post.id)
         if entry := posted.pop(post.id, None):
             channel_id, line = entry
             try:
                 history[channel_id].remove(line)
             except ValueError:
                 pass  # already scrolled out of her log
+    if gone:
+        chat_log.forget(message.channel.id, gone)
     log.info(f"Deleted {deleted} of her posts, as {message.author.name} asked")
     await react(message, DELETED_EMOJI if deleted else NOTHING_TO_DELETE_EMOJI)
 
@@ -473,6 +502,8 @@ async def on_ready():
     # on_ready runs again after a reconnect: one watcher is enough.
     if melee_watcher is None:
         melee_watcher = asyncio.create_task(watch_melee())
+        # A crash or a closed terminal skips the diary; catch up on what it left.
+        asyncio.create_task(write_diary("catching up on chat from before she started", before=started))
     try:
         app = await client.application_info()
     except discord.HTTPException as e:
@@ -502,6 +533,9 @@ async def on_message(message: discord.Message):
     # An owner telling her to delete her posts or be quiet overrides the persona: done in code,
     # never shown to the model or kept in her chat log.
     if message.author.id in owner_ids and for_her:
+        if goodnight_request(text):
+            await go_to_bed(message)
+            return
         where = f"#{message.channel.name}" if getattr(message.channel, "name", None) else f"channel {channel_id}"
         if count := delete_request(text):
             await delete_posts(message, count)
@@ -536,6 +570,8 @@ async def on_message(message: discord.Message):
     history[channel_id].append(format_line(message.author.name, text))
     logged[channel_id] += 1
     last_author[channel_id] = (message.author.id, message.author.name)
+    if message.guild:  # never DMs
+        chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id, message.author.name, text)
 
     await take_notes(message, text, mentioned)
 
@@ -717,5 +753,113 @@ melee_watcher = None
 melee_taunts = []
 
 
+def channel_label(channel) -> str:
+    return f"#{channel.name}" if getattr(channel, "name", None) else f"channel {channel.id}"
+
+
+async def write_diary(why: str, before: float | None = None) -> None:
+    """Read each channel's chat log since her last diary entry (up to `before`) and write it up:
+    a recap per part and checked notes on people (diary.py). A part stays unread if the model doesn't
+    answer, for the next time; an answer that isn't the JSON asked for is skipped with a warning."""
+    async with diary_lock:
+        before = time.time() if before is None else before
+        for channel_id in sorted(chat_log.channels()):
+            entries = chat_log.read(channel_id, after=diary.read_up_to(channel_id), before=before)
+            if not entries:
+                continue
+            parts = chunks(entries, DIARY_PART_CHARS)
+            where = entries[-1].get("channel") or f"channel {channel_id}"
+            log.info(f"Writing her diary ({why}): {where}, {len(entries)} messages"
+                     + (f" in {len(parts)} parts" if len(parts) > 1 else ""))
+            for part in parts:
+                if not await diary_entry(channel_id, part):
+                    log.warning("Couldn't write her diary (is Ollama running?); she'll catch up next time")
+                    return
+
+
+async def diary_entry(channel_id: int, part: list[dict]) -> bool:
+    """One diary call for part of a channel's log; False if the model didn't answer."""
+    ids = {entry["author"]: entry.get("author_id") for entry in part if entry["author"] != BOT_NAME}
+    day, where = local_day(part[0]["time"]), part[-1].get("channel") or f"channel {channel_id}"
+    if sum(entry["author"] != BOT_NAME for entry in part) >= 2:
+        options = {"temperature": 0.3} | ({} if model_thinks else {"num_predict": 700})
+        data = await ollama_chat({"messages": digest_messages(where, day, [format_line(e["author"], e["text"])
+                                                                         for e in part]),
+                                  "format": digest_format(sorted(ids)), "options": options})
+        if data is None:
+            return False
+        digest = parse_digest(data.get("message", {}).get("content", ""), sorted(ids), [e["text"] for e in part])
+        if digest is None:
+            log.warning(f"Her diary for {where} came back unreadable; skipping that part. "
+                        f"Raw: {json.dumps(data)[:300]}")
+        else:
+            recap, notes = digest
+            if recap:
+                diary.add_recap(channel_id, where, day, recap)
+            new = [f"{who}: {note}" for who, note in notes
+                   if ids.get(who) and memory.learn(ids[who], display_names.get(ids[who]), note, day)]
+            log.info(f"Diary for {where}, {day}: {recap or '(no recap)'}"
+                     + (f" | Noted: {'; '.join(new)}" if new else ""))
+    diary.mark_read(channel_id, part[-1]["time"])
+    return True
+
+
+async def go_to_bed(message: discord.Message) -> None:
+    """An owner's "gomi goodnight": she says goodnight, and the bot shuts down (main() then writes her
+    diary)."""
+    channel_id = message.channel.id
+    log.info(f"{message.author.name} put her to bed: saying goodnight, then writing her diary and shutting down")
+    await react(message, GOODNIGHT_EMOJI)
+    if not muted(channel_id):
+        owner = memory.nickname_for(message.author.id) or message.author.display_name
+        data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner),
+                                  "options": {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}})
+        if data and (line := clean_reply(data, message.author.id, time.monotonic())):
+            await send_reply(message.channel, channel_id, line)
+    await client.close()
+
+
+def reload_history() -> None:
+    """Pick the chat back up after a restart: each channel's last HISTORY_LENGTH messages from the log,
+    if newer than HISTORY_RELOAD_HOURS, and who's who for pings."""
+    since = time.time() - HISTORY_RELOAD_HOURS * 3600
+    for channel_id in chat_log.channels():
+        entries = chat_log.read(channel_id, after=since)[-HISTORY_LENGTH:]
+        for entry in entries:
+            history[channel_id].append(format_line(entry["author"], entry["text"]))
+            if entry["author"] != BOT_NAME and entry.get("author_id"):
+                handles.setdefault(entry["author"].lower(), entry["author_id"])
+        if entries:
+            log.info(f"Picked up {len(entries)} messages of chat in {entries[-1].get('channel') or channel_id}")
+
+
+async def main() -> None:
+    reload_history()
+    # Ctrl+C (asyncio cancels this task), a stop (SIGTERM) or a closed terminal (SIGHUP): write her diary
+    # first. A second Ctrl+C skips it; the next start catches up.
+    task = asyncio.current_task()
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            asyncio.get_running_loop().add_signal_handler(sig, task.cancel)
+        except (NotImplementedError, AttributeError, ValueError):
+            pass  # not on this platform
+    try:
+        async with client:
+            await client.start(DISCORD_TOKEN)
+    except asyncio.CancelledError:
+        if hasattr(task, "uncancel"):  # Python 3.11+: this cancel is handled, so later awaits run normally
+            task.uncancel()
+    finally:
+        log.info("Shutting down: writing her diary first (Ctrl+C again to skip it)")
+        try:
+            await write_diary("shutting down")
+            log.info("Diary written. Goodnight.")
+        except asyncio.CancelledError:
+            log.info("Skipped her diary; she'll catch up at the next start")
+
+
 if __name__ == "__main__":
-    client.run(DISCORD_TOKEN)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
