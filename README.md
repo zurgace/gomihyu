@@ -114,9 +114,10 @@ bare link (usually a GIF), emoji-only posts, and short interjections of up to
 that @mentions her, says "gomi"/"gomihyu", or sounds like bad news gets a normal reply instead.
 - **Sad news** ("my dog died", "rough week") gets a reply *and* a `:catsad:` reaction
   (`SAD_NEWS` in `emojis.py`). Laughter doesn't count: "im crying lmao" is not sad news.
-- **Images, stickers, links:** she can't see them, so she doesn't pretend to judge them: she
-  reacts 👀 or `:goonerstare:`. In her chat log they show up as `[image]`, `[sticker: name]`,
-  so she knows something was posted instead of seeing an empty line.
+- **Images, stickers, GIFs, links:** she looks at them (see [What she sees](#what-she-sees)) and
+  reacts to what's in them, like any other post. If she couldn't see one (vision off or failed, a
+  video, a Lottie sticker), she doesn't pretend to judge it: she reacts 👀 or `:goonerstare:`, and
+  it shows up in her chat log as `[image]`, `[sticker: name]` etc., so she knows something was posted.
 - **Emoji-only posts:** she can react with the same emoji, or answer it with a different one.
 - **Everything else:** a quick, separate model call picks the emoji. Its answer is restricted
   to the names in `emojis.py` (plus "none", in which case she leaves it be).
@@ -162,6 +163,33 @@ Gomihyu, don't forget my birthday is march 3
   The running bot keeps its own copy and would overwrite your edit the next time it
   remembers something. If the file isn't valid JSON, the bot won't start (it says why), so
   a typo can't wipe it.
+
+## What she sees
+Gemma 4 E4B has vision, so she looks at what people post: attached images, GIFs (the first frame),
+stickers (not the animated Lottie kind) and link previews, the card Discord shows under a link
+(title, description, thumbnail). She never opens the linked page itself, and can't play videos.
+
+Each picture is described **once**, in a short line, by a quick extra call to the model, and the
+description stands in for it from then on. In her chat log a post reads like
+`kaz0: rate my setup [image: a desk with three monitors and RGB lights]`, or
+`https://tenor.com/... [gif: a frog dancing in the rain]`. So her replies, her emoji reactions,
+whether she chimes in, her diary and future training data all know what was posted, with no more
+calls. A picture posted on its own still gets a reaction as her whole response, but now one that
+fits what's in it, instead of a fixed 👀. The console logs each look:
+`Saw picture from kaz0: 'a desk with three monitors and RGB lights' (1.2s)`.
+
+- The same GIF posted again isn't looked at twice. At most `VISION_MAX_IMAGES` (3) per post; pictures
+  over 10MB are skipped. For a link, she waits a couple of seconds for Discord to add its preview.
+- Text written in a picture never counts as someone telling her to remember something, and a
+  description with a slur is dropped (she treats the picture as unseen).
+- `VISION=false` turns it off (back to the 👀 reaction). `VISION_MODEL` lets a different model do the
+  looking; by default it's her own. After the first picture, `ollama ps` shows how much VRAM the
+  vision part added.
+- `venv/bin/python tools/vision_check.py` checks your setup: it asks the model what colour a few
+  plain pictures are. Some Ollama versions hand gemma4:e4b a blank image
+  ([ollama#18560](https://github.com/ollama/ollama/issues/18560)); on this setup (0.34.2, Linux,
+  NVIDIA) it passed.
+- It needs Pillow: after pulling, run `venv/bin/pip install -r requirements.txt` once.
 
 ## Her diary
 When she's shut down for the night, she reads the day's chat and writes her diary, so she learns
@@ -347,12 +375,9 @@ gitignored too.
   last few messages; she can't read or search history, look things up or do things later)
   and who she's answering, which helps, but she'll still bluff sometimes. Don't rely on her
   for facts; anything that must be right (memory, the slur filter) is handled in code.
-- Text-only: it can't see images, only whatever caption/text comes with them. Image posts
-  appear to her as `[image]`, and on their own they get a 👀-style reaction, not a reply.
-  Gemma 4 E4B has vision, but some Ollama versions hand it a blank image
-  ([ollama#18560](https://github.com/ollama/ollama/issues/18560), reported on 0.34.2).
-  `venv/bin/python tools/vision_check.py` asks the model what colour a few plain pictures are and
-  says whether vision works on your setup.
+- What she sees in a picture is one short description from a small model: good for the gist and
+  any big text, not fine details. She can't open links or play videos, and a description, like
+  anything else from the model, can be wrong.
 - Her recent chat is picked back up from the chat log after a restart (last
   `HISTORY_RELOAD_HOURS`); older days reach her only as diary recaps.
 - Single-server assumption: history, logs and recaps are keyed by Discord channel ID, so they

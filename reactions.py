@@ -3,7 +3,8 @@ When Gomihyu answers a post with an emoji reaction instead of words, and the emo
 
 Posts that don't need words get a reaction as her whole response: images, stickers, emoji-only
 posts and short interjections ("oogaga", "lol wtf"). Not if they're aimed at her or serious.
-Texts here are as bot.readable() renders them: custom emojis as :name:, media as [image] etc.
+Texts here are as bot.readable() renders them: custom emojis as :name:, media as [image] etc., or
+[image: what she saw in it] once vision.py has looked.
 """
 
 import re
@@ -12,8 +13,8 @@ ADDRESSED = re.compile(r"\bgomi(?:hyu)?\b", re.IGNORECASE)
 # Bad news gets words, never just an emoji.
 SERIOUS = re.compile(r"\b(?:died|passed away|funeral|hospital|sad|depressed|crying|cried|rough|breakup|"
                      r"broke up|lost my|grieving)\b", re.IGNORECASE)
-# Media she can't see; a bare link (usually a Tenor GIF) counts too.
-MEDIA = re.compile(r"\[(?:image|video|file|sticker)[^\]]*\]|https?://\S+")
+# Media, described or not ([image: ...]), and links: not words someone typed.
+MEDIA = re.compile(r"\[(?:image|gif|video|file|sticker|link)[^\]]*\]|https?://\S+")
 _PIC = r"[\u2190-\u21FF\u2600-\u27BF\u2B00-\u2BFF\U0001F000-\U0001FAFF]"
 # One emoji: a :custom: name, a flag, or a pictograph with its skin-tone/ZWJ/variation parts.
 EMOJI = re.compile(rf":(\w+):|[\U0001F1E6-\U0001F1FF]{{2}}|{_PIC}[\uFE0F\U0001F3FB-\U0001F3FF]*"

@@ -50,6 +50,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   (recaps, the vibe note, how far each channel's log has been read).
 - `meld.py` — how the server slowly shapes her persona: which of her replies landed, which messages
   are the server's voice, the example-chat mix, the vibe note, the training-run schedule.
+- `vision.py` — what she sees: which media in a post she looks at, image prep (Pillow, first frame, on
+  white, <= 1024px JPEG), the one-line describe prompt, and the `[image: ...]` / `[gif: ...]` /
+  `[sticker: name, ...]` / `[link: "title", preview: ...]` labels. `tools/vision_check.py` tests vision.
 - `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
   its `format` schema and parsing.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
@@ -154,9 +157,24 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   she @'d them in every reply and "stop pinging me" didn't stick). Code drops their @
   (`without_ping`: a leading "@name" goes, others become the plain name), the prompt says never
   to @ them, and the seed replies have no @. Never pings @everyone/@here/roles.
+- Vision (user, 2026-09-29, after `tools/vision_check.py` passed on their Ollama 0.34.2 / Linux /
+  NVIDIA; ollama#18560's blank-image bug doesn't hit them). User choices: describe once; look at
+  images, stickers, GIFs and link previews; a picture alone is still reaction-only, but reacted to by
+  what's in it. On a post with media or a URL, `on_message` logs the placeholder line first (so posts
+  arriving meanwhile stay in order), `look_at` (for a URL with no embeds yet: waits
+  `EMBED_WAIT_SECONDS` 2.5 and re-fetches the message) downloads each source (<= 10MB, 20 s,
+  `VISION_MAX_IMAGES` 3; link previews from Discord's `proxy_url`, never the page), asks
+  `VISION_MODEL` (default her model; temperature 0.2, 80 tokens) for one line, and `readable(message,
+  seen)` rebuilds the line, which replaces the placeholder in her history and is what the chat log
+  gets. Descriptions are cached by URL (without query), no brackets, slur → dropped. `take_notes`
+  gets the typed text, never descriptions (no memories planted by text in a picture). `reactions.MEDIA`
+  covers [gif]/[link], so descriptions never count as typed words, names or sad news. The system
+  prompt says bracketed media is what she saw and that she can't open links or play videos.
+  `VISION=false` → text-only, as before.
 - Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
-  was removed at the user's request). Media she can't see → a "looking" emoji (👀 /
-  :goonerstare:), never a judgment of the image. Emoji-only posts may get the same emoji
+  was removed at the user's request). Media she couldn't see (vision off or failed, videos, Lottie
+  stickers) → a "looking" emoji (👀 / :goonerstare:), never a judgment of the image; media she saw
+  goes to the picker with its description. Emoji-only posts may get the same emoji
   back. Otherwise a separate short Ollama call picks, with `format` constrained to the
   `emojis.py` names + "none". Reactions are never added to the chat history.
 - Sad news (`reactions.sad_news`: serious words, not laughter like "crying lmao") gets a
@@ -281,11 +299,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   only started that day, so they'll check the data later that week before any run. Free training
   options discussed: Kaggle (30 GPU-h/week, 16GB) first, Colab free T4 as backup; the 2070 alone is
   short of Unsloth's ~10GB for E4B QLoRA even with Ollama moved to CPU.
-- Vision (user asked 2026-09-29): Gemma 4 E4B has a 150M vision encoder (~280 image tokens by default),
-  and Ollama takes base64 `images` on /api/chat, but ollama#18560 (dup of the open #16532) reports
-  gemma4:e4b getting a blank image on 0.33.3 / 0.34.2, the user's version. `tools/vision_check.py`
-  tests it (solid colours; "black" everywhere = the bug). Nothing built on vision yet: it would change
-  the "media she can't see → a looking emoji" decision, so it waits on the check and the user.
+- (Settled 2026-09-29: vision works on the user's setup and is built; see the Vision decision. Gemma 4
+  E4B's encoder is 150M, ~280 image tokens by default. ollama#18560, a dup of the open #16532, reports
+  blank images on some setups, so re-run `tools/vision_check.py` after Ollama or model changes.)
 
 ## Next steps
 1. See how Gemma does with the seed as example chats. First live log (2026-09-27): voice good and
@@ -311,7 +327,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 8. Tune chiming in live: watch the `Interest n/10` log lines. Small models tend to give most
    posts the same middling-high number; if she's too chatty or too quiet, move
    `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`.
-9. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
+9. Vision live: description quality and speed (console `Saw ...`), `ollama ps` VRAM with the vision
+   part loaded, whether link previews arrive within `EMBED_WAIT_SECONDS`, reactions to pictures.
+10. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
    me?" still comes back wrong, answer it from code (list the saved notes) instead.
 
 ## Constraints

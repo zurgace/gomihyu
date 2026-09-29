@@ -46,6 +46,8 @@ from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, match_fac
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_match_messages, build_messages, format_line
 from reactions import media_only, names_her, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
+import vision
+from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
 
 load_dotenv()
 
@@ -130,10 +132,21 @@ MELEE_MAX_AGE_MINUTES = float(os.environ.get("MELEE_MAX_AGE_MINUTES", "30"))
 # Who played against her; default: the bot owner's nickname, else their display name.
 MELEE_PLAYER = os.environ.get("MELEE_PLAYER", "").strip()
 MELEE_CHECK_SECONDS = 5
+# Vision (vision.py): each picture, sticker, GIF or link preview in a post is described once by
+# VISION_MODEL (her own model unless set) and the description stands in for it in her chat log. At most
+# VISION_MAX_IMAGES per post. VISION=false: she's text-only again, with a looking emoji for pictures.
+VISION = os.environ.get("VISION", "true").strip().lower() in ("1", "true", "yes", "on")
+VISION_MODEL = os.environ.get("VISION_MODEL", "").strip() or MODEL_NAME
+VISION_MAX_IMAGES = int(os.environ.get("VISION_MAX_IMAGES", "3"))
+VISION_MAX_BYTES = 10 * 1024 * 1024
+EMBED_WAIT_SECONDS = 2.5  # Discord adds a link's preview a moment after the post
 MELEE_RETRY_SECONDS = 60  # after a match she couldn't post
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
+if VISION and vision.Image is None:
+    log.warning("Pillow isn't installed, so she can't look at pictures. Run: venv/bin/pip install -r requirements.txt")
+    VISION = False
 
 intents = discord.Intents.default()
 intents.message_content = True  # required — must also be enabled in the Dev Portal, see README
@@ -205,6 +218,7 @@ def shown_examples() -> list[dict]:
     """This reply's example chats: Satania ones and, more and more, her own that landed."""
     return pick_examples(examples, earned, FEW_SHOT_EXAMPLES, MELD_ANCHOR, MELD_FULL_AT)
 
+URL = re.compile(r"https?://\S+")
 MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
 CUSTOM_EMOJI_TOKEN = re.compile(r"<a?:(\w+):\d+>")
 CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
@@ -215,18 +229,25 @@ SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*(?:{BOT_NAME}|{BOT_NICKNAME})[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
-def readable(message: discord.Message) -> str:
+def readable(message: discord.Message, seen: dict | None = None) -> str:
     """message.content as the model sees it: <@id>/<@&id>/<#id> as @handle/@role/#channel,
-    custom emojis as :name:, and attachments/stickers as [image]/[video]/[file]/[sticker: name]."""
+    custom emojis as :name:, attachments/stickers as [image]/[gif]/[video]/[file]/[sticker: name] and
+    link previews as [link: "title"]. seen: what she saw in its pictures (look_at), by (kind, index),
+    which goes in the brackets: [image: a cat in a tiny wizard hat]."""
+    seen = seen or {}
     names = {user.id: f"@{user.name}" for user in message.mentions}
     names.update({role.id: f"@{role.name}" for role in message.role_mentions})
     names.update({channel.id: f"#{channel.name}" for channel in message.channel_mentions})
     text = MENTION_TOKEN.sub(lambda m: names.get(int(m[2]), m[0]), message.content)
     text = CUSTOM_EMOJI_TOKEN.sub(r":\1:", text)
-    kinds = [(a.content_type or "").split("/")[0] for a in message.attachments]
-    media = [f"[{kind if kind in ('image', 'video') else 'file'}]" for kind in kinds]
-    media += [f"[sticker: {sticker.name}]" for sticker in message.stickers]
-    return " ".join([text, *media]).strip()
+    media = []
+    for i, attachment in enumerate(message.attachments):
+        content_type = (attachment.content_type or "").split(";")[0].lower()
+        kind = "gif" if content_type == "image/gif" else content_type.split("/")[0]
+        media.append(label(kind if kind in ("image", "gif", "video") else "file", seen.get(("attachment", i))))
+    media += [label("sticker", seen.get(("sticker", i)), sticker.name) for i, sticker in enumerate(message.stickers)]
+    media += [embed_label(embed, seen.get(("embed", i))) for i, embed in enumerate(getattr(message, "embeds", []))]
+    return " ".join([text, *(m for m in media if m)]).strip()
 
 
 def muted(channel_id: int) -> bool:
@@ -400,8 +421,9 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
         await send_reply(channel, channel_id, reply, seen)
 
 
-async def choose_reaction(message: discord.Message, text: str) -> str | discord.Emoji | None:
-    """The emoji for a post that gets a reaction instead of a reply, or None to leave it be."""
+async def choose_reaction(message: discord.Message, text: str, sees: bool = False) -> str | discord.Emoji | None:
+    """The emoji for a post that gets a reaction instead of a reply, or None to leave it be. sees: she
+    saw what's in its pictures (look_at), so she can react to that."""
     server = {e.name.lower(): e for e in message.guild.emojis} if message.guild else {}
 
     def usable(name: str) -> bool:
@@ -410,7 +432,7 @@ async def choose_reaction(message: discord.Message, text: str) -> str | discord.
     def as_reaction(name: str) -> str | discord.Emoji:
         return name if name in UNICODE else server[name.lower()]
 
-    if media_only(text):  # she can't see images, so she doesn't pretend to judge them
+    if media_only(text) and not sees:  # she couldn't see it, so she doesn't pretend to judge it
         looks = [name for name in LOOKING if usable(name)]
         return as_reaction(random.choice(looks)) if looks else None
 
@@ -534,6 +556,55 @@ async def chimes_in(channel_id: int) -> bool:
     return interest >= CHIME_IN_THRESHOLD
 
 
+async def look_at(message: discord.Message) -> tuple[discord.Message, dict]:
+    """What she sees in a post's pictures (vision.py): descriptions by (kind, index), and the message,
+    re-fetched if it has a link whose preview Discord hadn't added yet."""
+    if URL.search(message.content) and not getattr(message, "embeds", None) and message.guild:
+        await asyncio.sleep(EMBED_WAIT_SECONDS)
+        try:
+            message = await message.channel.fetch_message(message.id)
+        except discord.HTTPException as e:
+            log.info(f"Couldn't fetch the link preview for {message.author.name}'s post: {e}")
+    seen = {}
+    for key, url, what, _ in sources(message)[:VISION_MAX_IMAGES]:
+        remembered = url.split("?", 1)[0]
+        if remembered in seen_before:
+            seen[key] = seen_before[remembered]
+            continue
+        image = jpeg_b64(raw) if (raw := await download(url)) else None
+        if not image:
+            continue
+        start = time.monotonic()
+        data = await ollama_chat({"model": VISION_MODEL, "messages": describe_messages(what, image),
+                                  "options": {"temperature": 0.2} | ({} if model_thinks else {"num_predict": 80})})
+        description = clean_description(strip_thinking(data.get("message", {}).get("content", ""))) if data else None
+        if description:
+            seen[key] = seen_before[remembered] = description
+            if len(seen_before) > 500:
+                del seen_before[next(iter(seen_before))]
+            log.info(f"Saw {what} from {message.author.name}: {description!r} ({time.monotonic() - start:.1f}s)")
+    return message, seen
+
+
+async def download(url: str) -> bytes | None:
+    """A picture to look at, at most VISION_MAX_BYTES, or None."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200 or (resp.content_length or 0) > VISION_MAX_BYTES:
+                    return None
+                data, size = [], 0
+                async for chunk in resp.content.iter_chunked(65536):
+                    size += len(chunk)
+                    if size > VISION_MAX_BYTES:
+                        return None
+                    data.append(chunk)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+        log.warning(f"Couldn't download a picture to look at ({e})")
+        return None
+    return b"".join(data)
+
+
 @client.event
 async def on_ready():
     global app_owner, melee_watcher
@@ -619,14 +690,27 @@ async def on_message(message: discord.Message):
                 await react(message, emoji)
                 return
 
-    history[channel_id].append(format_line(message.author.name, text))
+    typed = text  # what they wrote, before any description of their pictures
+    line = format_line(message.author.name, text)
+    history[channel_id].append(line)  # now, so posts arriving while she looks stay in order
     logged[channel_id] += 1
     last_author[channel_id] = (message.author.id, message.author.name)
+    sees = False
+    if VISION and (sources(message) or URL.search(message.content)):
+        message, seen = await look_at(message)
+        sees = bool(seen)
+        if (described := readable(message, seen)) != text:
+            text = described
+            lines = history[channel_id]
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i] == line:
+                    lines[i] = format_line(message.author.name, text)
+                    break
     if message.guild:  # never DMs
         chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id, message.author.name, text,
                      reply_to=getattr(getattr(message, "reference", None), "message_id", None))
 
-    await take_notes(message, text, mentioned)
+    await take_notes(message, typed, mentioned)  # not what's written in a picture
 
     # Muted here: she keeps following the chat but says nothing and reacts to nothing, except a 🤐
     # for anyone talking to her.
@@ -643,7 +727,7 @@ async def on_message(message: discord.Message):
     # Posts that don't need words (images, emoji-only, "lol") get a reaction as her whole response.
     # A reaction isn't a message, so it stays out of the chat history.
     if not mentioned and reacts_instead(text, REACT_ONLY_MAX_WORDS):
-        if emoji := await choose_reaction(message, text):
+        if emoji := await choose_reaction(message, text, sees):
             await react(message, emoji)
         return
 
@@ -807,6 +891,8 @@ async def watch_melee() -> None:
 
 
 melee_watcher = None
+# a picture's address (without its query) -> what she saw in it, so the same GIF isn't looked at twice
+seen_before = {}
 # (time.time() she said it, text) of her in-match taunts, held until their match is over (post_matches)
 melee_taunts = []
 
