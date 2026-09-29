@@ -2,8 +2,8 @@
 What she sees in pictures (user, 2026-09-29, after tools/vision_check.py showed Gemma 4 E4B sees images on
 their Ollama): each picture in a post gets one short description, once, from a vision call, and it
 stands in for the picture from then on: "[image]" becomes "[image: a cat in a tiny wizard hat]" in her
-chat log, so her replies, emoji reactions, chime-in ratings, diary and training data all know what was
-posted, with no more calls.
+chat log, so her replies, her read of the room (reactions, chiming in), diary and training data all
+know what was posted, with no more calls.
 
 She looks at attached images and GIFs (the first frame), stickers (not Lottie ones, which aren't
 pictures) and link previews: the card Discord shows under a link (title, description, thumbnail),

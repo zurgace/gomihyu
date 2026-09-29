@@ -39,6 +39,9 @@ UNICODE = {
     "😈": "scheming or mischief",
     "💅": "smug, unbothered",
     "👀": "noticed something interesting or suspicious",
+    "🥺": "something cute or wholesome: her soft spot",
+    "😳": "flustered: a compliment or kindness aimed at her",
+    "💀": "dying laughing",
 }
 
 # What she reacts with to posts she can't see (images, videos, stickers): she just looks.

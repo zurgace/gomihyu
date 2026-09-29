@@ -1,5 +1,5 @@
 """
-When Gomihyu answers a post with an emoji reaction instead of words, and the emoji-picking prompt.
+When Gomihyu answers a post with an emoji reaction instead of words (which emoji: chime.py reads the room).
 
 Posts that don't need words get a reaction as her whole response: images, stickers, emoji-only
 posts and short interjections ("oogaga", "lol wtf"). Not if they're aimed at her or serious.
@@ -58,21 +58,3 @@ def posted_emoji(text: str) -> str | None:
         return None
     first = EMOJI.search(text)
     return first[0] if first else None
-
-
-def picker_messages(recent: list[str], options: dict[str, str]) -> list[dict]:
-    listing = "\n".join(f"- {name}: {use}" for name, use in options.items())
-    return [
-        {"role": "system", "content": "You choose the one emoji reaction that Gomihyu, a bratty, dramatic "
-                                      "self-proclaimed demon in a small Discord server, would put on a message. "
-                                      "Match the message's mood; pick none if nothing fits."},
-        {"role": "user", "content": "Recent chat, one 'handle: message' per line:\n" + "\n".join(recent)
-                                    + f"\n\nReact to the last message. Options:\n{listing}\n- none: nothing fits\n\n"
-                                    'Answer as JSON: {"emoji": "<option>"}'},
-    ]
-
-
-def picker_format(options: dict[str, str]) -> dict:
-    """JSON schema for Ollama's `format`, so the answer can only be one of the options or none."""
-    return {"type": "object", "properties": {"emoji": {"type": "string", "enum": [*options, "none"]}},
-            "required": ["emoji"]}

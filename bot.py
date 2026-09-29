@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 
 from censor import has_slur
 from chatlog import ChatLog, local_day
-from chime import INTEREST_FORMAT, interest_messages, parse_interest
+from chime import Reading, parse_room, room_format, room_messages
 from commands import (ALL, FOREVER, delete_request, goodnight_request, melee_here_request, melee_stop_request, mute_request,
                       quiet_request,
                       unmute_request)
@@ -45,7 +45,7 @@ from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, match_fac
                    stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_match_messages, build_messages, format_line
-from reactions import media_only, names_her, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
+from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
 import vision
 from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
 
@@ -54,9 +54,11 @@ load_dotenv()
 DISCORD_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
-# Posts not aimed at her are rated 0-10 for how much she'd want to chime in (chime.py); she replies
-# at this or above. Higher is quieter; 0 answers everything without asking.
+# Posts not aimed at her are read (chime.py): what's going on, 0-10 for how much she'd want to chime in,
+# and a fitting reaction. She replies at CHIME_IN_THRESHOLD or above (higher is quieter; 0 answers
+# everything without reading). With REACT_TO_CHAT, a post she doesn't answer can still get the reaction.
 CHIME_IN_THRESHOLD = int(os.environ.get("CHIME_IN_THRESHOLD", "6"))
+REACT_TO_CHAT = os.environ.get("REACT_TO_CHAT", "true").strip().lower() in ("1", "true", "yes", "on")
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
@@ -168,6 +170,10 @@ handles = {}
 display_names = {}
 # channel_id -> (user id, handle) of the latest message, whose remembered facts a reply gets
 last_author = {}
+# channel_id -> the latest post she followed there, which a read of the room is about
+latest_post = {}
+# channel_id -> the emojis she picked for her last reactions there, so she doesn't repeat them
+recent_reactions = defaultdict(lambda: deque(maxlen=2))
 # user ids allowed to give owner commands: OWNER_USER_IDS, plus the application's owner(s) at login
 owner_ids = set(OWNER_USER_IDS)
 # (user id, handle) of the application's owner, looked up at login: who she plays Melee against
@@ -421,42 +427,52 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
         await send_reply(channel, channel_id, reply, seen)
 
 
-async def choose_reaction(message: discord.Message, text: str, sees: bool = False) -> str | discord.Emoji | None:
-    """The emoji for a post that gets a reaction instead of a reply, or None to leave it be. sees: she
-    saw what's in its pictures (look_at), so she can react to that."""
+def looking(message: discord.Message) -> str | discord.Emoji | None:
+    """What she reacts to media she couldn't see with: she just looks, and doesn't judge it."""
     server = {e.name.lower(): e for e in message.guild.emojis} if message.guild else {}
+    looks = [name for name in LOOKING if name in UNICODE or name.lower() in server]
+    name = random.choice(looks) if looks else None
+    return None if name is None else name if name in UNICODE else server[name.lower()]
 
-    def usable(name: str) -> bool:
-        return name in UNICODE or name.lower() in server
 
-    def as_reaction(name: str) -> str | discord.Emoji:
-        return name if name in UNICODE else server[name.lower()]
-
-    if media_only(text) and not sees:  # she couldn't see it, so she doesn't pretend to judge it
-        looks = [name for name in LOOKING if usable(name)]
-        return as_reaction(random.choice(looks)) if looks else None
-
-    options = dict(UNICODE) | {name: use for name, (use, _) in CUSTOM.items() if usable(name)}
+async def read_room(message: discord.Message, text: str = "") -> tuple[Reading | None, str | discord.Emoji | None, str]:
+    """Her read of a post (chime.py) and the reaction it picked, as something to react with and its
+    name ("" for none). None for the read if the model didn't answer usably."""
+    channel_id = message.channel.id
+    server = {e.name.lower(): e for e in message.guild.emojis} if message.guild else {}
+    options = dict(UNICODE) | {name: use for name, (use, _) in CUSTOM.items() if name.lower() in server}
     theirs = posted_emoji(text)
     same = server.get(theirs.strip(":").lower()) if theirs and theirs.startswith(":") else theirs
     if same:
         options["same"] = "the same emoji they posted, joining in"
+    used = list(recent_reactions[channel_id])  # emojis, never "same": echoing someone stays possible
+    options = {name: use for name, use in options.items() if name not in used} or options
+    replied = getattr(getattr(message, "reference", None), "resolved", None)
+    replying_to = getattr(getattr(replied, "author", None), "name", None)
+    data = await ollama_chat({"messages": room_messages(list(history[channel_id]), options, diary.vibe(),
+                                                        message.author.name, replying_to, used),
+                              "format": room_format(options)})
+    reading = parse_room(data.get("message", {}).get("content", ""), options) if data else None
+    if reading is None:
+        log.warning(f"Couldn't read the room for {message.author.name}'s post. Raw response: {json.dumps(data)[:300]}")
+        return None, None, ""
+    if reading.emoji == "same":
+        emoji, name = same, theirs.strip(":")
+        log.info(f"Read {message.author.name}'s post: {reading.read or '(no read)'!r}, echoing {theirs}")
+        return reading, emoji, name
+    if reading.emoji:
+        emoji = reading.emoji if reading.emoji in UNICODE else server[reading.emoji.lower()]
+    else:
+        emoji = None
+    log.info(f"Read {message.author.name}'s post: {reading.read or '(no read)'!r}, interest {reading.interest}, "
+             f"reaction {reading.emoji or 'none'}")
+    return reading, emoji, reading.emoji or ""
 
-    recent = list(history[message.channel.id])[-5:]
-    data = await ollama_chat({"messages": picker_messages(recent, options), "format": picker_format(options)})
-    if data is None:
-        return None
-    answer = data.get("message", {}).get("content", "")
-    try:
-        choice = str(json.loads(answer)["emoji"])
-    except (ValueError, KeyError, TypeError):
-        choice = answer.strip().strip('"').strip(":")  # in case the JSON format wasn't honored
-    if choice == "same" and same:
-        return same
-    if choice in options and choice != "same":
-        return as_reaction(choice)
-    log.info(f"No reaction for {message.author.name}: picker answered {choice!r}")
-    return None
+
+async def react_picked(message: discord.Message, emoji: str | discord.Emoji, name: str) -> None:
+    """A reaction she chose (not a command's confirmation), remembered so she doesn't repeat it."""
+    await react(message, emoji)
+    recent_reactions[message.channel.id].append(name)
 
 
 def find_person(who: str, message: discord.Message) -> int | None:
@@ -541,19 +557,25 @@ def replying_to_her(message: discord.Message) -> bool:
 
 
 async def chimes_in(channel_id: int) -> bool:
-    """Whether the newest post, not aimed at her, interests her enough to say something."""
+    """Whether the newest post, not aimed at her, interests her enough to say something. If not, it may
+    still get the reaction her read of the room picked (REACT_TO_CHAT)."""
     if CHIME_IN_THRESHOLD <= 0:
         return True
-    recent = list(history[channel_id])
-    data = await ollama_chat({"messages": interest_messages(recent), "format": INTEREST_FORMAT})
-    interest = parse_interest(data.get("message", {}).get("content", "")) if data else None
-    newest = recent[-1] if recent else ""
-    if interest is None:
-        log.warning(f"Couldn't tell whether to chime in, staying quiet. Raw response: {json.dumps(data)[:300]}")
+    if (message := latest_post.get(channel_id)) is None:
         return False
-    log.info(f"Interest {interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}"
-             + ("" if interest >= CHIME_IN_THRESHOLD else ": staying quiet"))
-    return interest >= CHIME_IN_THRESHOLD
+    newest = history[channel_id][-1] if history[channel_id] else ""
+    reading, emoji, name = await read_room(message)
+    if reading is None or reading.interest is None:
+        log.warning(f"Couldn't tell whether to chime in on {newest[:80]!r}, staying quiet")
+        return False
+    if reading.interest >= CHIME_IN_THRESHOLD:
+        log.info(f"Interest {reading.interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}")
+        return True
+    log.info(f"Interest {reading.interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}: staying quiet"
+             + (f", reacting {name}" if emoji and REACT_TO_CHAT else ""))
+    if emoji and REACT_TO_CHAT:
+        await react_picked(message, emoji, name)
+    return False
 
 
 async def look_at(message: discord.Message) -> tuple[discord.Message, dict]:
@@ -691,6 +713,7 @@ async def on_message(message: discord.Message):
                 return
 
     typed = text  # what they wrote, before any description of their pictures
+    latest_post[channel_id] = message
     line = format_line(message.author.name, text)
     history[channel_id].append(line)  # now, so posts arriving while she looks stay in order
     logged[channel_id] += 1
@@ -727,8 +750,13 @@ async def on_message(message: discord.Message):
     # Posts that don't need words (images, emoji-only, "lol") get a reaction as her whole response.
     # A reaction isn't a message, so it stays out of the chat history.
     if not mentioned and reacts_instead(text, REACT_ONLY_MAX_WORDS):
-        if emoji := await choose_reaction(message, text, sees):
-            await react(message, emoji)
+        if media_only(text) and not sees:  # she couldn't see it, so she doesn't pretend to judge it
+            if emoji := looking(message):
+                await react(message, emoji)
+        else:
+            _, emoji, name = await read_room(message, text)
+            if emoji:
+                await react_picked(message, emoji, name)
         return
 
     # Aimed at her: always answered. Anything else only if it interests her (chimes_in), and never in

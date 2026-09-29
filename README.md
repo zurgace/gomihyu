@@ -61,13 +61,16 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   messages (even with the ping off), her name ("gomi", "Gomihyu") anywhere in the post, and
   sad news. The persona is instructed to fire back rudely in character if provoked, rather
   than staying polite.
-- **Anything else, she chimes in only if it interests her**, like a friend in a group chat.
-  A short extra model call rates the post 0–10 for how much she'd want to say something (her
-  topics, someone bragging, plans without her, a funny line to add, a question to the whole
-  chat) and she replies at `CHIME_IN_THRESHOLD` (default 6) or above. Raise it to make her
-  quieter, lower it for chattier; `0` answers every message without the extra call. Each
-  rating is in the console (`Interest 4/10 (chimes in at 6) in "...": staying quiet`), so
-  you can see why she spoke or didn't. No cooldown.
+- **Anything else, she reads the room first**, like a friend in a group chat. One short extra
+  model call looks at the last 12 messages (with what's in any pictures), who the post is for,
+  her own personality and the server's vibe note, and answers three things: what's going on, how
+  much she'd want to say something (0–10: her topics, someone bragging, plans without her, a
+  funny line to add, a question to the whole chat), and which reaction fits, if any. She replies
+  at `CHIME_IN_THRESHOLD` (default 6) or above. Raise it to make her quieter, lower it for
+  chattier; `0` answers every message without reading. A post she doesn't answer can still get
+  the reaction (`REACT_TO_CHAT`, on by default). The console shows each read:
+  `Read kaz0's post: 'kaz got a job offer, excited', interest 3, reaction 🔥`, then
+  `Interest 3/10 (chimes in at 6) in "...": staying quiet, reacting 🔥`. No cooldown.
 - **Reacts instead of replying when words aren't needed.** See [Emojis](#emojis).
 - **One reply at a time per channel.** If messages arrive while it's still writing a reply,
   it sends one follow-up afterwards that answers the latest chat, rather than one reply each.
@@ -119,8 +122,13 @@ that @mentions her, says "gomi"/"gomihyu", or sounds like bad news gets a normal
   video, a Lottie sticker), she doesn't pretend to judge it: she reacts 👀 or `:goonerstare:`, and
   it shows up in her chat log as `[image]`, `[sticker: name]` etc., so she knows something was posted.
 - **Emoji-only posts:** she can react with the same emoji, or answer it with a different one.
-- **Everything else:** a quick, separate model call picks the emoji. Its answer is restricted
-  to the names in `emojis.py` (plus "none", in which case she leaves it be).
+- **Everything else:** her read of the room (above) picks the emoji for the moment: good news, a
+  flex, a joke, a fail, something cute, something cursed. Its answer is restricted to the names
+  in `emojis.py` (plus "none", in which case she leaves it be), and the emojis she used for her
+  last two reactions in that channel are left out, so she doesn't react 🙄 to everything.
+- **Posts she doesn't reply to** can get a reaction too, when the moment calls for one (not for
+  plain logistics or everyday chatter). `REACT_TO_CHAT=false` keeps her reactions to posts that
+  don't need words.
 - **In her own messages** she can use this server's custom emojis now and then, by writing
   `:kekpoint:`; the bot turns that into the real emoji.
 

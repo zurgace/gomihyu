@@ -20,7 +20,7 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   8192 context (sliding-window attention keeps its cache small). The bot asks for `OLLAMA_NUM_CTX` (8192) on every
   call: the prompt (system prompt + 8 example chats + 12 messages) is ~1.6–2.5k tokens normally,
   but long posts can pass 4096, which Ollama silently cuts. Every call must send the same value or
-  Ollama reloads the model between the reply and emoji-picker calls. Thinking is off unless
+  Ollama reloads the model between the reply and read-the-room calls. Thinking is off unless
   requested (a `<|think|>` token in the system prompt).
   Rejected: Ternary Bonsai 2 27B (needs PrismML's llama.cpp fork, stock Ollama 0.34.2 can't load
   it, 5.95GB of weights is too tight for 8GB, and it's a reasoning model).
@@ -38,7 +38,7 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   exactly. Change the format there, never in only one place.
 - `emojis.py` — every emoji she uses (unicode + this server's custom ones) with a "when to use
   it" note; the model only ever sees names + notes. `reactions.py` — when a post gets a
-  reaction instead of a reply, and the constrained emoji-picker prompt.
+  reaction instead of a reply (the reaction itself comes from `chime.py`'s read of the room).
 - `censor.py` + `slurs.txt` — a reply containing any slur (whole words, optional plural s) is
   replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
   Swearing is deliberately not filtered; the server doesn't want her more PG.
@@ -53,8 +53,8 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 - `vision.py` — what she sees: which media in a post she looks at, image prep (Pillow, first frame, on
   white, <= 1024px JPEG), the one-line describe prompt, and the `[image: ...]` / `[gif: ...]` /
   `[sticker: name, ...]` / `[link: "title", preview: ...]` labels. `tools/vision_check.py` tests vision.
-- `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
-  its `format` schema and parsing.
+- `chime.py` — her read of the room for a post not aimed at her: one call's prompt, `format` schema and
+  parsing for {read, interest 0–10, emoji}, which decides both whether she chimes in and her reaction.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
   "your last 3 messages" / "all your messages"), `mute_request` ("gomi mute" / "for 2 hours" /
   "until i say so"), `quiet_request` ("gomi quiet mode") and `unmute_request` (ends either).
@@ -110,11 +110,11 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 - Always replies to posts aimed at her: @mention, a Discord reply to her message (ping on or
   off, `replying_to_her`), her name anywhere outside links (`reactions.names_her`), sad news.
   Anything else she chimes in on only if it interests her (user, 2026-09-27, replacing
-  `UNPROMPTED_REPLY_CHANCE`, which was 1.0 = every message): `chime.py` rates the newest post
-  0–10 in a short Ollama call (`format`-constrained, anchored scale: her topics, bragging,
-  plans without her, a funny line, a question to the room, someone answering her), and she
-  replies at `CHIME_IN_THRESHOLD` (default 6) or above; 0 skips the call and answers
-  everything. A failed or unparseable rating = quiet. Posts arriving while she decides or
+  `UNPROMPTED_REPLY_CHANCE`, which was 1.0 = every message): `chime.py` reads the room for the newest
+  post in one short Ollama call (`format`-constrained: a short read, interest 0–10 on an anchored
+  scale: her topics, bragging, plans without her, a funny line, a question to the room, someone
+  answering her; and a reaction), and she replies at `CHIME_IN_THRESHOLD` (default 6) or above; 0
+  skips the call and answers everything. A failed or unparseable interest = quiet. Posts arriving while she decides or
   writes get one follow-up, rated on the newest post (or just answered if any was aimed at
   her); a reply covers posts that arrived while she was deciding, so no double reply. No
   cooldown (slow server, 5 people, ~2 active) — don't add one without checking first.
@@ -173,10 +173,19 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   `VISION=false` → text-only, as before.
 - Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
   was removed at the user's request). Media she couldn't see (vision off or failed, videos, Lottie
-  stickers) → a "looking" emoji (👀 / :goonerstare:), never a judgment of the image; media she saw
-  goes to the picker with its description. Emoji-only posts may get the same emoji
-  back. Otherwise a separate short Ollama call picks, with `format` constrained to the
-  `emojis.py` names + "none". Reactions are never added to the chat history.
+  stickers) → a "looking" emoji (👀 / :goonerstare:), never a judgment of the image. Everything
+  else: her read of the room (user, 2026-09-29: the old separate picker, 5 lines and a one-line
+  "bratty demon" persona, reacted 🙄 to a cat photo, a rabbit drawing and a link; "get gomi to be
+  even more aware of the conversation or situation"). `read_room` builds one call for a post not
+  aimed at her (`chime.room_messages`): persona incl. "secretly soft", the vibe note, the last 12
+  lines with picture descriptions, who the post replies to, and her last reactions; `format` = {read,
+  interest, emoji ∈ `emojis.py` names + usable customs + "same" for emoji-only posts + "none"}. The
+  names of her last two picked reactions per channel (`recent_reactions`; never "same") are left
+  out of the options. Posts that don't need words → its emoji as her whole response; other posts
+  she doesn't answer → the emoji too (`REACT_TO_CHAT`, default on); posts she answers → no reaction.
+  Quiet mode: no read for chat posts (reactions only for posts that don't need words). 🥺 (cute /
+  her soft spot), 😳 (flustered) and 💀 (dying laughing) were added to `UNICODE` for moments the
+  list couldn't express. Reactions are never added to the chat history.
 - Sad news (`reactions.sad_news`: serious words, not laughter like "crying lmao") gets a
   reply plus a `:catsad:` reaction (`SAD_NEWS`), never a reaction alone.
 - She may write this server's custom emojis in replies as `:name:` (converted to the real
@@ -321,12 +330,13 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
    are notes lasting facts or chatter, does the quote check drop real notes (paraphrased quotes)
    or let junk through, are recaps useful in her replies, how long shutdown takes.
 5. Tell the server she remembers things people tell her to (if not done yet).
-6. Test the emoji rework live: react-only posts, picker choices, custom emojis in replies.
+6. Test the emoji rework live: react-only posts, the room read's reactions, custom emojis in replies.
 7. Gemma 4 E4B live (100% GPU at 8192 context confirmed): reply speed, no thinking warning, and
    whether the prompt (tuned on LFM) needs retuning, e.g. asterisk actions or rambling.
-8. Tune chiming in live: watch the `Interest n/10` log lines. Small models tend to give most
-   posts the same middling-high number; if she's too chatty or too quiet, move
-   `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`.
+8. Tune chiming in and reactions live: watch the `Read ...` / `Interest n/10` log lines. Small
+   models tend to give most posts the same middling-high number; if she's too chatty or too quiet,
+   move `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`. If she reacts to too
+   much chat, `REACT_TO_CHAT=false` or tighten "only reacts when something calls for it".
 9. Vision live: description quality and speed (console `Saw ...`), `ollama ps` VRAM with the vision
    part loaded, whether link previews arrive within `EMBED_WAIT_SECONDS`, reactions to pictures.
 10. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
