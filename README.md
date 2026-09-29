@@ -190,6 +190,31 @@ from the server without anyone telling her "remember that":
   last `HISTORY_RELOAD_HOURS` (12).
 - To fix or remove a note or recap, stop the bot, edit `people.json` / `diary.json`, start it again.
 
+## How the server shapes her
+Her Satania persona slowly melds with the server, so she ends up fitting in (everyone in the
+server agreed to their chat being used for this). It happens in two places:
+
+**Every night, in her prompt** (at the same shutdown as her diary):
+- **Her replies that landed** are kept in `earned_examples.jsonl` (`EARNED_FILE`) with the chat
+  before them. A reply landed if someone reacted to it (the bot logs reactions on her posts),
+  answered it with a Discord reply, laughed right after ("lol", "lmao", 💀...), or answered her by
+  name, and nobody told her to shut up. The code decides that, not the model. Match posts,
+  goodnights and slur stand-ins don't count.
+- They **join her example chats**, replacing the Satania ones bit by bit: the more she's earned,
+  the more of the 8 examples are her own real ones (all the way at `MELD_FULL_AT`, 200). At least
+  `MELD_ANCHOR` (30%) always stay Satania, so she's still recognizably Gomi.
+- **A note on how the server talks** (humor, slang, running jokes, what gets a laugh) is updated
+  from the day's chat when there were at least `VIBE_MIN_MESSAGES` (10) new messages: it keeps what's
+  still true, adds what's new, drops what's gone stale. It goes in her prompt ("let it rub off on
+  you, but you're still you") and is kept in `diary.json`.
+The console prints the replies that landed and the updated note at each shutdown.
+
+**Every training run** (on the rented GPU, see [Training data](#training-data)), the dataset mixes
+the Satania examples with the server: her landed replies, and people's own messages from the chat
+logs as examples of how the server talks. Each run tilts further: 70% Satania for run 1, then 55%,
+40%, and 30% from run 4 on, where it stays.
+
+
 ## Owner commands: deleting her posts, muting her, putting her to bed
 The bot's owner can make her delete her own posts or go quiet, and this overrides her persona:
 the bot does it in code, so the model never sees the command and can't talk back. Say it to her
@@ -292,6 +317,18 @@ venv/bin/python finetuning/build_dataset.py   # -> finetuning/train.jsonl (syste
 ```
 It builds each prompt with `persona.build_messages()`, the same function the bot uses at runtime,
 so the model is trained on exactly the prompt format it's served (without the example chats).
+
+**Melding with the server** ([How the server shapes her](#how-the-server-shapes-her)): for each
+training run, build the data with `--meld` and the run's number:
+```bash
+venv/bin/python finetuning/build_dataset.py --meld --run 1   # the first run: 70% Satania
+venv/bin/python finetuning/build_dataset.py --meld --run 2   # the next one: 55%, then 40%, then 30%
+```
+It mixes the seed (3 times over, `--seed-repeat`) with her landed replies and people's messages from
+the chat logs, and prints what went in and the actual Satania share: early on, with little chat
+logged, there may not be enough server data to reach the aimed-for share. `--persona-share 0.5` sets
+the share by hand. The same run number always gives the same data. `train.jsonl` holds real chat:
+it's gitignored, keep it that way.
 
 Fine-tuning Gemma 4 E4B with QLoRA reportedly needs about 10GB of VRAM, more than the RTX 2070
 has, so training will run on a rented GPU. Serving the result doesn't need bot changes: build it

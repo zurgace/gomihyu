@@ -19,6 +19,8 @@ people.json.tmp
 chatlogs/
 diary.json
 diary.json.tmp
+# Her replies that landed (meld.py), with the chat around them
+earned_examples.jsonl
 
 # Where her Melee posts go ("gomi post melee here"); per server
 melee_channel.json

@@ -1,8 +1,10 @@
 """
 Her chat log on disk: every message in the server channels she's in (her own posts too), one JSON
-line each, in <folder>/<YYYY-MM-DD>/<channel_id>.jsonl by local date. DMs and owner commands are
-never logged. It's kept (user, 2026-09-29) and gitignored: the raw material for her diary
-(diary.py), her recent chat after a restart, and maybe training data one day, with the friends' OK.
+line each, in <folder>/<YYYY-MM-DD>/<channel_id>.jsonl by local date, plus the reactions people put
+on her posts ({"kind": "reaction", "to": message id}), which meld.py counts as a reply landing. DMs
+and owner commands are never logged. It's kept (user, 2026-09-29) and gitignored: the raw material for her diary
+(diary.py), her recent chat after a restart, and training data for melding her persona with the server
+(meld.py; the members agreed to their chat being used).
 """
 
 import json
@@ -23,12 +25,14 @@ class ChatLog:
         self.folder = folder
 
     def add(self, channel_id: int, channel: str, message_id: int | None, author_id: int, author: str, text: str,
-            when: float | None = None) -> None:
+            when: float | None = None, **extra) -> None:
+        """One line: a message, or with kind="reaction" a reaction (text: the emoji, to: the message id).
+        extra: reply_to (the message a Discord reply answers), about (what kind of post of hers)."""
         when = time.time() if when is None else when
         path = self.folder / local_day(when) / f"{channel_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         entry = {"id": message_id, "time": when, "channel": channel, "author_id": author_id, "author": author,
-                 "text": text}
+                 "text": text} | {key: value for key, value in extra.items() if value is not None}
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
@@ -38,8 +42,8 @@ class ChatLog:
     def channels(self) -> set[int]:
         return {int(f.stem) for day in self._days() for f in day.glob("*.jsonl") if f.stem.isdigit()}
 
-    def read(self, channel_id: int, after: float = 0.0, before: float = math.inf) -> list[dict]:
-        """The channel's messages with after < time <= before, oldest first."""
+    def read(self, channel_id: int, after: float = 0.0, before: float = math.inf, reactions: bool = False) -> list[dict]:
+        """The channel's messages with after < time <= before, oldest first (and reactions too, if asked)."""
         first_day = local_day(after - 86400) if after > 86400 else ""  # a day early, in case the clock moved
         entries = []
         for day in self._days():
@@ -50,7 +54,8 @@ class ChatLog:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue  # a line cut off by a crash
-                if isinstance(entry, dict) and after < float(entry.get("time", 0)) <= before:
+                if (isinstance(entry, dict) and after < float(entry.get("time", 0)) <= before
+                        and (reactions or entry.get("kind", "message") == "message")):
                     entries.append(entry)
         return sorted(entries, key=lambda entry: entry["time"])
 

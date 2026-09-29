@@ -39,6 +39,7 @@ from commands import (ALL, FOREVER, delete_request, goodnight_request, melee_her
                       quiet_request,
                       unmute_request)
 from diary import Diary, chunks, digest_format, digest_messages, parse_digest
+from meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, match_facts, read_outbox, save_channel,
                    stale)
@@ -87,6 +88,15 @@ MAX_LEARNED_PER_PERSON = int(os.environ.get("MAX_LEARNED_PER_PERSON", "10"))
 RECAP_DAYS = int(os.environ.get("RECAP_DAYS", "3"))
 HISTORY_RELOAD_HOURS = float(os.environ.get("HISTORY_RELOAD_HOURS", "12"))
 DIARY_PART_CHARS = 12000  # chat per diary call: ~3k tokens, well inside OLLAMA_NUM_CTX with the answer
+# Melding (meld.py): the server slowly shapes her. Each night her replies that landed are kept in
+# EARNED_FILE and join her example chats, replacing Satania ones as they pile up (MELD_FULL_AT earned:
+# all the way down to MELD_ANCHOR, the share of Satania examples that always stays); and, with at
+# least VIBE_MIN_MESSAGES new messages, her note on how the server talks is updated.
+EARNED_FILE = Path(__file__).resolve().parent / os.environ.get("EARNED_FILE", "earned_examples.jsonl")
+MELD_ANCHOR = float(os.environ.get("MELD_ANCHOR", "0.3"))
+MELD_FULL_AT = int(os.environ.get("MELD_FULL_AT", "200"))
+VIBE_MIN_MESSAGES = int(os.environ.get("VIBE_MIN_MESSAGES", "10"))
+VIBE_CHARS = 8000  # newest chat the vibe note is updated from
 GOODNIGHT_EMOJI = "💤"
 REMEMBERED_EMOJI = "📝"  # reaction confirming a fact or nickname was stored
 # Who can make her delete her posts ("gomi delete that", commands.py): the bot application's owner,
@@ -173,6 +183,27 @@ def load_examples(path: Path) -> list[dict]:
 
 examples = load_examples(EXAMPLES_FILE)
 
+
+def load_earned(path: Path) -> list[dict]:
+    """Her replies that landed (meld.py), kept one JSON per line; unreadable lines are skipped."""
+    earned = []
+    for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
+        try:
+            example = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(example, dict) and example.get("reply") and isinstance(example.get("history"), list):
+            earned.append(example)
+    return earned
+
+
+earned = load_earned(EARNED_FILE)
+
+
+def shown_examples() -> list[dict]:
+    """This reply's example chats: Satania ones and, more and more, her own that landed."""
+    return pick_examples(examples, earned, FEW_SHOT_EXAMPLES, MELD_ANCHOR, MELD_FULL_AT)
+
 MENTION_TOKEN = re.compile(r"<(@!?|@&|#)(\d+)>")
 CUSTOM_EMOJI_TOKEN = re.compile(r"<a?:(\w+):\d+>")
 CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
@@ -249,7 +280,7 @@ def repeats_itself(channel_id: int, reply: str) -> bool:
     own = format_line(BOT_NAME, "")
     runs = word_runs(reply)
     return (any(runs & word_runs(line[len(own):]) for line in history[channel_id] if line.startswith(own))
-            or any(runs & word_runs(example["reply"]) for example in examples))
+            or any(runs & word_runs(example["reply"]) for example in examples + earned))
 
 
 async def ollama_chat(payload: dict) -> dict | None:
@@ -287,10 +318,10 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}  # thinking would eat into the cap
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
-    shown = random.sample(examples, min(FEW_SHOT_EXAMPLES, len(examples)))
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
-                                          author_handle, memory.facts_for(author_id), nicknames, shown,
-                                          memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS)),
+                                          author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
+                                          memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
+                                          diary.vibe()),
                "options": options}
 
     start = time.monotonic()
@@ -326,9 +357,11 @@ def clean_reply(data: dict, author_id: int | None, start: float) -> str:
     return reply
 
 
-async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: str, seen: int | None = None) -> None:
+async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: str, seen: int | None = None,
+                     about: str = "reply") -> None:
     """Post reply and keep it in her chat log. seen: how many messages had been logged when she started
-    writing it, so it goes in right after those, ahead of any that arrived meanwhile."""
+    writing it, so it goes in right after those, ahead of any that arrived meanwhile. about: what kind
+    of post (reply, melee, goodnight); only replies can become examples (meld.py)."""
     lines = history[channel_id]
     newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))] if seen is not None else []
     line = format_line(BOT_NAME, reply)
@@ -340,7 +373,7 @@ async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: s
         if len(posted) > 1000:
             del posted[next(iter(posted))]
         if getattr(channel, "guild", None):
-            chat_log.add(channel_id, channel_label(channel), sent.id, client.user.id, BOT_NAME, reply)
+            chat_log.add(channel_id, channel_label(channel), sent.id, client.user.id, BOT_NAME, reply, about=about)
 
 
 async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned: bool) -> None:
@@ -517,6 +550,19 @@ async def on_ready():
 
 
 @client.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """A reaction on one of her posts, in a server: logged, since it means the post landed (meld.py)."""
+    if not payload.guild_id or payload.user_id == client.user.id:
+        return
+    if getattr(payload, "message_author_id", None) != client.user.id and payload.message_id not in posted:
+        return
+    channel = client.get_channel(payload.channel_id)
+    who = payload.member.name if payload.member else str(payload.user_id)
+    chat_log.add(payload.channel_id, channel_label(channel) if channel else f"channel {payload.channel_id}", None,
+                 payload.user_id, who, str(payload.emoji), kind="reaction", to=payload.message_id)
+
+
+@client.event
 async def on_message(message: discord.Message):
     if message.author.id == client.user.id or message.author.bot:
         return
@@ -571,7 +617,8 @@ async def on_message(message: discord.Message):
     logged[channel_id] += 1
     last_author[channel_id] = (message.author.id, message.author.name)
     if message.guild:  # never DMs
-        chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id, message.author.name, text)
+        chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id, message.author.name, text,
+                     reply_to=getattr(getattr(message, "reference", None), "message_id", None))
 
     await take_notes(message, text, mentioned)
 
@@ -642,9 +689,10 @@ async def match_post(channel_id: int, event: dict, taunts: list[str] = (), tempe
     if temperature is not None:
         options["temperature"] = temperature
     player = melee_player()
-    shown = random.sample(examples, min(FEW_SHOT_EXAMPLES, len(examples)))
     facts = match_facts(event, player, taunts)
-    payload = {"messages": build_match_messages(list(history[channel_id]), facts, player, shown), "options": options}
+    payload = {"messages": build_match_messages(list(history[channel_id]), facts, player, shown_examples(),
+                                                diary.vibe()),
+               "options": options}
     start = time.monotonic()
     data = await ollama_chat(payload)
     return clean_reply(data, None, start) if data else None
@@ -706,7 +754,7 @@ async def post_matches(outbox: Path) -> None:
                     else:
                         log.info(f"Posting about Melee match {path.name}"
                                  + (f" ({len(taunts)} of her in-match lines to draw on)" if taunts else ""))
-                        await send_reply(channel, channel_id, post)
+                        await send_reply(channel, channel_id, post, about="melee")
                 # Anything said while she was writing gets its usual answer now.
                 if channel_id in pending_followup:
                     mentioned, addressed = pending_followup.pop(channel_id)
@@ -763,10 +811,14 @@ async def write_diary(why: str, before: float | None = None) -> None:
     answer, for the next time; an answer that isn't the JSON asked for is skipped with a warning."""
     async with diary_lock:
         before = time.time() if before is None else before
+        said = []  # what people said, for the vibe note
         for channel_id in sorted(chat_log.channels()):
-            entries = chat_log.read(channel_id, after=diary.read_up_to(channel_id), before=before)
+            since = diary.read_up_to(channel_id)
+            entries = chat_log.read(channel_id, after=since, before=before)
             if not entries:
                 continue
+            keep_landed(chat_log.read(channel_id, after=since, before=before, reactions=True))
+            said += [e for e in entries if e["author"] != BOT_NAME]
             parts = chunks(entries, DIARY_PART_CHARS)
             where = entries[-1].get("channel") or f"channel {channel_id}"
             log.info(f"Writing her diary ({why}): {where}, {len(entries)} messages"
@@ -775,6 +827,45 @@ async def write_diary(why: str, before: float | None = None) -> None:
                 if not await diary_entry(channel_id, part):
                     log.warning("Couldn't write her diary (is Ollama running?); she'll catch up next time")
                     return
+        if len(said) >= VIBE_MIN_MESSAGES:
+            await update_vibe(sorted(said, key=lambda e: e["time"]))
+
+
+def keep_landed(entries: list[dict]) -> None:
+    """Keep her replies in this stretch of log that landed (meld.py) as examples, once each."""
+    known = {example.get("id") for example in earned}
+    new = [example | {"day": local_day(example["time"]), "channel": entries[0].get("channel")}
+           for example in landed_replies(entries) if example["id"] not in known]
+    if not new:
+        return
+    with EARNED_FILE.open("a", encoding="utf-8") as f:
+        f.writelines(json.dumps(example, ensure_ascii=False) + "\n" for example in new)
+    earned.extend(new)
+    log.info(f"{len(new)} of her replies landed and join her examples ({len(earned)} earned so far): "
+             + " | ".join(f"{e['reply'][:60]!r} ({e['signal']})" for e in new))
+
+
+async def update_vibe(said: list[dict]) -> None:
+    """Update her note on how the server talks from what people said since the last one (meld.py)."""
+    lines, size = [], 0
+    for e in reversed(said):  # the newest VIBE_CHARS of it: that's what's new
+        line = format_line(e["author"], e["text"])
+        size += len(line) + 1
+        if lines and size > VIBE_CHARS:
+            break
+        lines.append(line)
+    lines.reverse()
+    data = await ollama_chat({"messages": vibe_messages(diary.vibe(), lines), "format": VIBE_FORMAT,
+                              "options": {"temperature": 0.3} | ({} if model_thinks else {"num_predict": 400})})
+    if data is None:
+        log.warning("Couldn't update her note on how the server talks; next time")
+        return
+    notes = parse_vibe(data.get("message", {}).get("content", ""))
+    if notes is None:
+        log.warning(f"Her note on how the server talks came back unusable; kept the old one. Raw: {json.dumps(data)[:300]}")
+        return
+    diary.set_vibe(notes, local_day(said[-1]["time"]))
+    log.info("How the server talks, as she sees it now: " + " | ".join(notes))
 
 
 async def diary_entry(channel_id: int, part: list[dict]) -> bool:
@@ -812,10 +903,10 @@ async def go_to_bed(message: discord.Message) -> None:
     await react(message, GOODNIGHT_EMOJI)
     if not muted(channel_id):
         owner = memory.nickname_for(message.author.id) or message.author.display_name
-        data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner),
+        data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner, diary.vibe()),
                                   "options": {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}})
         if data and (line := clean_reply(data, message.author.id, time.monotonic())):
-            await send_reply(message.channel, channel_id, line)
+            await send_reply(message.channel, channel_id, line, about="goodnight")
     await client.close()
 
 

@@ -102,7 +102,8 @@ def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str 
 
 
 class Diary:
-    """diary.json: {"read_up_to": {channel_id: time}, "recaps": [{"day", "channel_id", "channel", "text"}]}."""
+    """diary.json: {"read_up_to": {channel_id: time}, "recaps": [{"day", "channel_id", "channel", "text"}],
+    "vibe": {"notes": [...], "day": ...}} (the vibe: meld.py's note on how the server talks)."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -112,6 +113,7 @@ class Diary:
             raise SystemExit(f"{path} isn't valid JSON ({e}). Fix it, or delete it to start over.")
         self.data.setdefault("read_up_to", {})
         self.data.setdefault("recaps", [])
+        self.data.setdefault("vibe", {"notes": [], "day": None})
 
     def read_up_to(self, channel_id: int) -> float:
         return float(self.data["read_up_to"].get(str(channel_id), 0))
@@ -132,6 +134,13 @@ class Diary:
         since = local_day(now - (days - 1) * 86400)
         return [f"{time.strftime('%b', time.strptime(r['day'], '%Y-%m-%d'))} {int(r['day'][8:])}: {r['text']}"
                 for r in self.data["recaps"] if r.get("channel_id") == channel_id and r.get("day", "") >= since]
+
+    def vibe(self) -> list[str]:
+        return list(self.data["vibe"].get("notes", []))
+
+    def set_vibe(self, notes: list[str], day: str) -> None:
+        self.data["vibe"] = {"notes": notes, "day": day}
+        self._save()
 
     def _save(self) -> None:
         tmp = self.path.with_name(self.path.name + ".tmp")

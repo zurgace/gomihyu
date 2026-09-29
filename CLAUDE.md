@@ -47,7 +47,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 - `chatlog.py` — every server-channel message (hers too) on disk, `chatlogs/<date>/<channel>.jsonl`;
   never DMs or owner commands; deleted posts taken out. Kept (user choice), gitignored.
 - `diary.py` — her diary: prompt, `format` schema and checks for the nightly write-up, and `diary.json`
-  (recaps + how far each channel's log has been read).
+  (recaps, the vibe note, how far each channel's log has been read).
+- `meld.py` — how the server slowly shapes her persona: which of her replies landed, which messages
+  are the server's voice, the example-chat mix, the vibe note, the training-run schedule.
 - `chime.py` — whether she chimes in on a post not aimed at her: the 0–10 interest prompt,
   its `format` schema and parsing.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
@@ -172,6 +174,29 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   last `RECAP_DAYS` (3) of recaps, both ahead of the log; the system prompt's limits say she
   remembers "what you wrote in your diary after past chats". Restarts reload each channel's last
   `HISTORY_LENGTH` log lines from the last `HISTORY_RELOAD_HOURS` (12) and prefill `handles`.
+- Melding (user, 2026-09-29: "I'd like for gomi's personality to get influenced by the discord
+  server... slowly meld the current Satania persona to someone that fits in"). User choices: the members
+  have agreed to their chat being training data; learn from both her replies that landed and the
+  server's own voice; start melding now through the prompt; gradual with an anchor. Nightly (in
+  `write_diary`): `meld.landed_replies` over each channel's newly read log, reactions included (the
+  bot logs `on_raw_reaction_add` on her posts, `reply_to` on Discord replies, `about` on her posts:
+  reply / melee / goodnight). Landed = a reaction from someone else, a Discord reply to it, a laugh
+  (`reactions.LAUGHING`) as the next message, or her name in what people said next (up to her next
+  post, within 180 s, max 3), and no put-down ("stfu", "shut up", ...). Only "reply" posts of 2+
+  words, not the slur stand-in, with a human line in the context (last 6 lines, <= 30 min). Kept in
+  `EARNED_FILE` (earned_examples.jsonl, gitignored, dedup by message id, "real": true). Prompt:
+  `pick_examples` mixes seed and earned; persona share = max(`MELD_ANCHOR` 0.3, 1 - earned /
+  `MELD_FULL_AT` 200), so 8 examples go from 8 seed to 3 seed + 5 earned; with real ones in, the
+  examples' intro says so and not to bring up what happened in them; the repeat guard covers earned
+  replies. Vibe note: with >= `VIBE_MIN_MESSAGES` (10) new human messages, one `format`-constrained
+  call (temperature 0.3, newest ~8k chars) updates <= 6 lines on how the server talks (keep / add /
+  drop); in `diary.json`; in the system prompt via `persona.system_content` (all three prompt
+  builders). Training: `finetuning/build_dataset.py --meld --run N`: seed x3 + all earned + a
+  `Random(run)` pick of `meld.voice_examples` (people's messages answering someone else, 3+ words,
+  not naming her, no slur, not a link, not a burst continuation, <= 10 min after the previous line)
+  so the seed share is `meld.SCHEDULE` 0.7 / 0.55 / 0.4 / 0.3 for runs 1-4, never below the anchor;
+  it prints the actual share (short on data early). Training data keeps the prompt without examples
+  and vibe, like recaps and notes.
 - Person memory, explicit part: a "remember (that) ..." / "don't forget ..." message aimed
   at her (@mention, reply-ping, or "Gomi"/"Gomihyu" within the first 4 words) stores the rest verbatim for its
   author (her own picked-up notes come only from the diary, above); questions ("remember when...?") are skipped. She
@@ -222,8 +247,8 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 
 ## Open / not yet decided
 - (Settled 2026-09-29: channel history now survives restarts, reloaded from the chat log.)
-- The kept chat logs are the natural source for training-data option (a) below; that still needs
-  the other members' consent before any training.
+- Consent (2026-09-29): the user says the members agreed to their chat being used as training data,
+  so the kept chat logs are now option (a) below, via `build_dataset.py --meld`.
 - Training data from the user's own Discord export (received 2026-09-26, analysed in a
   scratch space, not in the repo): 83,656 messages, 2017-05 to 2026-09. 56k from server
   channels (4 servers still named in the export, plus 18k from ones that aren't), 27.6k from
@@ -240,7 +265,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
     backtranslation", `archive/discord-pipeline/backtranslate.py`). Later, with the other members' consent, the
     bot will export the real channel history of its server (it has Read Message History) as a
     second examples file: option (a).
-- Which data the first Gemma training run uses: the seed (58, active), the Discord pipeline's
+- Decided 2026-09-29: training runs use `build_dataset.py --meld --run N` (seed + the server). Still
+  open: whether to also mix in the parked export pipeline's output. Earlier question, for the record:
+  which data the first Gemma training run uses: the seed (58, active), the Discord pipeline's
   output (parked), or a mix. Decide when the rented GPU is set up.
 - Target dataset size before a training run (likely 1–3k good examples).
 
@@ -252,7 +279,10 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
    emoji is `AIEEEE`, which the user fixed in `emojis.py`), melon bread
    twice as an insult (4 of the seed's 6 melon bread lines are off-topic too). Fixed: pings, the
    length/question/echo rules. Still to check after that: length, emoji and melon bread frequency.
-2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B.
+2. When the user has a rented GPU: the LoRA/QLoRA training script (Unsloth) for Gemma 4 E4B, trained on
+   `build_dataset.py --meld --run N`, one run number up each time. Watch the nightly meld meanwhile:
+   the vibe note (console / `diary.json`), which replies count as landed (`earned_examples.jsonl`), and
+   whether she drifts too far or too little (`MELD_ANCHOR`, `MELD_FULL_AT`).
 3. After training, produce a GGUF, load it with `ollama create` (Gemma's chat template), then
    update `OLLAMA_MODEL` in `.env` and set `FEW_SHOT_EXAMPLES=0`. No bot code changes needed.
 4. Read the first diary entries (console at shutdown, `diary.json`, "learned" in `people.json`):
