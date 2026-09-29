@@ -6,7 +6,8 @@ RTX 2070 (8GB VRAM). This is a standalone side project — a dry run of Discord 
 personality plumbing before a much larger, separate local assistant project
 (Nemotron-based, on a different machine — a Framework Desktop) comes online. Don't
 conflate the two: this repo is scoped to just being a Discord conversationalist,
-nothing more, until told otherwise.
+nothing more, until told otherwise. (Told otherwise once, 2026-09-29: she posts about the Melee
+matches she plays in AI-Melee; see `melee.py` under Current state.)
 
 ## Environment
 - OS: CachyOS (Arch-based Linux)
@@ -59,6 +60,18 @@ nothing more, until told otherwise.
   `build_dataset.py` (examples → `train.jsonl`, several input files can be mixed). Runs from the
   archive; output in its gitignored `data/`. Tested with a fake export/Ollama, never run for real.
   On the export: 17,482 replies survive cleanup.
+- `melee.py` + `persona.build_match_messages` — Melee results (user, 2026-09-29: "lets have her
+  start yapping in discord on the outcome"). The first step past "just a Discord conversationalist":
+  AI-Melee (`zurgace/aimelee`, where she plays Mario through Ollama and learns between matches)
+  writes one JSON per match to its outbox (`tools/agent/gomi/outbox/`, atomic, newest 20 kept).
+  `bot.py`'s `watch_melee` task (started once in `on_ready`, only with `MELEE_OUTBOX` and
+  `MELEE_CHANNEL_ID`) checks it every 5 s and posts about each match through the normal paths
+  (`clean_reply` / `send_reply`, shared with `generate_reply` / `reply_to`): slur filter, repeat
+  retry, in her chat history and `posted`, holding the channel's reply lock, with any follow-up owed
+  answered right after (`converse`). User choices: through her own bot (not a webhook), one post per
+  match. Muted → dropped; model down → kept for the next check; older than
+  `MELEE_MAX_AGE_MINUTES` (30) → dropped; unreadable → renamed `.bad`. The player is `MELEE_PLAYER`,
+  else the app owner's nickname / display name / handle.
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)

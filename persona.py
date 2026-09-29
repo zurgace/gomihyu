@@ -98,3 +98,22 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
         {"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{format_examples(examples)}" if examples else "")},
         {"role": "user", "content": remembered + "\n".join(transcript) + "\n\n" + instruction},
     ]
+
+
+def build_match_messages(transcript: list[str], facts: str, player: str, examples: list[dict] = ()) -> list[dict]:
+    """Chat messages for her post about a Melee match she just played (melee.py): the persona, the
+    recent log so the post fits the chat, then what happened and what to do with it."""
+    log = ("Above is the recent chat log in a Discord server, one 'handle: message' per line.\n\n"
+           if transcript else "")
+    instruction = (
+        f"{facts}\n\n"
+        f"Tell the chat how the match went, as {BOT_NICKNAME}, in one Discord message of 1 to 3 sentences. "
+        f"If you won, gloat. If you lost, be dramatic about it and blame something, anything, other than "
+        f"{player} being better. Call them {player}. Talk to the chat like a real message: don't list the "
+        "numbers, don't narrate, and don't repeat your own earlier lines. "
+        "Do not prefix your reply with your own name."
+    )
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT + (f"\n\n{format_examples(examples)}" if examples else "")},
+        {"role": "user", "content": "\n".join(transcript) + ("\n\n" if transcript else "") + log + instruction},
+    ]

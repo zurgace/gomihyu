@@ -33,8 +33,9 @@ from censor import has_slur
 from chime import INTEREST_FORMAT, interest_messages, parse_interest
 from commands import ALL, FOREVER, delete_request, mute_request, unmute_request
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
+from melee import match_facts, read_outbox, stale
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
-from persona import BOT_NAME, BOT_NICKNAME, build_messages, format_line
+from persona import BOT_NAME, BOT_NICKNAME, build_match_messages, build_messages, format_line
 from reactions import media_only, names_her, picker_format, picker_messages, posted_emoji, reacts_instead, sad_news
 
 load_dotenv()
@@ -84,6 +85,15 @@ HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know
 # fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
 EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
 FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
+# Melee results (melee.py): AI-Melee's outbox folder, where it leaves a file after each match she plays
+# as Mario, and the channel she posts about them in. An empty MELEE_OUTBOX turns this off. Files older
+# than MELEE_MAX_AGE_MINUTES (played while the bot was off) are dropped unposted.
+MELEE_OUTBOX = os.environ.get("MELEE_OUTBOX", "").strip()
+MELEE_CHANNEL_ID = int(os.environ.get("MELEE_CHANNEL_ID", "0").strip() or "0")
+MELEE_MAX_AGE_MINUTES = float(os.environ.get("MELEE_MAX_AGE_MINUTES", "30"))
+# Who played against her; default: the bot owner's nickname, else their display name.
+MELEE_PLAYER = os.environ.get("MELEE_PLAYER", "").strip()
+MELEE_CHECK_SECONDS = 5
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -110,6 +120,8 @@ display_names = {}
 last_author = {}
 # user ids allowed to give owner commands: OWNER_USER_IDS, plus the application's owner(s) at login
 owner_ids = set(OWNER_USER_IDS)
+# (user id, handle) of the application's owner, looked up at login: who she plays Melee against
+app_owner = None
 # message id -> (channel_id, her chat-log line) for her recent posts, so a deleted post leaves her log too
 posted = {}
 # channel_id -> time.monotonic() when her mute there ends (FOREVER: until unmuted). Not kept across restarts.
@@ -253,12 +265,17 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         data = await ollama_chat(payload)
     if data is None:
         return None
+    return clean_reply(data, author_id, start)
 
+
+def clean_reply(data: dict, author_id: int | None, start: float) -> str:
+    """The model's answer as she'll post it; author_id is the person she's answering, if anyone."""
     # Small models often start with "Gomihyu:" anyway, copying the log format.
     reply = OWN_NAME_PREFIX.sub("", strip_thinking(data.get("message", {}).get("content", "")).strip())
     if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
         reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
-    reply = without_ping(reply, author_id)
+    if author_id is not None:
+        reply = without_ping(reply, author_id)
     # A reply with a slur in it is thrown away whole, before it's sent or kept in the chat
     # history: she just stares instead.
     if has_slur(reply):
@@ -269,6 +286,21 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     if not reply:
         log.warning(f"Model gave an empty reply, nothing will be sent. Raw response: {json.dumps(data)[:1000]}")
     return reply
+
+
+async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: str, seen: int | None = None) -> None:
+    """Post reply and keep it in her chat log. seen: how many messages had been logged when she started
+    writing it, so it goes in right after those, ahead of any that arrived meanwhile."""
+    lines = history[channel_id]
+    newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))] if seen is not None else []
+    line = format_line(BOT_NAME, reply)
+    lines.append(line)
+    lines.extend(reversed(newer))
+    text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
+    if sent := await channel.send(text[:2000]):  # Discord's hard message-length limit
+        posted[sent.id] = (channel_id, line)
+        if len(posted) > 1000:
+            del posted[next(iter(posted))]
 
 
 async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned: bool) -> None:
@@ -286,16 +318,7 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
     if reply:
         # Log the reply right after the messages it answered, ahead of any that arrived while it
         # was being written, so a follow-up's last log line is still the newest unanswered message.
-        lines = history[channel_id]
-        newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))]
-        line = format_line(BOT_NAME, reply)
-        lines.append(line)
-        lines.extend(reversed(newer))
-        text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
-        if sent := await channel.send(text[:2000]):  # Discord's hard message-length limit
-            posted[sent.id] = (channel_id, line)
-            if len(posted) > 1000:
-                del posted[next(iter(posted))]
+        await send_reply(channel, channel_id, reply, seen)
 
 
 async def choose_reaction(message: discord.Message, text: str) -> str | discord.Emoji | None:
@@ -431,7 +454,13 @@ async def chimes_in(channel_id: int) -> bool:
 
 @client.event
 async def on_ready():
+    global app_owner, melee_watcher
     log.info(f"Logged in as {client.user} (id: {client.user.id})")
+    # on_ready runs again after a reconnect: one watcher is enough.
+    if MELEE_OUTBOX and MELEE_CHANNEL_ID and melee_watcher is None:
+        melee_watcher = asyncio.create_task(watch_melee())
+    elif MELEE_OUTBOX and not MELEE_CHANNEL_ID:
+        log.warning("MELEE_OUTBOX is set but MELEE_CHANNEL_ID isn't; not posting Melee results")
     try:
         app = await client.application_info()
     except discord.HTTPException as e:
@@ -439,6 +468,7 @@ async def on_ready():
         return
     owners = app.team.members if app.team else [app.owner]
     owner_ids.update(owner.id for owner in owners)
+    app_owner = (owners[0].id, owners[0].name)
     log.info(f"Owner commands (deleting her posts) accepted from: {', '.join(owner.name for owner in owners)}"
              + (f", and user ids {', '.join(map(str, sorted(OWNER_USER_IDS)))}" if OWNER_USER_IDS else ""))
 
@@ -513,16 +543,103 @@ async def on_message(message: discord.Message):
 
     async with lock:
         try:
-            while not muted(channel_id):
-                if addressed or await chimes_in(channel_id):
-                    # What arrived while she was deciding is already in the log, so this reply covers it.
-                    was_mentioned, _ = pending_followup.pop(channel_id, (False, False))
-                    await reply_to(message.channel, channel_id, mentioned or was_mentioned)
-                if channel_id not in pending_followup:
-                    break
-                mentioned, addressed = pending_followup.pop(channel_id)
+            await converse(message.channel, channel_id, mentioned, addressed)
         finally:
             pending_followup.pop(channel_id, None)
+
+
+async def converse(channel: discord.abc.Messageable, channel_id: int, mentioned: bool, addressed: bool) -> None:
+    """Reply if she should, then once more for whatever arrived meanwhile. Holds the channel's lock."""
+    while not muted(channel_id):
+        if addressed or await chimes_in(channel_id):
+            # What arrived while she was deciding is already in the log, so this reply covers it.
+            was_mentioned, _ = pending_followup.pop(channel_id, (False, False))
+            await reply_to(channel, channel_id, mentioned or was_mentioned)
+        if channel_id not in pending_followup:
+            break
+        mentioned, addressed = pending_followup.pop(channel_id)
+
+
+def melee_player() -> str:
+    """Who she played: MELEE_PLAYER, else the owner by nickname or display name."""
+    if MELEE_PLAYER:
+        return MELEE_PLAYER
+    if app_owner:
+        user_id, handle = app_owner
+        return memory.nickname_for(user_id) or display_names.get(user_id) or handle
+    return "the owner"
+
+
+async def match_post(channel_id: int, event: dict, temperature: float | None = None) -> str | None:
+    """Her message about a Melee match (melee.py), or None if the model didn't answer."""
+    options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}
+    if temperature is not None:
+        options["temperature"] = temperature
+    player = melee_player()
+    shown = random.sample(examples, min(FEW_SHOT_EXAMPLES, len(examples)))
+    payload = {"messages": build_match_messages(list(history[channel_id]), match_facts(event, player), player, shown),
+               "options": options}
+    start = time.monotonic()
+    data = await ollama_chat(payload)
+    return clean_reply(data, None, start) if data else None
+
+
+async def post_matches(outbox: Path) -> None:
+    """Post about every match waiting in AI-Melee's outbox, oldest first. A match stays there if
+    the model doesn't answer, to be tried again on the next check (until it's too old)."""
+    for path, event in read_outbox(outbox, log):
+        if stale(event, MELEE_MAX_AGE_MINUTES * 60):
+            log.info(f"Melee match {path.name} is older than {MELEE_MAX_AGE_MINUTES:g} minutes; not posting it")
+            path.unlink(missing_ok=True)
+            continue
+        channel = client.get_channel(MELEE_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await client.fetch_channel(MELEE_CHANNEL_ID)
+            except discord.HTTPException as e:
+                log.error(f"Can't reach MELEE_CHANNEL_ID {MELEE_CHANNEL_ID} ({e}); Melee results stay unposted")
+                return
+        channel_id = channel.id
+        if muted(channel_id):
+            log.info(f"Muted in the Melee channel; not posting {path.name}")
+            path.unlink(missing_ok=True)
+            continue
+        async with reply_locks[channel_id]:
+            try:
+                async with channel.typing():
+                    post = await match_post(channel_id, event)
+                    if post and repeats_itself(channel_id, post):
+                        post = await match_post(channel_id, event, temperature=RETRY_TEMPERATURE) or post
+                if post:
+                    path.unlink(missing_ok=True)
+                    if muted(channel_id):
+                        log.info("Muted while writing a Melee post; not sending it")
+                    else:
+                        log.info(f"Posting about Melee match {path.name}")
+                        await send_reply(channel, channel_id, post)
+                # Anything said while she was writing gets its usual answer now.
+                if channel_id in pending_followup:
+                    mentioned, addressed = pending_followup.pop(channel_id)
+                    await converse(channel, channel_id, mentioned, addressed)
+            finally:
+                pending_followup.pop(channel_id, None)
+        if not post:
+            return  # the model didn't answer: try again on the next check
+
+
+async def watch_melee() -> None:
+    outbox = Path(MELEE_OUTBOX).expanduser()
+    log.info(f"Posting Melee results from {outbox} in channel {MELEE_CHANNEL_ID}")
+    while True:
+        try:
+            if outbox.is_dir():
+                await post_matches(outbox)
+        except Exception:
+            log.exception("Posting Melee results failed; trying again")
+        await asyncio.sleep(MELEE_CHECK_SECONDS)
+
+
+melee_watcher = None
 
 
 if __name__ == "__main__":

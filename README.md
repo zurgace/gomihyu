@@ -195,6 +195,32 @@ created it; the console prints the name at startup), plus any Discord user ids i
 reply. No extra Discord permission is needed: a bot can always delete its own messages. Finding
 older posts uses Read Message History, which the bot already has.
 
+## Melee results
+[AI-Melee](https://github.com/zurgace/aimelee) can have Gomi play Mario against you in Super Smash
+Bros. Melee (its "Gomihyu plays Mario" option). After every match she tells the chat how it went,
+in her own words: she gloats if she won, and blames anything but you if she lost.
+
+How it works: AI-Melee leaves one small file per match in its `tools/agent/gomi/outbox/` folder.
+It holds the result, the stage, the line she said right after the match, her lessons and her
+record. The bot checks that folder every 5 seconds, posts about each match in one channel, and
+deletes the file.
+
+Set it up in `.env` (both programs run on the same PC), then restart the bot:
+```
+MELEE_OUTBOX=/home/you/src/ai-melee/tools/agent/gomi/outbox
+MELEE_CHANNEL_ID=123456789012345678
+```
+- To get a channel's id, turn on Developer Mode (Discord settings → Advanced), then right-click
+  the channel → Copy Channel ID.
+- She calls you by your nickname if she has one, else your display name. If someone else plays
+  her, put their name in `MELEE_PLAYER`.
+- Her post is a normal message of hers: it's in her chat history, so replies about the match get
+  answered in context, and "gomi delete that" and muting work as usual.
+- While she's muted in that channel, matches are dropped unposted.
+- A match she can't write about yet (Ollama down) stays in the folder and is tried again on the next
+  check. Files older than `MELEE_MAX_AGE_MINUTES` (30) are dropped unposted, so a bot started after a
+  long session doesn't dump every old match into the channel.
+
 ## Training data
 `finetuning/gomihyu_seed.jsonl` holds 58 hand-written example chats in Gomi's voice, one per line,
 with the chat so far as `[handle, message]` pairs and the reply she should give:
