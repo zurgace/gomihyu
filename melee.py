@@ -1,7 +1,7 @@
 """
 Melee results: posting about the matches she plays in AI-Melee.
 
-AI-Melee (github.com/zurgace/aimelee) can have Gomi play Mario against the owner. After each match
+AI-Melee (github.com/zurgace/aimelee) can have Gomi play Mario or Fox against the owner. After each match
 it leaves one JSON file in its outbox folder (tools/agent/gomi/outbox/): the result, the stage, the
 line she said right after, her lessons and her record. bot.py watches that folder (MELEE_OUTBOX)
 and has her tell the chat about each match in her own words. Everything here is plain file and text
@@ -48,7 +48,8 @@ def match_facts(event: dict, player: str) -> str:
     opponent = event.get("opponent_character", "someone")
     stage = event.get("stage", "a stage")
     won = bool(event.get("won"))
-    facts = (f"You just played a match of Super Smash Bros. Melee as Mario against {player}, who played "
+    character = event.get("character") or "Mario"
+    facts = (f"You just played a match of Super Smash Bros. Melee as {character} against {player}, who played "
              f"{opponent}, on {stage}, and you {'WON' if won else 'LOST'}: you had {her} "
              f"stock{'s' if her != 1 else ''} left, {player} had {theirs}.")
     if line := str(event.get("line") or "").strip():

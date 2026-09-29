@@ -196,8 +196,8 @@ reply. No extra Discord permission is needed: a bot can always delete its own me
 older posts uses Read Message History, which the bot already has.
 
 ## Melee results
-[AI-Melee](https://github.com/zurgace/aimelee) can have Gomi play Mario against you in Super Smash
-Bros. Melee (its "Gomihyu plays Mario" option). After every match she tells the chat how it went,
+[AI-Melee](https://github.com/zurgace/aimelee) can have Gomi play Mario or Fox against you in Super
+Smash Bros. Melee (its "Gomihyu takes over P2" option). After every match she tells the chat how it went,
 in her own words: she gloats if she won, and blames anything but you if she lost.
 
 How it works: AI-Melee leaves one small file per match in its `tools/agent/gomi/outbox/` folder.
