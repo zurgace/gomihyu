@@ -277,7 +277,15 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   open: whether to also mix in the parked export pipeline's output. Earlier question, for the record:
   which data the first Gemma training run uses: the seed (58, active), the Discord pipeline's
   output (parked), or a mix. Decide when the rented GPU is set up.
-- Target dataset size before a training run (likely 1–3k good examples).
+- Target dataset size before a training run (likely 1–3k good examples). User, 2026-09-29: the diary
+  only started that day, so they'll check the data later that week before any run. Free training
+  options discussed: Kaggle (30 GPU-h/week, 16GB) first, Colab free T4 as backup; the 2070 alone is
+  short of Unsloth's ~10GB for E4B QLoRA even with Ollama moved to CPU.
+- Vision (user asked 2026-09-29): Gemma 4 E4B has a 150M vision encoder (~280 image tokens by default),
+  and Ollama takes base64 `images` on /api/chat, but ollama#18560 (dup of the open #16532) reports
+  gemma4:e4b getting a blank image on 0.33.3 / 0.34.2, the user's version. `tools/vision_check.py`
+  tests it (solid colours; "black" everywhere = the bug). Nothing built on vision yet: it would change
+  the "media she can't see → a looking emoji" decision, so it waits on the check and the user.
 
 ## Next steps
 1. See how Gemma does with the seed as example chats. First live log (2026-09-27): voice good and

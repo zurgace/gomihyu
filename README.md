@@ -349,6 +349,10 @@ gitignored too.
   for facts; anything that must be right (memory, the slur filter) is handled in code.
 - Text-only: it can't see images, only whatever caption/text comes with them. Image posts
   appear to her as `[image]`, and on their own they get a 👀-style reaction, not a reply.
+  Gemma 4 E4B has vision, but some Ollama versions hand it a blank image
+  ([ollama#18560](https://github.com/ollama/ollama/issues/18560), reported on 0.34.2).
+  `venv/bin/python tools/vision_check.py` asks the model what colour a few plain pictures are and
+  says whether vision works on your setup.
 - Her recent chat is picked back up from the chat log after a restart (last
   `HISTORY_RELOAD_HOURS`); older days reach her only as diary recaps.
 - Single-server assumption: history, logs and recaps are keyed by Discord channel ID, so they
