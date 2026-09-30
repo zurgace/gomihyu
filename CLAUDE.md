@@ -205,7 +205,10 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   hands back an emoji only at `REACT_THRESHOLD` (8) or above (0 = whenever one fits); no score
   (missing, or a bare non-JSON emoji) = no reaction. Posts that don't need words → that emoji as her
   whole response, or nothing; other posts she doesn't answer → the emoji too (`REACT_TO_CHAT`,
-  default on); posts she answers → no reaction.
+  default on); posts she chimes in on → the emoji as well as the reply (`REACT_WHEN_REPLYING`,
+  default on; user, 2026-09-30: a 10/10 💢 read on an insult to her AI got a reply and no react,
+  and they expected the react; until then chimed-in posts never got one). Posts aimed at
+  her aren't read, so they get no reaction. A mute arriving during the read → no reaction.
   Quiet mode: no read for chat posts (reactions only for posts that don't need words). 🥺 (cute /
   her soft spot), 😳 (flustered) and 💀 (dying laughing) were added to `UNICODE` for moments the
   list couldn't express. Reactions are never added to the chat history.

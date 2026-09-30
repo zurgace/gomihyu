@@ -61,6 +61,8 @@ REACT_TO_CHAT = os.environ.get("REACT_TO_CHAT", "true").strip().lower() in ("1",
 # She only reacts to what gets a rise out of her: the read's react score (0-10, its own scale, not the
 # chime-in one) at this or above. Higher is fewer reactions; 0 reacts whenever a reaction fits.
 REACT_THRESHOLD = int(os.environ.get("REACT_THRESHOLD", "8"))
+# A post she chimes in on gets that reaction as well as her reply (a 10/10 moment deserves both).
+REACT_WHEN_REPLYING = os.environ.get("REACT_WHEN_REPLYING", "true").strip().lower() in ("1", "true", "yes", "on")
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
@@ -568,8 +570,8 @@ def replying_to_her(message: discord.Message) -> bool:
 
 
 async def chimes_in(channel_id: int) -> bool:
-    """Whether the newest post, not aimed at her, interests her enough to say something. If not, it may
-    still get a reaction, if it got a rise out of her (REACT_TO_CHAT, REACT_THRESHOLD)."""
+    """Whether the newest post, not aimed at her, interests her enough to say something. Either way it gets
+    a reaction if it got a rise out of her (REACT_THRESHOLD; REACT_WHEN_REPLYING, REACT_TO_CHAT)."""
     if CHIME_IN_THRESHOLD <= 0:
         return True
     if (message := latest_post.get(channel_id)) is None:
@@ -579,14 +581,14 @@ async def chimes_in(channel_id: int) -> bool:
     if reading is None or reading.interest is None:
         log.warning(f"Couldn't tell whether to chime in on {newest[:80]!r}, staying quiet")
         return False
-    if reading.interest >= CHIME_IN_THRESHOLD:
-        log.info(f"Interest {reading.interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}")
-        return True
-    log.info(f"Interest {reading.interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}: staying quiet"
-             + (f", reacting {name}" if emoji and REACT_TO_CHAT else ""))
-    if emoji and REACT_TO_CHAT:
+    chiming = reading.interest >= CHIME_IN_THRESHOLD
+    # not muted: a mute can arrive while she reads
+    reacting = emoji and (REACT_WHEN_REPLYING if chiming else REACT_TO_CHAT) and not muted(channel_id)
+    log.info(f"Interest {reading.interest}/10 (chimes in at {CHIME_IN_THRESHOLD}) in {newest[:80]!r}: "
+             + ("chiming in" if chiming else "staying quiet") + (f", reacting {name}" if reacting else ""))
+    if reacting:
         await react_picked(message, emoji, name)
-    return False
+    return chiming
 
 
 async def look_at(message: discord.Message) -> tuple[discord.Message, dict]:

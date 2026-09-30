@@ -68,8 +68,8 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   funny line to add, a question to the whole chat), how much it gets a reaction out of her (0–10,
   its own scale, see [Emojis](#emojis)), and which reaction fits, if any. She replies at
   `CHIME_IN_THRESHOLD` (default 6) or above. Raise it to make her quieter, lower it for chattier;
-  `0` answers every message without reading. A post she doesn't answer can still get the reaction,
-  if it scores `REACT_THRESHOLD` (8) or more (`REACT_TO_CHAT`, on by default). The console shows
+  `0` answers every message without reading. If the post scores `REACT_THRESHOLD` (8) or more for
+  reacting, it gets the reaction too, whether she answers it or not. The console shows
   each read: `Read kaz0's post: 'kaz got a job offer, excited', interest 3, react 9/10 (reacts at
   8), 🔥 fits`, then `Interest 3/10 (chimes in at 6) in "...": staying quiet, reacting 🔥`. No
   cooldown.
@@ -138,9 +138,11 @@ normal reply instead.
   flex, a joke, a fail, something cute, something cursed. Its answer is restricted to the names
   in `emojis.py` (plus "none", in which case she leaves it be), and the emojis she used for her
   last two reactions in that channel are left out, so she doesn't react 🙄 to everything.
-- **Posts she doesn't reply to** can get a reaction too, on the same `REACT_THRESHOLD`.
-  `REACT_TO_CHAT=false` keeps her reactions to posts that don't need words. Posts she replies to
-  get the reply, not a reaction.
+- **Chat posts** get a reaction on the same `REACT_THRESHOLD`, whether she chimes in on them or
+  not: an insult to her code that scores 10 gets 💢 *and* a comeback. `REACT_WHEN_REPLYING=false`
+  keeps reactions off posts she replies to, `REACT_TO_CHAT=false` off posts she doesn't. Posts aimed
+  at her (@mention, her name, a reply to her) aren't read, since she always answers them, so they
+  get the reply only.
 - **In her own messages** she can use this server's custom emojis now and then, by writing
   `:kekpoint:`; the bot turns that into the real emoji.
 
