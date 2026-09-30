@@ -58,6 +58,9 @@ MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
 # everything without reading). With REACT_TO_CHAT, a post she doesn't answer can still get the reaction.
 CHIME_IN_THRESHOLD = int(os.environ.get("CHIME_IN_THRESHOLD", "6"))
 REACT_TO_CHAT = os.environ.get("REACT_TO_CHAT", "true").strip().lower() in ("1", "true", "yes", "on")
+# She only reacts to what gets a rise out of her: the read's react score (0-10, its own scale, not the
+# chime-in one) at this or above. Higher is fewer reactions; 0 reacts whenever a reaction fits.
+REACT_THRESHOLD = int(os.environ.get("REACT_THRESHOLD", "8"))
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
@@ -443,8 +446,9 @@ def looking(message: discord.Message) -> str | discord.Emoji | None:
 
 
 async def read_room(message: discord.Message, text: str = "") -> tuple[Reading | None, str | discord.Emoji | None, str]:
-    """Her read of a post (chime.py) and the reaction it picked, as something to react with and its
-    name ("" for none). None for the read if the model didn't answer usably."""
+    """Her read of a post (chime.py) and the reaction she'd put on it, as something to react with and its
+    name: none ("") unless one fits and the post gets a rise out of her (REACT_THRESHOLD). None for the
+    read if the model didn't answer usably."""
     channel_id = message.channel.id
     server = {e.name.lower(): e for e in message.guild.emojis} if message.guild else {}
     options = dict(UNICODE) | {name: use for name, (use, _) in CUSTOM.items() if name.lower() in server}
@@ -464,17 +468,16 @@ async def read_room(message: discord.Message, text: str = "") -> tuple[Reading |
     if reading is None:
         log.warning(f"Couldn't read the room for {message.author.name}'s post. Raw response: {json.dumps(data)[:300]}")
         return None, None, ""
-    if reading.emoji == "same":
-        emoji, name = same, theirs.strip(":")
-        log.info(f"Read {message.author.name}'s post: {reading.read or '(no read)'!r}, echoing {theirs}")
-        return reading, emoji, name
-    if reading.emoji:
-        emoji = reading.emoji if reading.emoji in UNICODE else server[reading.emoji.lower()]
-    else:
-        emoji = None
+    moved = REACT_THRESHOLD <= 0 or (reading.react is not None and reading.react >= REACT_THRESHOLD)
+    fits = theirs if reading.emoji == "same" else reading.emoji or "none"
     log.info(f"Read {message.author.name}'s post: {reading.read or '(no read)'!r}, interest {reading.interest}, "
-             f"reaction {reading.emoji or 'none'}")
-    return reading, emoji, reading.emoji or ""
+             f"react {reading.react}/10 (reacts at {REACT_THRESHOLD}), {fits} fits"
+             + ("" if moved or not reading.emoji else ": no reaction"))
+    if not reading.emoji or not moved:
+        return reading, None, ""
+    if reading.emoji == "same":
+        return reading, same, theirs.strip(":")
+    return reading, reading.emoji if reading.emoji in UNICODE else server[reading.emoji.lower()], reading.emoji
 
 
 async def react_picked(message: discord.Message, emoji: str | discord.Emoji, name: str) -> None:
@@ -566,7 +569,7 @@ def replying_to_her(message: discord.Message) -> bool:
 
 async def chimes_in(channel_id: int) -> bool:
     """Whether the newest post, not aimed at her, interests her enough to say something. If not, it may
-    still get the reaction her read of the room picked (REACT_TO_CHAT)."""
+    still get a reaction, if it got a rise out of her (REACT_TO_CHAT, REACT_THRESHOLD)."""
     if CHIME_IN_THRESHOLD <= 0:
         return True
     if (message := latest_post.get(channel_id)) is None:

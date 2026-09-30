@@ -54,7 +54,8 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   white, <= 1024px JPEG), the one-line describe prompt, and the `[image: ...]` / `[gif: ...]` /
   `[sticker: name, ...]` / `[link: "title", preview: ...]` labels. `tools/vision_check.py` tests vision.
 - `chime.py` — her read of the room for a post not aimed at her: one call's prompt, `format` schema and
-  parsing for {read, interest 0–10, emoji}, which decides both whether she chimes in and her reaction.
+  parsing for {read, interest 0–10, react 0–10, emoji}, which decides both whether she chimes in and
+  whether (and with what) she reacts.
 - `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
   "your last 3 messages" / "all your messages"), `mute_request` ("gomi mute" / "for 2 hours" /
   "until i say so"), `quiet_request` ("gomi quiet mode") and `unmute_request` (ends either).
@@ -134,8 +135,9 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   cooldown (slow server, 5 people, ~2 active) — don't add one without checking first.
   Exception (user decision): posts that don't need words —
   image/sticker/bare-link/emoji-only, or at most `REACT_ONLY_MAX_WORDS` (2) words without "?"
-  — get an emoji reaction as her whole response, unless they @mention or name her ("gomi",
-  "gomihyu") or look serious; those always get a reply.
+  — get an emoji reaction as her whole response (only at `REACT_THRESHOLD`, see emoji reactions;
+  otherwise nothing), unless they @mention or name her ("gomi", "gomihyu") or look serious; those
+  always get a reply.
 - Owner commands override the persona (user, 2026-09-28: "if I tell gomi to delete her posts,
   I want her to delete them"). An owner (the bot application's owner from `application_info()`
   at login, or a team's members, plus `OWNER_USER_IDS`) saying "delete that / your last N /
@@ -195,8 +197,15 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   lines with picture descriptions, who the post replies to, and her last reactions; `format` = {read,
   interest, emoji ∈ `emojis.py` names + usable customs + "same" for emoji-only posts + "none"}. The
   names of her last two picked reactions per channel (`recent_reactions`; never "same") are left
-  out of the options. Posts that don't need words → its emoji as her whole response; other posts
-  she doesn't answer → the emoji too (`REACT_TO_CHAT`, default on); posts she answers → no reaction.
+  out of the options. Only what gets a rise out of her (user, 2026-09-30: "currently she is reacting to
+  every single post ... react only if the item interests her (8/10 default ...) have the scale be
+  slightly different to the post scale"): the same call also scores `react` 0–10 on its own anchored
+  scale (0–2 chatter, logistics, questions, plans; 3–5 fine but unremarkable; 6–7 she notices; 8–10
+  really funny, big win/flex, cute past her act, cursed, painful fail, sad moment), and `read_room`
+  hands back an emoji only at `REACT_THRESHOLD` (8) or above (0 = whenever one fits); no score
+  (missing, or a bare non-JSON emoji) = no reaction. Posts that don't need words → that emoji as her
+  whole response, or nothing; other posts she doesn't answer → the emoji too (`REACT_TO_CHAT`,
+  default on); posts she answers → no reaction.
   Quiet mode: no read for chat posts (reactions only for posts that don't need words). 🥺 (cute /
   her soft spot), 😳 (flustered) and 💀 (dying laughing) were added to `UNICODE` for moments the
   list couldn't express. Reactions are never added to the chat history.
@@ -373,10 +382,11 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
 6. Test the emoji rework live: react-only posts, the room read's reactions, custom emojis in replies.
 7. Gemma 4 E4B live (100% GPU at 8192 context confirmed): reply speed, no thinking warning, and
    whether the prompt (tuned on LFM) needs retuning, e.g. asterisk actions or rambling.
-8. Tune chiming in and reactions live: watch the `Read ...` / `Interest n/10` log lines. Small
-   models tend to give most posts the same middling-high number; if she's too chatty or too quiet,
-   move `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`. If she reacts to too
-   much chat, `REACT_TO_CHAT=false` or tighten "only reacts when something calls for it".
+8. Tune chiming in and reactions live: watch the `Read ... react n/10` / `Interest n/10` log lines.
+   Small models tend to give most posts the same middling-high number; if she's too chatty or too
+   quiet, move `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`. Reactions: move
+   `REACT_THRESHOLD` (8), then the react anchors; `REACT_TO_CHAT=false` limits them to posts that
+   don't need words.
 9. Vision live: description quality and speed (console `Saw ...`), `ollama ps` VRAM with the vision
    part loaded, whether link previews arrive within `EMBED_WAIT_SECONDS`, reactions to pictures.
 10. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about

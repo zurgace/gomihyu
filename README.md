@@ -63,14 +63,16 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
   than staying polite.
 - **Anything else, she reads the room first**, like a friend in a group chat. One short extra
   model call looks at the last 12 messages (with what's in any pictures), who the post is for,
-  her own personality and the server's vibe note, and answers three things: what's going on, how
+  her own personality and the server's vibe note, and answers four things: what's going on, how
   much she'd want to say something (0–10: her topics, someone bragging, plans without her, a
-  funny line to add, a question to the whole chat), and which reaction fits, if any. She replies
-  at `CHIME_IN_THRESHOLD` (default 6) or above. Raise it to make her quieter, lower it for
-  chattier; `0` answers every message without reading. A post she doesn't answer can still get
-  the reaction (`REACT_TO_CHAT`, on by default). The console shows each read:
-  `Read kaz0's post: 'kaz got a job offer, excited', interest 3, reaction 🔥`, then
-  `Interest 3/10 (chimes in at 6) in "...": staying quiet, reacting 🔥`. No cooldown.
+  funny line to add, a question to the whole chat), how much it gets a reaction out of her (0–10,
+  its own scale, see [Emojis](#emojis)), and which reaction fits, if any. She replies at
+  `CHIME_IN_THRESHOLD` (default 6) or above. Raise it to make her quieter, lower it for chattier;
+  `0` answers every message without reading. A post she doesn't answer can still get the reaction,
+  if it scores `REACT_THRESHOLD` (8) or more (`REACT_TO_CHAT`, on by default). The console shows
+  each read: `Read kaz0's post: 'kaz got a job offer, excited', interest 3, react 9/10 (reacts at
+  8), 🔥 fits`, then `Interest 3/10 (chimes in at 6) in "...": staying quiet, reacting 🔥`. No
+  cooldown.
 - **Reacts instead of replying when words aren't needed.** See [Emojis](#emojis).
 - **One reply at a time per channel.** If messages arrive while it's still writing a reply,
   it sends one follow-up afterwards that answers the latest chat, rather than one reply each.
@@ -111,10 +113,20 @@ rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 - Ignores its own messages and other bots.
 
 ## Emojis
-**Posts that don't need words get a reaction as her whole response:** images, stickers, a
-bare link (usually a GIF), emoji-only posts, and short interjections of up to
-`REACT_ONLY_MAX_WORDS` words (default 2) without a `?`, like "oogaga" or "lol wtf". Anything
-that @mentions her, says "gomi"/"gomihyu", or sounds like bad news gets a normal reply instead.
+**She only reacts to what gets a rise out of her.** Her read of the room scores every post it looks
+at 0–10 for how much it gets a reaction out of her, on its own scale, separate from the one for
+talking, because a reaction is for a moment, not a conversation. Everyday chatter, logistics,
+questions and plans are 0–2 (a question to the room makes her want to talk, not react). Fine but
+unremarkable is 3–5. Something she notices (a decent joke, a small win, something mildly cute) is
+6–7. Something that really gets to her (actually funny, a big win or a flex, cute enough to get
+past her act, cursed, a painful fail, a sad moment) is 8–10. She reacts at `REACT_THRESHOLD`
+(default 8) or above; lower it for more reactions, `0` reacts whenever one fits.
+
+**Posts that don't need words get a reaction as her whole response**, if they score that high,
+and nothing otherwise: images, stickers, a bare link (usually a GIF), emoji-only posts, and short
+interjections of up to `REACT_ONLY_MAX_WORDS` words (default 2) without a `?`, like "oogaga" or
+"lol wtf". Anything that @mentions her, says "gomi"/"gomihyu", or sounds like bad news gets a
+normal reply instead.
 - **Sad news** ("my dog died", "rough week") gets a reply *and* a `:catsad:` reaction
   (`SAD_NEWS` in `emojis.py`). Laughter doesn't count: "im crying lmao" is not sad news.
 - **Images, stickers, GIFs, links:** she looks at them (see [What she sees](#what-she-sees)) and
@@ -126,9 +138,9 @@ that @mentions her, says "gomi"/"gomihyu", or sounds like bad news gets a normal
   flex, a joke, a fail, something cute, something cursed. Its answer is restricted to the names
   in `emojis.py` (plus "none", in which case she leaves it be), and the emojis she used for her
   last two reactions in that channel are left out, so she doesn't react 🙄 to everything.
-- **Posts she doesn't reply to** can get a reaction too, when the moment calls for one (not for
-  plain logistics or everyday chatter). `REACT_TO_CHAT=false` keeps her reactions to posts that
-  don't need words.
+- **Posts she doesn't reply to** can get a reaction too, on the same `REACT_THRESHOLD`.
+  `REACT_TO_CHAT=false` keeps her reactions to posts that don't need words. Posts she replies to
+  get the reply, not a reaction.
 - **In her own messages** she can use this server's custom emojis now and then, by writing
   `:kekpoint:`; the bot turns that into the real emoji.
 
