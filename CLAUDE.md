@@ -72,7 +72,7 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   `build_dataset.py` (examples → `train.jsonl`, several input files can be mixed). Runs from the
   archive; output in its gitignored `data/`. Tested with a fake export/Ollama, never run for real.
   On the export: 17,482 replies survive cleanup.
-- `melee.py` + `persona.build_match_messages` — Melee results (user, 2026-09-29: "lets have her
+- `melee.py` + `persona.build_session_messages` — Melee results (user, 2026-09-29: "lets have her
   start yapping in discord on the outcome"). The first step past "just a Discord conversationalist":
   AI-Melee (`zurgace/aimelee`, where she plays Mario or Fox through Ollama and learns between matches)
   writes one JSON per match and per in-match taunt to an outbox both know by default,
@@ -90,7 +90,7 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   answered right after (`converse`). User choices: through her own bot (not a webhook), one post per
   match. Muted → dropped; model down → kept, retried after `MELEE_RETRY_SECONDS` (60) instead of every
   5 s; a post Discord refuses (permissions) → dropped with a warning, never in her history; older than
-  `MELEE_MAX_AGE_MINUTES` (30) → dropped; unreadable → renamed `.bad`. The player is `MELEE_PLAYER`,
+  `MELEE_MAX_AGE_MINUTES` → dropped; unreadable → renamed `.bad`. The player is `MELEE_PLAYER`,
   else the app owner's nickname / display name / handle. The channel: an owner's "gomi post melee
   here" (commands.py, owner-only like delete/mute, reacts 🎮; saved in gitignored
   `melee_channel.json`), "gomi stop posting melee" (🔕, saves none, which also beats the env), else
@@ -102,7 +102,19 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   practises next match) and `drill_result` (last match's goal: its number before -> after, better/worse).
   `match_facts` quotes them; the prompt asks for 2-4 sentences naming what decided the match, whether
   her practice paid off, and next match's goal as a scheme, never an apology (it no longer tells her to
-  blame anything but the player). Match posts get `max(MAX_REPLY_TOKENS, 300)` tokens.
+  blame anything but the player).
+  One post per session (user, 2026-09-30: "only post once I close the game or tell gomi GG"; the
+  per-match posts above were the design until then). Match files stay in the outbox until
+  `melee.session_ready` says the session is over: AI-Melee writes a `session_end` event when the game
+  closes (its agent waits for her last reflection first, and play.py waits for the agent), the owner
+  says "gg" (`commands.gg_request`: the whole message is gg / ggs / gg wp / good games / gg gomi; owner
+  only, to her or in the Melee channel, and only while matches are held (`melee_held`), else it's chat;
+  sets `melee_gg`, reacts 🎮), or no match came for `MELEE_SESSION_IDLE_MINUTES` (20; a force-quit).
+  `post_session` then writes one post from `session_facts` (a line per match, the last 8, then the last
+  match in full via `match_facts`, up to 3 taunts from the session) and deletes those files; matches
+  after a `session_end` wait for the next. `MELEE_MAX_AGE_MINUTES` is now 120, measured from the
+  session's last match; AI-Melee keeps its newest 200 files. Session posts get
+  `max(MAX_REPLY_TOKENS, 400)` tokens.
 - The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
 
 ## Locked-in design decisions (don't change without asking)

@@ -309,14 +309,17 @@ older posts uses Read Message History, which the bot already has.
 
 ## Melee results
 [AI-Melee](https://github.com/zurgace/aimelee) can have Gomi play Mario or Fox against you in Super
-Smash Bros. Melee (its "Gomihyu takes over P2" option). She talks about it here, **only once a
-match is over**:
-- **While she plays**, she stays quiet in Discord. The trash talk she writes in AI-Melee isn't
-  posted; the bot holds on to it for her match post.
-- **After every match**, she tells the chat how it went in one message of 2–4 sentences, in her own
-  words: she gloats if she won and is dramatic if she lost, names what decided it, says whether what
-  she was practising paid off, and what she'll work on next (as a scheme, never an apology). She may
-  call back one of the lines she said during the match.
+Smash Bros. Melee (its "Gomihyu takes over P2" option). She talks about it here **once per session**:
+- **While you play**, she stays quiet in Discord, however many matches you play. The trash talk she
+  writes in AI-Melee isn't posted; the bot holds on to it, and the matches, for her session post.
+- **When the session is over**, she tells the chat how it went in one message of 3–5 sentences, in
+  her own words: she gloats or is dramatic about it, names the match or moment that stood out and
+  what decided things, says whether what she was practising paid off, and what she'll work on next
+  (as a scheme, never an apology). She may call back one of her lines from the session.
+- **The session is over** when you close the game, or when you say **"gg"** (as the bot's owner: just
+  "gg", "ggs", "gg wp" or "gg gomi", to her or in her Melee channel). If the game was force-quit,
+  she posts after `MELEE_SESSION_IDLE_MINUTES` (20) without a new match. A "gg" mid-session posts
+  about the matches so far; the rest wait for the next post.
 
 **Setting it up:** say **"gomi post melee here"** (as the bot's owner) in the channel you want. She
 reacts 🎮, and remembers it across restarts. "gomi stop posting melee" turns it off (🔕). That's all:
@@ -329,11 +332,11 @@ seconds. Both programs run on the same PC.
   answered in context, and "gomi delete that" and muting work as usual.
 - While she's muted in that channel, her Melee posts are dropped. Quiet mode doesn't stop them: a
   match post isn't butting in.
-- A match she can't write about yet (Ollama down) waits for the next check. A match older than
-  `MELEE_MAX_AGE_MINUTES` (30) is dropped unposted, so a bot started late doesn't dump old stuff
-  into the channel. Trash talk from a match that never finished is forgotten.
-- With no channel picked yet, everything waits (AI-Melee keeps the newest 20, and warns that her posts
-  are piling up). The bot's console says which folder and channel it uses when it starts.
+- A session she can't write about yet (Ollama down) waits for the next check. A session whose last
+  match is older than `MELEE_MAX_AGE_MINUTES` (120) is dropped unposted, so a bot started late
+  doesn't dump old stuff into the channel. Old trash talk is forgotten.
+- With no channel picked yet, everything waits (AI-Melee keeps the newest 200 files, and warns when
+  her posts are piling up). The bot's console says which folder and channel it uses when it starts.
 - `.env` overrides, rarely needed: `MELEE_OUTBOX` (another folder), `MELEE_CHANNEL_ID` (a channel to
   start with, until one is picked with the command).
 

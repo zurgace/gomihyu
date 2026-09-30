@@ -35,16 +35,15 @@ from dotenv import load_dotenv
 from censor import has_slur
 from chatlog import ChatLog, local_day
 from chime import Reading, parse_room, room_format, room_messages
-from commands import (ALL, FOREVER, delete_request, goodnight_request, melee_here_request, melee_stop_request, mute_request,
-                      quiet_request,
-                      unmute_request)
+from commands import (ALL, FOREVER, delete_request, gg_request, goodnight_request, melee_here_request, melee_stop_request,
+                      mute_request, quiet_request, unmute_request)
 from diary import Diary, chunks, digest_format, digest_messages, parse_digest
 from meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
-from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, match_facts, read_outbox, save_channel,
-                   stale)
+from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
+                   session_ready, stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
-from persona import BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_match_messages, build_messages, format_line
+from persona import BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line
 from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
 import vision
 from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
@@ -124,13 +123,16 @@ FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
 # Melee results (melee.py): the outbox folder AI-Melee leaves her taunts and matches in (by default the
 # one both programs know, ~/.local/share/gomihyu/melee-outbox), and the channel she posts them in: the
 # one an owner picked with "gomi post melee here" (kept in MELEE_CHANNEL_FILE), else MELEE_CHANNEL_ID.
-# Matches older than MELEE_MAX_AGE_MINUTES (played while the bot was off) are dropped unposted.
+# She posts once per session: when AI-Melee says the game closed, when the owner says "gg", or once no
+# match has come for MELEE_SESSION_IDLE_MINUTES (the game was force-quit). A session whose newest match
+# is older than MELEE_MAX_AGE_MINUTES (played while the bot was off) is dropped unposted.
 MELEE_OUTBOX = Path(os.environ.get("MELEE_OUTBOX", "").strip() or default_outbox()).expanduser()
 MELEE_CHANNEL_FILE = Path(__file__).resolve().parent / "melee_channel.json"
 MELEE_CHANNEL_ID = int(os.environ.get("MELEE_CHANNEL_ID", "0").strip() or "0")
 MELEE_EMOJI = "🎮"  # reaction confirming this channel gets her Melee posts
 NO_MELEE_EMOJI = "🔕"
-MELEE_MAX_AGE_MINUTES = float(os.environ.get("MELEE_MAX_AGE_MINUTES", "30"))
+MELEE_MAX_AGE_MINUTES = float(os.environ.get("MELEE_MAX_AGE_MINUTES", "120"))
+MELEE_SESSION_IDLE_MINUTES = float(os.environ.get("MELEE_SESSION_IDLE_MINUTES", "20"))
 # Who played against her; default: the bot owner's nickname, else their display name.
 MELEE_PLAYER = os.environ.get("MELEE_PLAYER", "").strip()
 MELEE_CHECK_SECONDS = 5
@@ -145,7 +147,7 @@ TASK_MODEL = os.environ.get("TASK_MODEL", "").strip() or MODEL_NAME
 VISION_MAX_IMAGES = int(os.environ.get("VISION_MAX_IMAGES", "3"))
 VISION_MAX_BYTES = 10 * 1024 * 1024
 EMBED_WAIT_SECONDS = 2.5  # Discord adds a link's preview a moment after the post
-MELEE_RETRY_SECONDS = 60  # after a match she couldn't post
+MELEE_RETRY_SECONDS = 60  # after a session she couldn't post
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gomihyu")
@@ -684,6 +686,16 @@ async def on_message(message: discord.Message):
     mentioned = client.user in message.mentions
     for_her = mentioned or replying_to_her(message) or names_her(text)
 
+    # The owner's "gg" (to her, or in her Melee channel) while she holds matches: the session is over,
+    # she posts about it now. With nothing held it's just chat.
+    global melee_gg
+    if (message.author.id in owner_ids and gg_request(text) and (for_her or channel_id == melee_channel())
+            and melee_held()):
+        melee_gg = True
+        log.info(f"{message.author.name} said gg: posting about the Melee session")
+        await react(message, MELEE_EMOJI)
+        return
+
     # An owner telling her to delete her posts or be quiet overrides the persona: done in code,
     # never shown to the model or kept in her chat log.
     if message.author.id in owner_ids and for_her:
@@ -810,87 +822,106 @@ def melee_player() -> str:
     return "the owner"
 
 
-async def match_post(channel_id: int, event: dict, taunts: list[str] = (), temperature: float | None = None) -> str | None:
-    """Her message about a Melee match (melee.py), or None if the model didn't answer."""
-    options = {} if model_thinks else {"num_predict": max(MAX_REPLY_TOKENS, 300)}  # 2-4 sentences
+async def session_post(channel_id: int, matches: list[dict], taunts: list[str] = (),
+                       temperature: float | None = None) -> str | None:
+    """Her one message about a Melee session (melee.py), or None if the model didn't answer."""
+    options = {} if model_thinks else {"num_predict": max(MAX_REPLY_TOKENS, 400)}  # 3-5 sentences
     if temperature is not None:
         options["temperature"] = temperature
     player = melee_player()
-    facts = match_facts(event, player, taunts)
-    payload = {"messages": build_match_messages(list(history[channel_id]), facts, player, shown_examples(),
-                                                diary.vibe()),
+    facts = session_facts(matches, player, taunts)
+    payload = {"messages": build_session_messages(list(history[channel_id]), facts, player, shown_examples(),
+                                                  diary.vibe()),
                "options": options}
     start = time.monotonic()
     data = await ollama_chat(payload)
     return clean_reply(data, None, start) if data else None
 
 
-async def post_matches(outbox: Path) -> bool:
-    """Post about every match waiting in AI-Melee's outbox, oldest first. She only talks once a match
-    is over: her in-match taunts aren't posted, they're taken out of the outbox and held (melee_taunts)
-    for her post about their match. A match stays in the outbox if the model doesn't answer, to be tried
-    again later (until it's too old). True if that's why it stopped."""
+def melee_held() -> bool:
+    """Whether matches are waiting in AI-Melee's outbox for her session post."""
+    if not MELEE_OUTBOX.is_dir():
+        return False
+    return any(event.get("kind", "match") == "match" for _, event in read_outbox(MELEE_OUTBOX, log))
+
+
+async def post_session(outbox: Path) -> bool:
+    """One post about the session, once it's over (melee.session_ready): the game closed, the owner
+    said "gg", or no match has come for a while. Until then matches wait in the outbox. Her in-match
+    taunts aren't posted: they're taken out of the outbox and held (melee_taunts) for her session post.
+    The matches stay in the outbox if the model doesn't answer, to be tried again later (until they're
+    too old). True if that's why it stopped."""
+    global melee_gg
     max_age = MELEE_MAX_AGE_MINUTES * 60
     events = read_outbox(outbox, log)
     for path, event in events:
         if event.get("kind") == "taunt":
-            path.unlink(missing_ok=True)  # out of the outbox now: AI-Melee only keeps its newest 20 files
+            path.unlink(missing_ok=True)  # out of the outbox now: AI-Melee only keeps its newest files
             text = str(event["text"]).strip()
             if text and not has_slur(text) and not stale(event, max_age):
                 melee_taunts.append((float(event.get("time", 0)), text))
-    # Taunts from a match that never finished
     melee_taunts[:] = [(said, text) for said, text in melee_taunts if not stale({"time": said}, max_age)]
 
+    held = [(path, event) for path, event in events if event.get("kind") != "taunt"]
+    matches, ends = session_ready(held, time.time(), MELEE_SESSION_IDLE_MINUTES * 60, gg=melee_gg)
+    if not matches:
+        for path in ends:
+            path.unlink(missing_ok=True)  # a session that ended with nothing (left) to say about
+        melee_gg = False
+        return False
+    first = min(float(e.get("time", 0)) for _, e in matches)
+    last = max(float(e.get("time", 0)) for _, e in matches)
+    files = [path for path, _ in matches] + ends
+
+    def done() -> None:
+        global melee_gg
+        for path in files:
+            path.unlink(missing_ok=True)
+        forget_taunts(last)
+        melee_gg = False
+
+    if stale({"time": last}, max_age):
+        log.info(f"Melee session of {len(matches)} matches is too old to post; dropping it")
+        done()
+        return False
     channel_id = melee_channel()
-    for path, event in events:
-        if event.get("kind") == "taunt":
-            continue
-        ended = float(event.get("time", 0))
-        taunts = [text for said, text in melee_taunts if ended - TAUNT_WINDOW_SECONDS <= said <= ended]
-        if stale(event, max_age):
-            log.info(f"Melee match {path.name} is too old to post; dropping it")
-            path.unlink(missing_ok=True)
-            forget_taunts(ended)
-            continue
-        if not channel_id:
-            return False  # no channel yet: matches wait (watch_melee said how to pick one)
-        channel = client.get_channel(channel_id)
-        if channel is None:
-            try:
-                channel = await client.fetch_channel(channel_id)
-            except discord.HTTPException as e:
-                log.error(f"Can't reach the Melee channel {channel_id} ({e}); her Melee posts wait")
-                return False
-        channel_id = channel.id
-        if muted(channel_id):
-            log.info(f"Muted in the Melee channel; not posting {path.name}")
-            path.unlink(missing_ok=True)
-            forget_taunts(ended)
-            continue
-        async with reply_locks[channel_id]:
-            try:
-                async with channel.typing():
-                    post = await match_post(channel_id, event, taunts)
-                    if post and repeats_itself(channel_id, post):
-                        post = await match_post(channel_id, event, taunts, temperature=RETRY_TEMPERATURE) or post
-                if post:
-                    path.unlink(missing_ok=True)
-                    forget_taunts(ended)
-                    if muted(channel_id):
-                        log.info("Muted while writing a Melee post; not sending it")
-                    else:
-                        log.info(f"Posting about Melee match {path.name}"
-                                 + (f" ({len(taunts)} of her in-match lines to draw on)" if taunts else ""))
-                        await send_reply(channel, channel_id, post, about="melee")
-                # Anything said while she was writing gets its usual answer now.
-                if channel_id in pending_followup:
-                    mentioned, addressed = pending_followup.pop(channel_id)
-                    await converse(channel, channel_id, mentioned, addressed)
-            finally:
-                pending_followup.pop(channel_id, None)
-        if not post:
-            return True  # the model didn't answer: try again later
-    return False
+    if not channel_id:
+        return False  # no channel yet: the session waits (watch_melee said how to pick one)
+    channel = client.get_channel(channel_id)
+    if channel is None:
+        try:
+            channel = await client.fetch_channel(channel_id)
+        except discord.HTTPException as e:
+            log.error(f"Can't reach the Melee channel {channel_id} ({e}); her Melee post waits")
+            return False
+    channel_id = channel.id
+    if muted(channel_id):
+        log.info(f"Muted in the Melee channel; not posting about {len(matches)} matches")
+        done()
+        return False
+    taunts = [text for said, text in melee_taunts if first - TAUNT_WINDOW_SECONDS <= said <= last]
+    events_only = [event for _, event in matches]
+    async with reply_locks[channel_id]:
+        try:
+            async with channel.typing():
+                post = await session_post(channel_id, events_only, taunts)
+                if post and repeats_itself(channel_id, post):
+                    post = await session_post(channel_id, events_only, taunts, temperature=RETRY_TEMPERATURE) or post
+            if post:
+                done()
+                if muted(channel_id):
+                    log.info("Muted while writing a Melee post; not sending it")
+                else:
+                    log.info(f"Posting about a Melee session of {len(matches)} match{'es' if len(matches) != 1 else ''}"
+                             + (f" ({len(taunts)} of her in-match lines to draw on)" if taunts else ""))
+                    await send_reply(channel, channel_id, post, about="melee")
+            # Anything said while she was writing gets its usual answer now.
+            if channel_id in pending_followup:
+                mentioned, addressed = pending_followup.pop(channel_id)
+                await converse(channel, channel_id, mentioned, addressed)
+        finally:
+            pending_followup.pop(channel_id, None)
+    return not post  # the model didn't answer: try again later
 
 
 def forget_taunts(ended: float) -> None:
@@ -919,7 +950,7 @@ async def watch_melee() -> None:
         stalled = False
         try:
             if outbox.is_dir():
-                stalled = await post_matches(outbox)
+                stalled = await post_session(outbox)
         except Exception:
             log.exception("Posting Melee results failed; trying again")
             stalled = True
@@ -930,8 +961,9 @@ async def watch_melee() -> None:
 melee_watcher = None
 # a picture's address (without its query) -> what she saw in it, so the same GIF isn't looked at twice
 seen_before = {}
-# (time.time() she said it, text) of her in-match taunts, held until their match is over (post_matches)
+# (time.time() she said it, text) of her in-match taunts, held until their session is over (post_session)
 melee_taunts = []
+melee_gg = False  # the owner said "gg": post about the session now
 
 
 def channel_label(channel) -> str:

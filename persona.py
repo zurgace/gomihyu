@@ -127,21 +127,21 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
     ]
 
 
-def build_match_messages(transcript: list[str], facts: str, player: str, examples: list[dict] = (),
-                         vibe: list[str] = ()) -> list[dict]:
-    """Chat messages for her post about a Melee match she just played (melee.py): the persona, the
-    recent log so the post fits the chat, then what happened and what to do with it."""
+def build_session_messages(transcript: list[str], facts: str, player: str, examples: list[dict] = (),
+                           vibe: list[str] = ()) -> list[dict]:
+    """Chat messages for her one post about a Melee session she just played (melee.py): the persona,
+    the recent log so the post fits the chat, then what happened and what to do with it."""
     log = ("Above is the recent chat log in a Discord server, one 'handle: message' per line.\n\n"
            if transcript else "")
     instruction = (
         f"{facts}\n\n"
-        f"Tell the chat how the match went, as {BOT_NICKNAME}, in one Discord message of 2 to 4 sentences. "
-        f"If you won, gloat; if you lost, be dramatic about it. Name what actually decided it (the move or "
-        f"situation that beat you, or that won it). If you were practising something this match, say whether it "
-        f"paid off; if you picked something to work on next match, say what it is, as a scheme for revenge or "
-        f"total domination, never as an apology. Call them {player}. Talk to the chat like a real message: at "
-        "most one number, don't narrate, and don't repeat your own earlier lines. "
-        "Do not prefix your reply with your own name."
+        f"Tell the chat how the session went, as {BOT_NICKNAME}, in one Discord message of 3 to 5 sentences. "
+        f"If you came out ahead, gloat; if not, be dramatic about it. Name the match or moment that stood out, "
+        f"and what actually decided things (the move or situation that beat you, or that won it). If you were "
+        f"practising something, say whether it paid off; say what you'll work on next time, as a scheme for "
+        f"revenge or total domination, never as an apology. Call them {player}. Talk to the chat like a real "
+        "message: at most two numbers, don't go match by match, don't narrate, and don't repeat your own "
+        "earlier lines. Do not prefix your reply with your own name."
     )
     return [
         {"role": "system", "content": system_content(examples, vibe)},

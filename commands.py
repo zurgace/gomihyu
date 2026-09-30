@@ -149,6 +149,16 @@ def melee_stop_request(text: str) -> bool:
     return bool(m := MELEE_STOP.search(text)) and "?" not in text and not NOT_A_MELEE.search(text[:m.end()])
 
 
+# "gg", "ggs", "gg wp", "good games", "gg gomi", "@Gomihyu gg": the whole message, nothing else in it.
+GG = re.compile(r"^[\W_]*(?:(?:gomi(?:hyu)?|@\S+)[\W_]+)?(?:ggs?|good\s+games?)"
+                r"(?:[\W_]+(?:wp|well\s+played|gomi(?:hyu)?|@\S+))*[\W_]*$", re.IGNORECASE)
+
+
+def gg_request(text: str) -> bool:
+    """Whether the message is just a "gg" (to her): the owner ending a Melee session."""
+    return bool(GG.match(text.strip()))
+
+
 GOODNIGHT = re.compile(r"\b(?:good\s*night|gn|nighty?\s*night|night\s+night|go\s+to\s+(?:sleep|bed)"
                        r"|time\s+(?:to|for)\s+(?:bed|sleep)|bed\s*time|sleep\s+time)\b", re.IGNORECASE)
 # "gomi say goodnight to kaz" is asking her to say it, not to go
