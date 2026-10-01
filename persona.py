@@ -65,9 +65,13 @@ def format_examples(examples: list[dict]) -> str:
     return intro + "\n\n" + "\n\n".join(chats)
 
 
-def system_content(examples: list[dict] = (), vibe: list[str] = ()) -> str:
-    """The system prompt: the persona, how this server talks (meld.py's nightly note), example chats."""
+def system_content(examples: list[dict] = (), vibe: list[str] = (), avatar: str = "") -> str:
+    """The system prompt: the persona, what her Discord avatar looks like (bot.py learns it at login), how
+    this server talks (meld.py's nightly note), example chats."""
     content = SYSTEM_PROMPT
+    if avatar:
+        content += (f"\n\nYour Discord avatar, the picture next to your name, is {avatar}. That's your face here: "
+                    "when someone posts it or talks about it, they mean you.")
     if vibe:
         content += ("\n\nHow people in this server talk, which you've been picking up (let it rub off on you, "
                     "but you're still you):\n" + "\n".join(f"- {line}" for line in vibe))
@@ -76,14 +80,14 @@ def system_content(examples: list[dict] = (), vibe: list[str] = ()) -> str:
 
 def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
                    nicknames: dict[str, str] | None = None, examples: list[dict] = (), learned: list[str] = (),
-                   recaps: list[str] = (), vibe: list[str] = ()) -> list[dict]:
+                   recaps: list[str] = (), vibe: list[str] = (), avatar: str = "") -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
 
     facts are what speaker (the author of the latest line) has asked Gomihyu to remember, learned
     what she noted about them in her diary (diary.py), recaps her diary's recent days in this
     channel; nicknames maps handles in the log to what she should call those people. examples (see
-    format_examples) and vibe (see system_content) are for the system prompt; training data leaves
-    them out, like the diary's notes and recaps.
+    format_examples), vibe and avatar (see system_content) are for the system prompt; training data
+    leaves them out, like the diary's notes and recaps.
     """
     # Small models drift back to older lines and mix up who "I" is, so the message being answered
     # and its sender are spelled out right here.
@@ -122,13 +126,13 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
                        f"if it fits): " + "; ".join(learned) + "\n\n")
 
     return [
-        {"role": "system", "content": system_content(examples, vibe)},
+        {"role": "system", "content": system_content(examples, vibe, avatar)},
         {"role": "user", "content": remembered + "\n".join(transcript) + "\n\n" + instruction},
     ]
 
 
 def build_session_messages(transcript: list[str], facts: str, player: str, examples: list[dict] = (),
-                           vibe: list[str] = ()) -> list[dict]:
+                           vibe: list[str] = (), avatar: str = "") -> list[dict]:
     """Chat messages for her one post about a Melee session she just played (melee.py): the persona,
     the recent log so the post fits the chat, then what happened and what to do with it."""
     log = ("Above is the recent chat log in a Discord server, one 'handle: message' per line.\n\n"
@@ -144,18 +148,18 @@ def build_session_messages(transcript: list[str], facts: str, player: str, examp
         "earlier lines. Do not prefix your reply with your own name."
     )
     return [
-        {"role": "system", "content": system_content(examples, vibe)},
+        {"role": "system", "content": system_content(examples, vibe, avatar)},
         {"role": "user", "content": "\n".join(transcript) + ("\n\n" if transcript else "") + log + instruction},
     ]
 
 
-def build_goodnight_messages(transcript: list[str], owner: str, vibe: list[str] = ()) -> list[dict]:
+def build_goodnight_messages(transcript: list[str], owner: str, vibe: list[str] = (), avatar: str = "") -> list[dict]:
     """Chat messages for her last line before the bot shuts down for the night ("gomi goodnight")."""
     instruction = (
         f"It's late, and {owner} is putting you to bed: you're going offline until tomorrow. Say goodnight to the "
         f"chat as {BOT_NICKNAME}, in one short line, in character. Do not prefix your reply with your own name."
     )
     return [
-        {"role": "system", "content": system_content(vibe=vibe)},
+        {"role": "system", "content": system_content(vibe=vibe, avatar=avatar)},
         {"role": "user", "content": "\n".join(transcript) + ("\n\n" if transcript else "") + instruction},
     ]

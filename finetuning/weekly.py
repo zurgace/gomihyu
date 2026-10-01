@@ -468,9 +468,10 @@ def cmd_check(args) -> bool:
         speaker, last = test["history"][-1]
         mentioned = f"@{BOT_NAME}".lower() in last.lower()
         examples = pick_examples(seed, earned, few, anchor, full_at, rng=random.Random(i)) if few > 0 else []
-        replies.append((test, chat(now, build_messages(transcript, mentioned, speaker, examples=examples, vibe=vibe),
+        context = {"vibe": vibe, "avatar": setting("AVATAR_DESCRIPTION", "")}
+        replies.append((test, chat(now, build_messages(transcript, mentioned, speaker, examples=examples, **context),
                                    options=cap),
-                        chat(new, build_messages(transcript, mentioned, speaker, vibe=vibe), options=cap)))
+                        chat(new, build_messages(transcript, mentioned, speaker, **context), options=cap)))
     room = next(c["history"] for c in chats if c.get("use") == "room")
     diary_log = next(c["history"] for c in chats if c.get("use") == "diary")
     tasks = {model: (room_read(model, room, vibe), diary_read(model, diary_log)) for model in (now, new)}

@@ -52,7 +52,8 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   are the server's voice, the example-chat mix, the vibe note, the training-run schedule.
 - `vision.py` — what she sees: which media in a post she looks at, image prep (Pillow, first frame, on
   white, <= 1024px JPEG), the one-line describe prompt, and the `[image: ...]` / `[gif: ...]` /
-  `[sticker: name, ...]` / `[link: "title", preview: ...]` labels. `tools/vision_check.py` tests vision.
+  `[sticker: name, ...]` / `[link: "title", preview: ...]` labels, and the picture fingerprint that
+  knows her own avatar. `tools/vision_check.py` tests vision.
 - `chime.py` — her read of the room for a post not aimed at her: one call's prompt, `format` schema and
   parsing for {read, interest 0–10, react 0–10, emoji}, which decides both whether she chimes in and
   whether (and with what) she reacts.
@@ -187,6 +188,18 @@ matches she plays in AI-Melee; see `melee.py` under Current state.)
   covers [gif]/[link], so descriptions never count as typed words, names or sad news. The system
   prompt says bracketed media is what she saw and that she can't open links or play videos.
   `VISION=false` → text-only, as before.
+  Her own avatar (user, 2026-10-01: "have gomi recognize her own avatar and have her associate with
+  it"; it's a grey hamster with furrowed brows): `learn_avatar` (each `on_ready`, again only if
+  `client.user.avatar.key` changed; Discord's default avatar is ignored) downloads it, fingerprints it
+  (`vision.avatar_prints`: 64-bit dHash on white, black and Discord's dark/light theme colours, since
+  it's a cut-out with a transparent background) and, unless `AVATAR_DESCRIPTION` is set, has
+  `VISION_MODEL` describe it once. The description goes into every prompt's system part
+  (`persona.system_content(avatar=)`: "Your Discord avatar ... is X. That's your face here: when
+  someone posts it or talks about it, they mean you"; `chime.room_messages` too); training data
+  leaves it out, like the vibe note. In `look_at`, a downloaded picture within `SAME_PICTURE_BITS` (12)
+  of one of those fingerprints isn't described: its label is `Gomi's own avatar, X`. Measured on the
+  real avatar: JPEG / resized / other-background copies 0–10 bits off, a mirrored copy 15, other
+  pictures 22+. A picture of her alone still only gets a reaction (labels never count as her name).
 - Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
   was removed at the user's request). Media she couldn't see (vision off or failed, videos, Lottie
   stickers) → a "looking" emoji (👀 / :goonerstare:), never a judgment of the image. Everything

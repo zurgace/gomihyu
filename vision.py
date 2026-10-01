@@ -9,6 +9,12 @@ She looks at attached images and GIFs (the first frame), stickers (not Lottie on
 pictures) and link previews: the card Discord shows under a link (title, description, thumbnail),
 fetched from Discord's proxy. She never opens the linked page itself; that stays out of scope.
 
+Her own avatar (user, 2026-10-01: "have gomi recognize her own avatar and have her associate with it"):
+a posted picture that's the same as her Discord avatar, even resized or recompressed (fingerprint,
+same_picture), isn't described by the model but labelled as hers (avatar_label), so she knows it's her.
+Her avatar is a cut-out with a transparent background, which a saved copy fills with anything (white,
+black, Discord's theme colour), so it's fingerprinted on each of those (avatar_prints).
+
 This file picks what to look at, prepares the image, and holds the prompt and the labels; bot.py
 downloads and calls the model.
 """
@@ -23,11 +29,18 @@ except ImportError:  # requirements not reinstalled since vision came in: bot.py
     Image = None
 
 from censor import has_slur
+from persona import BOT_NICKNAME
 
 MAX_SIDE = 1024  # pixels; the vision tower works on a fixed token budget, so bigger only costs bandwidth
 MAX_DESCRIPTION = 160
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")
 PREVIEW_TYPES = ("image", "gifv", "video", "article", "link", "rich")
+# Of the 64 bits of a fingerprint: a repost of a picture, resized or recompressed, differs in a few; a
+# different picture, even a similar one, in a lot more.
+SAME_PICTURE_BITS = 12
+WHITE = (255, 255, 255)
+# What a copy of a see-through picture ends up on: white, black, Discord's dark and light themes
+BACKGROUNDS = (WHITE, (0, 0, 0), (49, 51, 56), (242, 243, 245))
 
 
 def sources(message) -> list[tuple[tuple[str, int], str, str, str]]:
@@ -51,20 +64,58 @@ def sources(message) -> list[tuple[tuple[str, int], str, str, str]]:
     return found
 
 
-def jpeg_b64(data: bytes) -> str | None:
-    """The picture as base64 JPEG for Ollama: first frame, transparency on white, at most MAX_SIDE."""
+def _flat(data: bytes, background: tuple[int, int, int] = WHITE):
+    """The picture's first frame as RGB, transparency on the background (white); None if it isn't one
+    Pillow can read."""
+    if Image is None:
+        return None
     try:
         with Image.open(io.BytesIO(data)) as image:
             image.seek(0)
             frame = image.convert("RGBA")
     except Exception:  # not a picture Pillow can read, or a decompression bomb
         return None
-    flat = Image.new("RGB", frame.size, (255, 255, 255))
+    flat = Image.new("RGB", frame.size, background)
     flat.paste(frame, mask=frame.getchannel("A"))
+    return flat
+
+
+def jpeg_b64(data: bytes) -> str | None:
+    """The picture as base64 JPEG for Ollama: first frame, transparency on white, at most MAX_SIDE."""
+    if (flat := _flat(data)) is None:
+        return None
     flat.thumbnail((MAX_SIDE, MAX_SIDE))
     out = io.BytesIO()
     flat.save(out, "JPEG", quality=85)
     return base64.b64encode(out.getvalue()).decode()
+
+
+def fingerprint(data: bytes, background: tuple[int, int, int] = WHITE) -> int | None:
+    """A 64-bit difference hash: the picture shrunk to 9x8 in grey, one bit per pair of neighbouring pixels
+    (is the left one brighter). Resizing or recompressing a picture barely changes it."""
+    if (flat := _flat(data, background)) is None:
+        return None
+    pixels = flat.convert("L").resize((9, 8), Image.Resampling.LANCZOS).tobytes()
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = bits << 1 | (pixels[row * 9 + col] > pixels[row * 9 + col + 1])
+    return bits
+
+
+def avatar_prints(data: bytes) -> set[int]:
+    """Her avatar's fingerprints, on each background a copy of it might have."""
+    return {bits for background in BACKGROUNDS if (bits := fingerprint(data, background)) is not None}
+
+
+def same_picture(bits: int | None, known: set[int]) -> bool:
+    """Whether a picture's fingerprint is (nearly) one of these."""
+    return bits is not None and any(bin(bits ^ other).count("1") <= SAME_PICTURE_BITS for other in known)
+
+
+def avatar_label(description: str | None) -> str:
+    """What her own avatar, posted by someone, reads as in her chat log (inside the [image: ...] label)."""
+    return f"{BOT_NICKNAME}'s own avatar" + (f", {description}" if description else "")
 
 
 def describe_messages(what: str, image: str) -> list[dict]:

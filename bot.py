@@ -149,6 +149,8 @@ VISION_MODEL = os.environ.get("VISION_MODEL", "").strip() or MODEL_NAME
 # Her jobs that aren't her voice: reading the room, her diary and the vibe note (her own model unless
 # set). Once a fine-tune serves her voice (finetuning/weekly.py), these can stay on the stock model.
 TASK_MODEL = os.environ.get("TASK_MODEL", "").strip() or MODEL_NAME
+# What her Discord avatar looks like, for her prompts. Unset: VISION_MODEL describes it at login.
+AVATAR_DESCRIPTION = os.environ.get("AVATAR_DESCRIPTION", "").strip()
 VISION_MAX_IMAGES = int(os.environ.get("VISION_MAX_IMAGES", "3"))
 VISION_MAX_BYTES = 10 * 1024 * 1024
 EMBED_WAIT_SECONDS = 2.5  # Discord adds a link's preview a moment after the post
@@ -361,7 +363,7 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
                                           author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
                                           memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
-                                          diary.vibe()),
+                                          diary.vibe(), avatar_description),
                "options": options}
 
     start = time.monotonic()
@@ -464,7 +466,7 @@ async def read_room(message: discord.Message, text: str = "") -> tuple[Reading |
     replying_to = getattr(getattr(replied, "author", None), "name", None)
     data = await ollama_chat({"model": TASK_MODEL,
                               "messages": room_messages(list(history[channel_id]), options, diary.vibe(),
-                                                        message.author.name, replying_to, used),
+                                                        message.author.name, replying_to, used, avatar_description),
                               "format": room_format(options)})
     reading = parse_room(data.get("message", {}).get("content", ""), options) if data else None
     if reading is None:
@@ -606,7 +608,12 @@ async def look_at(message: discord.Message) -> tuple[discord.Message, dict]:
         if remembered in seen_before:
             seen[key] = seen_before[remembered]
             continue
-        image = jpeg_b64(raw) if (raw := await download(url)) else None
+        raw = await download(url)
+        if raw and avatar_prints and vision.same_picture(vision.fingerprint(raw), avatar_prints):
+            seen[key] = seen_before[remembered] = vision.avatar_label(avatar_description)
+            log.info(f"Saw her own avatar in {message.author.name}'s post")
+            continue
+        image = jpeg_b64(raw) if raw else None
         if not image:
             continue
         start = time.monotonic()
@@ -619,6 +626,28 @@ async def look_at(message: discord.Message) -> tuple[discord.Message, dict]:
                 del seen_before[next(iter(seen_before))]
             log.info(f"Saw {what} from {message.author.name}: {description!r} ({time.monotonic() - start:.1f}s)")
     return message, seen
+
+
+async def learn_avatar() -> None:
+    """Her own avatar: its fingerprint, to know it when someone posts it (look_at), and what it looks like,
+    for her prompts (AVATAR_DESCRIPTION, else VISION_MODEL's description). Again only if it changed."""
+    global avatar_key, avatar_prints, avatar_description
+    asset = client.user.avatar  # None: Discord's default avatar, which isn't really hers
+    if asset is None or asset.key == avatar_key:
+        return
+    try:
+        data = await asset.read()
+    except discord.DiscordException as e:
+        log.warning(f"Couldn't download her avatar, so she won't know it when it's posted: {e}")
+        return
+    avatar_key, avatar_prints = asset.key, vision.avatar_prints(data)
+    if not AVATAR_DESCRIPTION and VISION and (image := jpeg_b64(data)):
+        answer = await ollama_chat({"model": VISION_MODEL,
+                                    "messages": describe_messages("Discord profile picture", image),
+                                    "options": {"temperature": 0.2} | ({} if model_thinks else {"num_predict": 80})})
+        content = answer.get("message", {}).get("content", "") if answer else ""
+        avatar_description = clean_description(strip_thinking(content)) or avatar_description
+    log.info(f"Her avatar: {avatar_description or '(not described: set AVATAR_DESCRIPTION)'}")
 
 
 async def download(url: str) -> bytes | None:
@@ -647,6 +676,7 @@ async def on_ready():
     others = {"reading the room, diary": TASK_MODEL, "pictures": VISION_MODEL if VISION else MODEL_NAME}
     log.info(f"Her voice: {MODEL_NAME}" + "".join(f"; {job}: {model}" for job, model in others.items()
                                                     if model != MODEL_NAME))
+    asyncio.create_task(learn_avatar())
     # on_ready runs again after a reconnect: one watcher is enough.
     if melee_watcher is None:
         melee_watcher = asyncio.create_task(watch_melee())
@@ -836,7 +866,7 @@ async def session_post(channel_id: int, matches: list[dict], taunts: list[str] =
     player = melee_player()
     facts = session_facts(matches, player, taunts)
     payload = {"messages": build_session_messages(list(history[channel_id]), facts, player, shown_examples(),
-                                                  diary.vibe()),
+                                                  diary.vibe(), avatar_description),
                "options": options}
     start = time.monotonic()
     data = await ollama_chat(payload)
@@ -966,6 +996,8 @@ async def watch_melee() -> None:
 melee_watcher = None
 # a picture's address (without its query) -> what she saw in it, so the same GIF isn't looked at twice
 seen_before = {}
+# Her own avatar (learn_avatar): which one it is, its fingerprints, and what it looks like
+avatar_key, avatar_prints, avatar_description = None, set(), AVATAR_DESCRIPTION
 # (time.time() she said it, text) of her in-match taunts, held until their session is over (post_session)
 melee_taunts = []
 melee_gg = False  # the owner said "gg": post about the session now
@@ -1075,7 +1107,8 @@ async def go_to_bed(message: discord.Message) -> None:
     if not muted(channel_id):
         owner = memory.nickname_for(message.author.id) or message.author.display_name
         start = time.monotonic()
-        data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner, diary.vibe()),
+        data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner, diary.vibe(),
+                                                                       avatar_description),
                                   "options": {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}})
         if data and (line := clean_reply(data, message.author.id, start)):
             await send_reply(message.channel, channel_id, line, about="goodnight")

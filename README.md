@@ -200,6 +200,14 @@ calls. A picture posted on its own still gets a reaction as her whole response, 
 fits what's in it, instead of a fixed 👀. The console logs each look:
 `Saw picture from kaz0: 'a desk with three monitors and RGB lights' (1.2s)`.
 
+- **Her own avatar:** at login the bot downloads her Discord avatar, has the model describe it once,
+  and her prompts say that's her face ("Your Discord avatar ... is a grey hamster with furrowed brows
+  ... when someone posts it or talks about it, they mean you"). When someone posts the avatar itself,
+  even saved as a JPEG, resized or on another background, code recognizes it (a picture fingerprint),
+  and her chat log reads `[image: Gomi's own avatar, a grey hamster ...]` instead of a description.
+  Edited versions, crops and other pictures of the same hamster aren't matched; she can still connect
+  them from the description. The console logs `Her avatar: ...` at login; `AVATAR_DESCRIPTION` in
+  `.env` sets the description yourself. Change her avatar and she relearns it at the next login.
 - The same GIF posted again isn't looked at twice. At most `VISION_MAX_IMAGES` (3) per post; pictures
   over 10MB are skipped. For a link, she waits a couple of seconds for Discord to add its preview.
 - Text written in a picture never counts as someone telling her to remember something, and a
