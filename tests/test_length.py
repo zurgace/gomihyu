@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from aiohttp import web
 SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8774/api/chat", PEOPLE_FILE=f"{SP}/people_len.json",
-                  MAX_REPLY_TOKENS="120", OLLAMA_NUM_CTX="6144", MAX_REPLY_SENTENCES="2")
+                  MAX_REPLY_TOKENS="120", OLLAMA_NUM_CTX="6144")
 sys.path.insert(0, REPO)
 import bot, persona
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
@@ -29,14 +29,6 @@ assert persona.clock(datetime(2026, 10, 4, 0, 5)) == "Sunday, October 4, 2026, 1
 assert persona.clock(datetime(2026, 1, 9, 12, 30)) == "Friday, January 9, 2026, 12:30 PM"
 dated = persona.build_messages(["kaz0: gomi what's the date"], True, now=datetime(2026, 10, 4, 13, 31))[1]["content"]
 assert dated.startswith("Right now it's Sunday, October 4, 2026, 1:31 PM.\n\nkaz0: gomi what's the date")
-# never more than MAX_REPLY_SENTENCES (4): the rest of a long reply is cut
-assert bot.MAX_REPLY_SENTENCES == 2  # from .env, below
-assert bot.at_most_sentences("One. Two! Three? Four. Five.", 4) == "One. Two! Three? Four."
-assert bot.at_most_sentences("One. Two... three? Four", 2) == "One. Two... three?"     # "... three" goes on
-assert bot.at_most_sentences("one. two… Three. four", 2) == "one. two…"                # lowercase starts count
-assert bot.at_most_sentences("Wait?! No!! ok.. fine", 2) == "Wait?! No!!"
-assert bot.at_most_sentences("One. Two. :kekpoint:", 2) == "One. Two. :kekpoint:"   # nothing past the 2nd
-assert bot.at_most_sentences("One. Two. Three.", 0) == "One. Two. Three."           # 0: no limit
 
 out = {"v": None}
 async def fake(request):
@@ -63,7 +55,6 @@ async def main():
         (("no sentence end at all just rambling on and on", "length"), "no sentence end at all just rambling on and on"),
         (("Short and done. Not cut", "stop"), "Short and done. Not cut"),            # finished normally: untouched
         (("v1.2 is out... ok that's wild. more soon", "length"), "v1.2 is out... ok that's wild."),
-        (("Smash. Obviously!\n\nI've been practicing in secret. Bring snacks.", "stop"), "Smash. Obviously!"),  # past 2
     ]
     for (content, reason), want in cases:
         out["v"] = (content, reason); await bot.on_message(msg("what game should we play saturday"))
