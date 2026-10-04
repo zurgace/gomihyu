@@ -73,6 +73,10 @@ def mix(n_earned):
     return len(picked), sum(bool(e.get("real")) for e in picked)
 assert [mix(n) for n in (0, 20, 25, 100, 200, 500)] == [(8, 0), (8, 0), (8, 1), (8, 4), (8, 5), (8, 5)], [mix(n) for n in (0, 20, 25, 100, 200, 500)]
 assert meld.pick_examples(seed, [], 0, 0.3, 200) == []
+# no seed in her prompt (bot.SEED_EXAMPLES off): her landed replies only, up to n
+landed = [{"history": [["x", "y"]], "reply": f"earned {n}", "real": True} for n in range(12)]
+assert len(meld.pick_examples([], landed, 8, 0.3, 200)) == 8 and len(meld.pick_examples([], landed[:3], 8, 0.3, 200)) == 3
+assert meld.pick_examples([], [], 8, 0.3, 200) == []
 assert [meld.persona_share(r, 0.3) for r in (1, 2, 3, 6, 10, 11, 20)] == [0.7, 0.66, 0.62, 0.5, 0.34, 0.3, 0.3]
 assert meld.persona_share(4, 0.7) == 0.7 and meld.persona_share(0, 0.3) == 0.7 and meld.persona_share(2, 0.3, 3) == 0.5
 assert meld.persona_share(1, 0.3, 1) == 0.3 and meld.persona_share(2, 0.5) == 0.68
@@ -85,7 +89,9 @@ assert pv("nope") is None and pv('{"notes": []}') is None and pv('{"notes": "x"}
 
 # --- prompts
 real = [{"history": [["kaz0", "hi"]], "reply": "greetings, mortal", "real": True}]
-assert "real ones from this server" in persona.format_examples(real) and "made-up chats" in persona.format_examples(seed[:1])
+assert persona.format_examples(real).startswith("Some real chats from this server") and "made-up" not in persona.format_examples(real)
+assert "made-up ones, and real ones from this server" in persona.format_examples(real + seed[:1])
+assert "made-up chats" in persona.format_examples(seed[:1])
 sysmsg = persona.build_messages(["kaz0: hi"], False, vibe=["lowercase, short bursts"])[0]["content"]
 assert "How people in this server talk, which you've been picking up (let it rub off on you, but you're still you):\n- lowercase, short bursts" in sysmsg
 assert "How people" not in persona.build_messages(["kaz0: hi"], False)[0]["content"]
@@ -169,10 +175,15 @@ async def main():
     mode["vibe"] = lambda body: "garbage"; await bot.write_diary("junk")
     assert bot.diary.vibe() == ["everyone lives for smash nights", "short lowercase messages"]
 
-    # with plenty earned, real chats fill most of the examples; copying one is caught
+    # her landed replies are all her examples (no seed in her prompt); copying one is caught
     bot.earned[:] = [{"history": [["kaz0", f"q {n}"]], "reply": f"earned line number {n} is here", "real": True} for n in range(300)]
     shown = bot.shown_examples()
+    assert len(shown) == 8 and all(e.get("real") for e in shown)
+    # with the seed mixed in (SEED_EXAMPLES), real chats fill most of the examples, down to the anchor
+    bot.examples = [json.loads(l) for l in (REPO / "finetuning" / "gomihyu_seed.jsonl").read_text().splitlines()]
+    shown = bot.shown_examples()
     assert len(shown) == 8 and sum(bool(e.get("real")) for e in shown) == 5
+    bot.examples = []
     assert bot.repeats_itself(10, "look, earned line number 42 is here again")
     await r.cleanup()
 asyncio.run(main())

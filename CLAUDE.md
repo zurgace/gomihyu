@@ -31,9 +31,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
   (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
   `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
-- `finetuning/` — `gomihyu_seed.jsonl` (58 original Satania-style chats), `persona_guide.md` (voice
-  reference they were written from), `build_dataset.py`, `weekly.py` + `kaggle_train.py` +
-  `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
+- `finetuning/` — `gomihyu_seed.jsonl` (58 original Satania-style chats; training only),
+  `persona_guide.md` (voice reference they were written from), `build_dataset.py`, `weekly.py` +
+  `kaggle_train.py` + `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
 - `tests/run_all.sh` — 28 suites, everything faked (Ollama, Discord, Kaggle, Unsloth), run on a temp copy
   of the repo. Run it after any change; `tests/run_all.sh test_x.py` for one.
@@ -83,9 +83,10 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - "gomi delete that / your last N / all your messages" → deletes her posts, 🗑️, no reply, removed from
   her log. "gomi mute [for X | until i say so]" → silent in that channel (🔇, 🤐 to people talking to
   her), "unmute" 🔊; only the literal word "mute" ("gomi stfu" is banter). "gomi quiet mode" → only
-  answers posts aimed at her (🤫); reactions and Melee posts continue. "gomi goodnight" → 💤, goodnight
-  line, shutdown + diary. "gomi post melee here" / "stop posting melee" (🎮/🔕). "gg" ends a Melee
-  session. Negations, "I'll ...", questions aren't commands. Mute/quiet are in memory (restart clears).
+  answers posts aimed at her (🤫); reactions, Melee and diary posts continue. "gomi goodnight" → 💤,
+  diary written + posted, goodnight line, shutdown. "gomi post melee here" / "stop posting melee"
+  (🎮/🔕). "gg" ends a Melee session. Negations, "I'll ...", questions aren't commands. Mute/quiet
+  are in memory (restart clears).
 
 **Memory, diary, melding**
 - "remember that ..." aimed at her → stored verbatim for its author (📝); nicknames stored on the person
@@ -94,10 +95,17 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   At shutdown (Ctrl+C/SIGTERM/goodnight; catch-up at next start) she writes her diary: per-channel
   recaps (last `RECAP_DAYS` 3 in her prompt) and notes on people, kept only if their quote is really
   in the log. History reloads from the log after a restart (`HISTORY_RELOAD_HOURS` 12).
+- New recaps are posted in their own channel (user, 2026-10-04; `POST_DIARY`): on goodnight before
+  the line, after a Ctrl+C at the next start (Discord's closed by then). Never notes on people (they
+  come from every channel). Muted / can't post → dropped. The post is only sent: never in the chat
+  log or her history, so she doesn't answer it, recap it again or meld from it (user asked).
 - Melding (members agreed to their chat being training data): nightly, her replies that "landed"
-  (reaction, Discord reply, a laugh, her name said back; no put-down) join the few-shot examples,
-  replacing seed ones down to `MELD_ANCHOR` 30%; a ≤6-line vibe note on how the server talks goes in
-  her system prompt. Training data mixes seed ×3 + landed + people's messages (`meld.voice_examples`).
+  (reaction, Discord reply, a laugh, her name said back; no put-down) are her few-shot examples; a
+  ≤6-line vibe note on how the server talks goes in her system prompt. Training data mixes seed ×3 +
+  landed + people's messages (`meld.voice_examples`).
+- The seed left her prompt (user, 2026-10-04: melon bread out of nowhere; her defiance is in the system
+  prompt). `SEED_EXAMPLES=true` brings back the old mix, landed replies replacing seed ones down to
+  `MELD_ANCHOR` 30%. It stays in training: it's her only persona data there (see Open questions).
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
@@ -114,7 +122,8 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   apology). Muted → dropped; model down → retried after 60 s; older than 120 min → dropped.
 
 **Fine-tuning**
-- Until a fine-tune serves her, her voice comes from `FEW_SHOT_EXAMPLES` (8) example chats per reply.
+- Until a fine-tune serves her, her voice comes from the system prompt and up to `FEW_SHOT_EXAMPLES`
+  (8) of her landed replies per reply.
 - LoRA/QLoRA with Unsloth on Kaggle's free T4 (not the 2070: ~10GB+ needed). `finetuning/weekly.py`
   (user, 2026-09-29): build → upload → fetch → install → check → switch, `all` never switches. Every
   run trains stock Gemma again on all data (never last week's model); the seed share goes 70% → 30%
@@ -124,6 +133,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - Never commit training data or the user's Discord export (`Messages/`, `*.zip`); DMs are never used.
 
 ## Open questions
+- The seed in training (asked 2026-10-04): keep it as the persona anchor, cut its melon-bread lines (6
+  of 58, 4 out of nowhere), or replace it with fresh chats? Without any, a run is all server voice
+  (and `build_dataset --meld` sizes the server share from the seed, so it'd be empty).
 - Whether training also mixes in the parked Discord-export pipeline (user texts in lowercase bursts;
   voice "like the user" was wanted, DMs excluded). Target size before a run: likely 1–3k examples.
 - The user was to check the collected data "later that week" (from 2026-09-29) before a first run.

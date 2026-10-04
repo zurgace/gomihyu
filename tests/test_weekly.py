@@ -278,8 +278,9 @@ replies = [r for r in server["requests"] if not r.get("format") and r["messages"
 stock = [r for r in replies if r["model"] == "gemma4:e4b"]
 mine = [r for r in replies if r["model"] == "gomi-w1"]
 assert len(stock) == 10 and len(mine) >= 10
-assert all("made-up" in r["messages"][0]["content"] for r in stock)            # the stock model gets example chats
-assert not any("made-up" in r["messages"][0]["content"] for r in mine)         # hers doesn't, as it'll run
+assert all("Some real chats" in r["messages"][0]["content"] for r in stock)     # the stock model gets her landed replies
+assert not any("made-up" in r["messages"][0]["content"] for r in stock)        # and no seed, like the bot (SEED_EXAMPLES)
+assert not any("Some real chats" in r["messages"][0]["content"] for r in mine)  # hers gets none, as it'll run
 assert all(r["options"]["num_predict"] == 200 for r in stock + mine[:10])
 check = state()["runs"][0]["check"]
 assert check == {"against": "gemma4:e4b", "sees": False, "tasks_ok": True, "both_fit": True}, check

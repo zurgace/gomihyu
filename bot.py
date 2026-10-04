@@ -24,6 +24,7 @@ import json
 import time
 import random
 import asyncio
+import contextlib
 import logging
 import signal
 from collections import defaultdict, deque
@@ -38,7 +39,7 @@ from chatlog import ChatLog, local_day
 from chime import Reading, parse_room, room_format, room_messages
 from commands import (ALL, FOREVER, delete_request, gg_request, goodnight_request, melee_here_request, melee_stop_request,
                       mute_request, quiet_request, unmute_request)
-from diary import Diary, chunks, digest_format, digest_messages, parse_digest
+from diary import Diary, chunks, diary_posts, digest_format, digest_messages, parse_digest
 from meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
@@ -102,9 +103,11 @@ MAX_LEARNED_PER_PERSON = int(os.environ.get("MAX_LEARNED_PER_PERSON", "10"))
 RECAP_DAYS = int(os.environ.get("RECAP_DAYS", "3"))
 HISTORY_RELOAD_HOURS = float(os.environ.get("HISTORY_RELOAD_HOURS", "12"))
 DIARY_PART_CHARS = 12000  # chat per diary call: ~3k tokens, well inside OLLAMA_NUM_CTX with the answer
+# Post each new recap in the channel it's about, the next time she's online (diary.py, post_diary).
+POST_DIARY = os.environ.get("POST_DIARY", "true").strip().lower() in ("1", "true", "yes", "on")
 # Melding (meld.py): the server slowly shapes her. Each night her replies that landed are kept in
-# EARNED_FILE and join her example chats, replacing Satania ones as they pile up (MELD_FULL_AT earned:
-# all the way down to MELD_ANCHOR, the share of Satania examples that always stays); and, with at
+# EARNED_FILE as her example chats (with SEED_EXAMPLES, replacing Satania ones as they pile up: MELD_FULL_AT
+# earned, all the way down to MELD_ANCHOR, the share of Satania examples that always stays); and, with at
 # least VIBE_MIN_MESSAGES new messages, her note on how the server talks is updated.
 EARNED_FILE = Path(__file__).resolve().parent / os.environ.get("EARNED_FILE", "earned_examples.jsonl")
 MELD_ANCHOR = float(os.environ.get("MELD_ANCHOR", "0.3"))
@@ -127,10 +130,14 @@ MUTED_EMOJI = "🔇"  # reaction confirming she's muted
 QUIET_EMOJI = "🤫"  # reaction confirming quiet mode
 UNMUTED_EMOJI = "🔊"
 HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know she isn't broken
-# Made-up example chats (the fine-tuning seed) shown in her prompt to set her voice, until a
-# fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
-EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
+# Example chats in her prompt, to set her voice until a fine-tuned model carries it: FEW_SHOT_EXAMPLES of
+# her own replies that landed (meld.py), a fresh random pick each reply; 0 turns them off. SEED_EXAMPLES
+# mixes in the made-up Satania chats (the fine-tuning seed) as before, with her landed replies taking over
+# bit by bit. Off by default (user, 2026-10-04: melon bread out of nowhere; her defiance is in the system
+# prompt): the seed only trains her now.
 FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
+SEED_EXAMPLES = os.environ.get("SEED_EXAMPLES", "false").strip().lower() in ("1", "true", "yes", "on")
+SEED_FILE = Path(__file__).resolve().parent / "finetuning" / "gomihyu_seed.jsonl"
 # Melee results (melee.py): the outbox folder AI-Melee leaves her taunts and matches in (by default the
 # one both programs know, ~/.local/share/gomihyu/melee-outbox), and the channel she posts them in: the
 # one an owner picked with "gomi post melee here" (kept in MELEE_CHANNEL_FILE), else MELEE_CHANNEL_ID.
@@ -211,7 +218,8 @@ started = time.time()
 
 
 def load_examples(path: Path) -> list[dict]:
-    if FEW_SHOT_EXAMPLES <= 0:
+    """The seed chats for her prompt, if SEED_EXAMPLES."""
+    if FEW_SHOT_EXAMPLES <= 0 or not SEED_EXAMPLES:
         return []
     if not path.exists():
         log.warning(f"No example chats at {path}; replying without them")
@@ -219,7 +227,7 @@ def load_examples(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-examples = load_examples(EXAMPLES_FILE)
+examples = load_examples(SEED_FILE)
 
 
 def load_earned(path: Path) -> list[dict]:
@@ -240,7 +248,7 @@ earned = load_earned(EARNED_FILE)
 
 
 def shown_examples() -> list[dict]:
-    """This reply's example chats: Satania ones and, more and more, her own that landed."""
+    """This reply's example chats: her own that landed, and Satania ones if SEED_EXAMPLES."""
     return pick_examples(examples, earned, FEW_SHOT_EXAMPLES, MELD_ANCHOR, MELD_FULL_AT)
 
 URL = re.compile(r"https?://\S+")
@@ -707,12 +715,13 @@ async def on_ready():
     others = {"reading the room, diary": TASK_MODEL, "pictures": VISION_MODEL if VISION else MODEL_NAME}
     log.info(f"Her voice: {MODEL_NAME}" + "".join(f"; {job}: {model}" for job, model in others.items()
                                                     if model != MODEL_NAME))
+    log.info(f"Example chats in her prompt: up to {FEW_SHOT_EXAMPLES} of her {len(earned)} landed replies"
+             + (f", mixed with the {len(examples)} seed chats" if examples else ""))
     asyncio.create_task(learn_avatar())
     # on_ready runs again after a reconnect: one watcher is enough.
     if melee_watcher is None:
         melee_watcher = asyncio.create_task(watch_melee())
-        # A crash or a closed terminal skips the diary; catch up on what it left.
-        asyncio.create_task(write_diary("catching up on chat from before she started", before=started))
+        asyncio.create_task(catch_up())
     try:
         app = await client.application_info()
     except discord.HTTPException as e:
@@ -1129,12 +1138,48 @@ async def diary_entry(channel_id: int, part: list[dict]) -> bool:
     return True
 
 
+async def catch_up() -> None:
+    """At the start: write up what a crash or a closed terminal left unread, then post what's waiting."""
+    await write_diary("catching up on chat from before she started", before=started)
+    await post_diary()
+
+
+async def post_diary() -> None:
+    """Post her diary's new recaps (POST_DIARY), each channel's in that channel. Only posted: not in her chat
+    log or history, so she doesn't answer it, write it up again or learn her voice from it (meld.py), and
+    it doesn't come back after a restart."""
+    async with diary_lock:
+        waiting = diary.to_post()
+        by_channel = defaultdict(list)
+        for recap in waiting if POST_DIARY else []:
+            by_channel[recap["channel_id"]].append(recap)
+        for channel_id, recaps in by_channel.items():
+            where = recaps[-1].get("channel") or f"channel {channel_id}"
+            if muted(channel_id):
+                log.info(f"Muted in {where}; not posting her diary there")
+                continue
+            try:
+                channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
+                for text in diary_posts(recaps):
+                    await channel.send(text)
+            except discord.HTTPException as e:  # gone, or no Send Messages there
+                log.warning(f"Couldn't post her diary in {where}: {e}")
+                continue
+            log.info(f"Posted her diary in {where} ({len(recaps)} entr{'ies' if len(recaps) != 1 else 'y'})")
+        diary.mark_posted(waiting)
+
+
 async def go_to_bed(message: discord.Message) -> None:
-    """An owner's "gomi goodnight": she says goodnight, and the bot shuts down (main() then writes her
-    diary)."""
+    """An owner's "gomi goodnight": she writes and posts her diary, says goodnight, and the bot shuts down."""
     channel_id = message.channel.id
-    log.info(f"{message.author.name} put her to bed: saying goodnight, then writing her diary and shutting down")
+    log.info(f"{message.author.name} put her to bed: writing her diary, saying goodnight, then shutting down")
     await react(message, GOODNIGHT_EMOJI)
+    try:
+        async with contextlib.nullcontext() if muted(channel_id) else message.channel.typing():
+            await write_diary("going to bed")
+            await post_diary()
+    except Exception:  # bedtime goes ahead whatever happens; main() tries the diary again at shutdown
+        log.exception("Couldn't write or post her diary before bed")
     if not muted(channel_id):
         owner = memory.nickname_for(message.author.id) or message.author.display_name
         start = time.monotonic()

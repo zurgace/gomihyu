@@ -55,7 +55,11 @@ def format_examples(examples: list[dict]) -> str:
     server that went over well (meld.py)."""
     chats = ["\n".join([format_line(speaker, text) for speaker, text in example["history"][-3:]]
                        + [format_line(BOT_NAME, example["reply"])]) for example in examples]
-    if any(example.get("real") for example in examples):
+    if all(example.get("real") for example in examples):
+        intro = ("Some real chats from this server where what you said went over well, to show how you talk. "
+                 "They're only there for your voice: never reuse their lines, and don't bring up what happened in "
+                 "them.")
+    elif any(example.get("real") for example in examples):
         intro = ("Some chats that show how you talk: made-up ones, and real ones from this server where what you "
                  "said went over well. They're only there for your voice: never reuse their lines, and don't bring "
                  "up what happened in them.")

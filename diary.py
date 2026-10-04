@@ -8,6 +8,9 @@ chat log (chatlog.py) since her last entry goes to the model in parts, and for e
     the notes people asked her to keep. Each comes with the exact words it's based on, and code
     drops any note whose words aren't in the log, that's about someone who didn't talk, or that has
     a slur: a small model will make things up, so what's stored has to be checkable.
+New recaps are also posted in the channel they're about (user, 2026-10-04: "a slow 5 person server"),
+the next time she's online: right away on "gomi goodnight", at the next start after a Ctrl+C. Never the
+notes on people: they come from every channel. The post isn't part of the chat (bot.post_diary).
 The prompts, the checks and the file live here; bot.py makes the calls.
 """
 
@@ -23,6 +26,25 @@ from persona import BOT_NAME, BOT_NICKNAME
 
 MAX_NOTE_LENGTH = 200
 MAX_RECAP_LENGTH = 500
+DISCORD_LIMIT = 2000  # characters in one message
+
+
+def day_label(day: str) -> str:
+    """"2026-09-29" as "Sep 29"."""
+    return f"{time.strftime('%b', time.strptime(day, '%Y-%m-%d'))} {int(day[8:])}"
+
+
+def diary_posts(recaps: list[dict]) -> list[str]:
+    """One channel's new recaps as Discord messages: a heading, then a line per recap."""
+    posts, post = [], f"📔 **{BOT_NICKNAME}'s diary**"
+    for recap in recaps:
+        line = f"**{day_label(recap['day'])}:** {recap['text']}"
+        if len(post) + 1 + len(line) > DISCORD_LIMIT:
+            posts.append(post)
+            post = line
+        else:
+            post += "\n" + line
+    return posts + [post]
 
 
 def chunks(entries: list[dict], max_chars: int) -> list[list[dict]]:
@@ -103,7 +125,8 @@ def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str 
 
 class Diary:
     """diary.json: {"read_up_to": {channel_id: time}, "recaps": [{"day", "channel_id", "channel", "text"}],
-    "vibe": {"notes": [...], "day": ...}} (the vibe: meld.py's note on how the server talks)."""
+    "vibe": {"notes": [...], "day": ...}} (the vibe: meld.py's note on how the server talks). A recap
+    not yet posted in Discord has "to_post": true (older ones, from before posting, never are)."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -123,7 +146,18 @@ class Diary:
         self._save()
 
     def add_recap(self, channel_id: int, channel: str, day: str, text: str) -> None:
-        self.data["recaps"].append({"day": day, "channel_id": channel_id, "channel": channel, "text": text})
+        self.data["recaps"].append({"day": day, "channel_id": channel_id, "channel": channel, "text": text,
+                                    "to_post": True})
+        self._save()
+
+    def to_post(self) -> list[dict]:
+        """Recaps waiting to be posted, oldest first."""
+        return [recap for recap in self.data["recaps"] if recap.get("to_post")]
+
+    def mark_posted(self, recaps: list[dict]) -> None:
+        """Done with these: posted, or not to be posted (POST_DIARY off, muted, the channel's gone)."""
+        for recap in recaps:
+            recap.pop("to_post", None)
         self._save()
 
     def recaps_for(self, channel_id: int, days: int, now: float | None = None) -> list[str]:
@@ -132,8 +166,8 @@ class Diary:
             return []
         now = time.time() if now is None else now
         since = local_day(now - (days - 1) * 86400)
-        return [f"{time.strftime('%b', time.strptime(r['day'], '%Y-%m-%d'))} {int(r['day'][8:])}: {r['text']}"
-                for r in self.data["recaps"] if r.get("channel_id") == channel_id and r.get("day", "") >= since]
+        return [f"{day_label(r['day'])}: {r['text']}" for r in self.data["recaps"]
+                if r.get("channel_id") == channel_id and r.get("day", "") >= since]
 
     def vibe(self) -> list[str]:
         return list(self.data["vibe"].get("notes", []))

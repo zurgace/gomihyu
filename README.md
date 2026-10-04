@@ -39,8 +39,9 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
 - **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences.
   Calls people by nickname. Pings someone only to pull them in, never the person she's answering.
   See "Her replies" below for how that's kept up.
-- **Voice**: until a fine-tuned model serves her, each reply's prompt has 8 example chats
-  (`FEW_SHOT_EXAMPLES`) from `finetuning/gomihyu_seed.jsonl`, plus the best of her own real replies.
+- **Voice**: until a fine-tuned model serves her, each reply's prompt has up to 8 of her own replies
+  that landed (`FEW_SHOT_EXAMPLES`). The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only
+  train her now; `SEED_EXAMPLES=true` puts them back in her prompt.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
 
@@ -67,6 +68,10 @@ her replies aren't capped at `MAX_REPLY_TOKENS` (the thinking counts against it)
 - She keeps a chat log of the server (`chatlogs/`, never DMs). At shutdown she writes her **diary**:
   a recap per channel (`diary.json`, her last 3 days go in her prompt) and notes on people (kept only
   if the words they're based on are really in the log). A crash is caught up on at the next start.
+- Each new recap is also **posted** in its channel (📔 Gomi's diary): right away on "gomi goodnight",
+  at the next start after a Ctrl+C. Her notes on people aren't posted. She ignores the post: it isn't
+  in her chat log, so she doesn't answer it, write it up again or learn from it. `POST_DIARY=false`
+  turns it off.
 - Each night she also keeps her replies that **landed** (someone reacted, replied or laughed) as
   examples of her voice (`earned_examples.jsonl`), and updates a short note on how the server talks.
 - To edit any of these files, stop the bot first. All of them are gitignored and stay on your PC.
@@ -88,7 +93,7 @@ so she can't argue. Anyone else saying them just gets a normal reply.
 | `gomi mute` / `for 2 hours` / `until i say so` | silent in this channel (🔇), 🤐 to people talking to her |
 | `gomi quiet mode` (same durations) | only answers posts aimed at her (🤫) |
 | `gomi unmute` / `quiet mode off` | back to normal (🔊) |
-| `gomi goodnight` | says goodnight, writes her diary, shuts down (💤) |
+| `gomi goodnight` | writes and posts her diary, says goodnight, shuts down (💤) |
 | `gomi post melee here` / `gomi stop posting melee` | where her Melee posts go (🎮 / 🔕) |
 | `gg` (to her, or in the Melee channel) | ends a Melee session now |
 

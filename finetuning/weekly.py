@@ -460,7 +460,9 @@ def cmd_check(args) -> bool:
     few = int(setting("FEW_SHOT_EXAMPLES", "8")) if now == current else 8
     diary_file = ROOT / setting("DIARY_FILE", "diary.json")
     vibe = Diary(diary_file).vibe() if diary_file.exists() else []
-    seed = build_dataset.read_jsonl(build_dataset.SEED)
+    # her prompt's seed chats, if the bot shows them (SEED_EXAMPLES): it only trains her by default
+    shows_seed = setting("SEED_EXAMPLES", "false").lower() in ("1", "true", "yes", "on")
+    seed = build_dataset.read_jsonl(build_dataset.SEED) if shows_seed else []
     earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"))
     anchor, full_at = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_FULL_AT", "200"))
     think = thinks()

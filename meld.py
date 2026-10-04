@@ -98,9 +98,12 @@ def voice_examples(entries: list[dict]) -> list[dict]:
 def pick_examples(seed: list[dict], earned: list[dict], n: int, anchor: float, full_at: int,
                   rng=random) -> list[dict]:
     """n example chats for her prompt: Satania ones and her landed replies, the latter's share growing
-    with how many she's earned (full_at earned: down to the anchor), shuffled."""
+    with how many she's earned (full_at earned: down to the anchor), shuffled. No seed (it's out of her
+    prompt, bot.SEED_EXAMPLES): her landed replies only, as many as there are up to n."""
     if n <= 0:
         return []
+    if not seed:
+        return rng.sample(earned, min(n, len(earned)))
     persona_share = max(anchor, 1 - len(earned) / full_at) if full_at > 0 else anchor
     n_earned = min(len(earned), n - math.ceil(n * persona_share))
     picked = rng.sample(seed, min(len(seed), n - n_earned)) + rng.sample(earned, max(0, n_earned))

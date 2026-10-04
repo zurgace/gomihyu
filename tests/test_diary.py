@@ -8,9 +8,10 @@ SP = Path(TMP)
 T = Path(os.environ["CHAT_LOG_DIR"]).parent                          # run_all.sh's fresh folder
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8766/api/chat", PEOPLE_FILE=str(T / "people.json"))
 sys.path.insert(0, REPO)
+import discord
 import bot, persona
 from chatlog import ChatLog, local_day
-from diary import Diary, chunks, parse_digest, digest_format
+from diary import Diary, chunks, day_label, diary_posts, parse_digest, digest_format
 from memory import PeopleMemory
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 0; bot.REACT_ONLY_MAX_WORDS = 0
@@ -56,6 +57,14 @@ d.add_recap(1, "#general", local_day(now - 5 * 86400), "long ago"); d.add_recap(
 d = Diary(T / "unit_diary.json"); assert d.read_up_to(1) == 123.5
 got = d.recaps_for(1, 3, now); assert [r.split(": ", 1)[1] for r in got] == ["today", "yesterday"] and d.recaps_for(1, 0, now) == []
 assert got[0].startswith(time.strftime("%b", time.localtime(now)) + " " + str(time.localtime(now).tm_mday) + ": ")
+# new recaps wait to be posted in Discord; ones from before posting existed never are
+assert [r["text"] for r in d.to_post()] == ["today", "yesterday", "long ago", "elsewhere"]
+d.data["recaps"][0].pop("to_post"); d.mark_posted(d.to_post()[:2])
+assert [r["text"] for r in Diary(T / "unit_diary.json").to_post()] == ["elsewhere"]
+assert diary_posts([{"day": "2026-09-29", "text": "Kaz lost."}, {"day": "2026-09-30", "text": "Rex won."}]) == [
+    "📔 **Gomi's diary**\n**Sep 29:** Kaz lost.\n**Sep 30:** Rex won."]
+long = diary_posts([{"day": "2026-09-29", "text": "x" * 500}] * 5)                  # Discord's 2000 characters
+assert len(long) == 2 and all(len(p) <= 2000 for p in long) and long[1].startswith("**Sep 29:** x")
 (T / "bad.json").write_text("{nope")
 try: Diary(T / "bad.json"); raise AssertionError("bad diary.json accepted")
 except SystemExit: pass
@@ -104,6 +113,12 @@ async def main():
     r = web.AppRunner(app); await r.setup(); await web.TCPSite(r, "127.0.0.1", 8766).start()
     bot.owner_ids.clear(); bot.owner_ids.add(REX.id)
     gen, memes, dm = Channel(10, "general"), Channel(20, "memes"), Channel(30, None, guild=None)
+    spam, locked = Channel(40, "spam"), Channel(60, "locked")
+    async def forbidden(text): raise discord.Forbidden(types.SimpleNamespace(status=403, reason="Forbidden"), "Missing Permissions")
+    async def gone(channel_id): raise discord.NotFound(types.SimpleNamespace(status=404, reason="Not Found"), "Unknown Channel")
+    locked.send = forbidden
+    bot.client.get_channel = {10: gen, 20: memes, 40: spam, 60: locked}.get
+    bot.client.fetch_channel = gone
 
     # everything in server channels is logged, her posts too; DMs and owner commands aren't; deletes are forgotten
     await say(gen, KAZ, "I started guitar lessons last week, my fingers hurt")
@@ -166,16 +181,24 @@ async def main():
     assert 50 not in bot.history
     assert len(bot.history[40]) == bot.HISTORY_LENGTH and bot.handles["kaz0"] == 6 and "gomihyu" not in bot.handles
 
-    # "gomi goodnight": 💤, a goodnight line (no ping at her owner), then the bot closes
+    # "gomi goodnight": 💤, her diary written and posted, each recap where it happened, then a goodnight line (no
+    # ping at her owner), then the bot closes. The diary post isn't part of the chat: not in her history or log.
     closed = []
     async def fake_close(): closed.append(True)
     bot.client.close = fake_close; calls.clear()
+    assert [r["channel_id"] for r in bot.diary.to_post()] == [10, 40, 40, 40, 40]
     cmd = await say(gen, REX, "gomi goodnight")
     assert cmd.reactions == ["💤"] and closed == [True] and gen.posts[-1].content == "nighty night, rexmode. dream of losing to me."
-    assert "putting you to bed" in calls[0]["messages"][1]["content"] and "rexmode: gomi goodnight" not in bot.history[10]
+    assert gen.posts[-2].content == (f"📔 **Gomi's diary**\n**{day_label(local_day(time.time()))}:** "
+                                     "Kaz started guitar and Rex asked about songs."), gen.posts[-2].content
+    assert [p.content.count("Lots of x.") for p in spam.posts] == [4] and bot.diary.to_post() == []
+    assert not any("diary" in line for line in bot.history[10]) and not any("📔" in e["text"] for e in bot.chat_log.read(10))
+    assert "putting you to bed" in calls[-1]["messages"][1]["content"] and "rexmode: gomi goodnight" not in bot.history[10]
     await say(gen, KAZ, "gomi goodnight"); assert closed == [True]         # not an owner: just chat
     bot.muted_until[10] = time.monotonic() + 99; hers = lambda: [p for p in gen.posts if p.author is ME]; n = len(hers())
-    await say(gen, REX, "gomi go to sleep"); assert closed == [True, True] and len(hers()) == n   # muted: no line
+    bot.diary.add_recap(10, "#general", local_day(time.time()), "A muted day.")
+    await say(gen, REX, "gomi go to sleep"); assert closed == [True, True] and len(hers()) == n   # muted: no line, no diary
+    assert bot.diary.to_post() == []
     bot.muted_until.clear()
 
     # main(): Ctrl+C / a stop signal writes the diary, then it exits cleanly
@@ -200,5 +223,23 @@ async def main():
     task = asyncio.create_task(bot.main()); await asyncio.sleep(0.2); task.cancel(); await asyncio.sleep(0.2); task.cancel()
     await asyncio.wait_for(task, 10)
     bot.write_diary = orig
+
+    # what a Ctrl+C left waiting is posted at the next start
+    assert [r["text"] for r in bot.diary.to_post()] == ["Bedtime talk.", "Bedtime talk."]
+    n = len(gen.posts); await bot.catch_up()
+    assert len(gen.posts) == n + 1 and gen.posts[-1].content.count("Bedtime talk.") == 2 and bot.diary.to_post() == []
+    # a channel she can't post in, or that's gone, or POST_DIARY off: dropped, never retried
+    for channel_id in (60, 70, 10):
+        bot.diary.add_recap(channel_id, f"#c{channel_id}", local_day(time.time()), f"Day in {channel_id}.")
+    n = len(gen.posts); await bot.post_diary()
+    assert len(gen.posts) == n + 1 and "Day in 10." in gen.posts[-1].content and bot.diary.to_post() == []
+    bot.POST_DIARY = False; bot.diary.add_recap(10, "#general", local_day(time.time()), "Off day.")
+    await bot.post_diary(); assert len(gen.posts) == n + 1 and bot.diary.to_post() == []
+    # a diary that blows up doesn't keep her up
+    bot.POST_DIARY = True
+    async def broken(): raise RuntimeError("boom")
+    bot.post_diary, orig_post = broken, bot.post_diary
+    n = len(closed); await say(gen, REX, "gomi goodnight"); assert len(closed) == n + 1
+    bot.post_diary = orig_post
     await r.cleanup(); print("DIARY TESTS PASSED")
 asyncio.run(main())
