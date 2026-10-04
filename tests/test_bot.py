@@ -53,7 +53,7 @@ async def main():
     await bot.on_message(msg(c1, NORI, "hey @kaz0 <@1>", [KAZ, ME]))
     assert c1.sent == ["first", "Silence, <@100>. And @nobody, and @everyone."], c1.sent
     assert requests[1]["messages"] == persona.build_messages(
-        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True), requests[1]["messages"]
+        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True, one_line=True), requests[1]["messages"]
     assert "directly mentioned" not in requests[0]["messages"][1]["content"]
 
     # 3. burst of 4 messages while generating -> first reply + ONE follow-up that sees all 4,

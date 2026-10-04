@@ -80,14 +80,16 @@ def system_content(examples: list[dict] = (), vibe: list[str] = (), avatar: str 
 
 def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
                    nicknames: dict[str, str] | None = None, examples: list[dict] = (), learned: list[str] = (),
-                   recaps: list[str] = (), vibe: list[str] = (), avatar: str = "") -> list[dict]:
+                   recaps: list[str] = (), vibe: list[str] = (), avatar: str = "", one_line: bool = False,
+                   ask_back: bool = True, emoji: bool = True) -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
 
     facts are what speaker (the author of the latest line) has asked Gomihyu to remember, learned
     what she noted about them in her diary (diary.py), recaps her diary's recent days in this
     channel; nicknames maps handles in the log to what she should call those people. examples (see
-    format_examples), vibe and avatar (see system_content) are for the system prompt; training data
-    leaves them out, like the diary's notes and recaps.
+    format_examples), vibe and avatar (see system_content) are for the system prompt. one_line,
+    ask_back and emoji are this reply's shape, decided in code (shape.py). Training data leaves all of
+    these out, like the diary's notes and recaps.
     """
     # Small models drift back to older lines and mix up who "I" is, so the message being answered
     # and its sender are spelled out right here.
@@ -99,12 +101,17 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
         f"When {who} says I, me or my, they mean themselves; \"you\" means you, {BOT_NICKNAME}. "
         f"Write your next message as {BOT_NICKNAME}. Respond to that newest message, not an older one, "
         "as someone in the conversation: if it asks you something, actually answer it, then build on "
-        "what others said and give your own opinion. Now and then, not every time, ask something back. "
-        "Don't open by repeating their message back to them, don't repeat your own earlier lines, and "
+        "what others said and give your own opinion. "
+        + ("Now and then, not every time, ask something back. " if ask_back
+           else "Don't ask anything back this time: just say your piece. ")
+        + "Don't open by repeating their message back to them, don't repeat your own earlier lines, and "
         "don't keep coming back to the same pet topics. "
-        "Match the moment, like a real Discord message: a quick jab or comeback is one short line, "
-        "a question or a real discussion gets 2 to 4 sentences, never more. "
-        "Do not prefix your reply with your own name."
+        + ("Match the moment, like a real Discord message: this one's a quick jab or comeback moment, so one "
+           "short line. " if one_line else
+           "Match the moment, like a real Discord message: a quick jab or comeback is one short line, "
+           "a question or a real discussion gets 2 to 4 sentences, never more. ")
+        + ("" if emoji else "No emojis in this one. ")
+        + "Do not prefix your reply with your own name."
     )
     if mentioned:
         instruction += " You were just directly mentioned/addressed — respond to that directly, in character."

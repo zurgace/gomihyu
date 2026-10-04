@@ -11,8 +11,11 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - CachyOS (Arch), fish shell. Python 3 venv; run things as `venv/bin/python ...`.
 - `gemma4:e4b`: ~4.5B effective params; `ollama ps` shows 3.2GB, 100% GPU at 4096 and 8192 context.
   Every call sends the same `OLLAMA_NUM_CTX` (8192), or Ollama reloads the model between calls.
-  Thinking is off (`think: false`). Vision works on the user's Ollama 0.34.2 (`tools/vision_check.py`;
-  ollama#18560's blank-image bug hits some setups, so re-run it after Ollama/model changes).
+  Thinking is off by default. `OLLAMA_THINK=true` makes only her own writing think (replies, Melee,
+  goodnight; never reads, diary, vision), uncapped by `MAX_REPLY_TOKENS`, with the thought logged
+  (user, 2026-10-04: trying it for less samey replies; not judged yet). Vision works on the user's
+  Ollama 0.34.2 (`tools/vision_check.py`; ollama#18560's blank-image bug hits some setups, so re-run it
+  after Ollama/model changes).
 - Rejected: LFM2.5-2.6B (felt like "a response bot"; always reasoned; kept in `archive/lfm2.5/`),
   Ternary Bonsai 2 27B (needs a llama.cpp fork, too big for 8GB), anime-girl-1.5B.
 - Serving must fit the 2070 (check VRAM math before suggesting a model). Training runs elsewhere.
@@ -22,6 +25,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `persona.py` — system prompt + prompt builders (`build_messages`, session, goodnight). The dataset
   builders use it too, so training prompts match runtime prompts: change the format only here.
 - `chime.py` — reading the room for a post not aimed at her: {read, interest 0–10, react 0–10, emoji}.
+- `shape.py` — each reply's shape, decided in code: one line or 2–4 sentences, ask back / emoji or not.
 - `reactions.py` — which posts get only a reaction, sad news, names_her. `emojis.py` — every emoji + "when".
 - `vision.py` — what she looks at, image prep, describe prompt, `[image: ...]` labels, avatar fingerprint.
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
@@ -31,7 +35,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   reference they were written from), `build_dataset.py`, `weekly.py` + `kaggle_train.py` +
   `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
-- `tests/run_all.sh` — 27 suites, everything faked (Ollama, Discord, Kaggle, Unsloth), run on a temp copy
+- `tests/run_all.sh` — 28 suites, everything faked (Ollama, Discord, Kaggle, Unsloth), run on a temp copy
   of the repo. Run it after any change; `tests/run_all.sh test_x.py` for one.
 
 ## Locked-in decisions (don't change without asking)
@@ -43,8 +47,13 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - One reply in flight per channel; posts arriving meanwhile get ONE follow-up on the newest chat.
 - Reply length matches the moment: a jab is one line, a question/discussion 2–4 sentences, never more.
   She answers questions for real, builds on others, asks back only now and then, never opens by
-  echoing the message. Don't bring back "at most 2 sentences" or "don't reuse topics" (that made her a
-  one-liner machine); repetition is handled by "don't repeat your own lines" + the `REPEAT_WORDS` retry.
+  echoing the message. Code decides which, per reply (`shape.py`; user, 2026-10-04: every reply had
+  become emoji + sentence ×5, ending in a question): ≤ `ONE_LINE_MAX_WORDS` (6) words, no question,
+  not sad news → told "one short line" (cut after 2 sentences), else 2–4 (cut after 4; bits under 3
+  words don't count). Told not to ask back / not to use an emoji if one of her last 2 messages did; at
+  most one emoji per post, enforced. Her old landed replies get the same caps (`tidy`). Don't bring
+  back "at most 2 sentences" or "don't reuse topics" (that made her a one-liner machine); repetition is
+  handled by "don't repeat your own lines" + the `REPEAT_WORDS` retry.
   `MAX_REPLY_TOKENS` (200) caps a runaway reply (trimmed to a full sentence); if a model thinks anyway,
   replies go uncapped (thinking ate the cap and she went silent once).
 - Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
@@ -67,7 +76,8 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   (`REACT_TO_CHAT`) and posts she chimes in on (`REACT_WHEN_REPLYING`) get it too. Posts aimed at her
   aren't read, so no reaction. Her last 2 picks per channel are left out of the options.
 - Media she couldn't see → 👀 / :goonerstare:, never a judgment. Sad news → reply + `:catsad:`.
-- She may write in-text custom emojis as `:name:`; `aryanosaka`/`goonerstare` are reaction-only.
+- She may write in-text custom emojis as `:name:`, one per message at most (`shape.py`);
+  `aryanosaka`/`goonerstare` are reaction-only.
 
 **Owner commands** (owner = app owner/team + `OWNER_USER_IDS`; parsed in code, override the persona)
 - "gomi delete that / your last N / all your messages" → deletes her posts, 🗑️, no reply, removed from
@@ -124,7 +134,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
    running the converted GGUF with the stock template, VRAM with gomi-wN + stock loaded together.
 2. Live tuning: `Read ... react n/10` / `Interest n/10` log lines → `CHIME_IN_THRESHOLD`,
    `REACT_THRESHOLD`, then the anchors in `chime.py`.
-3. Read the first diary output (`diary.json`, "learned" in `people.json`, earned_examples.jsonl, the vibe
-   note): lasting facts or chatter? Does the quote check drop real notes?
-4. Live checks not done yet: reply length/emoji/melon-bread frequency, nicknames and "who am I?",
-   vision quality and speed, avatar recognition, slur filter.
+3. Reply shapes live (`shape.py`, 2026-10-04): jabs get one line? Emoji / asking back at most 1 in 3
+   feels right? Then `OLLAMA_THINK=true` for a while: more varied replies, worth the seconds? Judge it
+   on stock gemma4:e4b (a fine-tune trained without thinking may not think well).
+4. Live checks not done yet: melon-bread frequency, nicknames and "who am I?", vision quality and
+   speed, slur filter. Checked live (user, 2026-10-04): reactions at 8, reacting when chiming in, her
+   avatar, diary and melding output (melding is slow only because the server is).

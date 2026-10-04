@@ -38,10 +38,28 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   edit the notes to change how she uses them. She writes custom emojis in replies as `:kekpoint:`.
 - **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences.
   Calls people by nickname. Pings someone only to pull them in, never the person she's answering.
+  See "Her replies" below for how that's kept up.
 - **Voice**: until a fine-tuned model serves her, each reply's prompt has 8 example chats
   (`FEW_SHOT_EXAMPLES`) from `finetuning/gomihyu_seed.jsonl`, plus the best of her own real replies.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
+
+## Her replies
+A small model copies the shape of its own last few messages, so once a habit slips in (an emoji before
+every sentence, a question at the end of every reply), every reply has it. So code decides each
+reply's shape (`shape.py`) and tells her, instead of asking her to do things "now and then":
+- A post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question ("you're a slop bot",
+  "gomi hi") gets one short line. Anything else gets 2–4 sentences. A longer reply is cut after its
+  2nd or 4th sentence.
+- She asks something back, or uses an emoji, only if her last two messages didn't. A message has at
+  most one emoji either way.
+- The console shows `Trimmed to ...` when code had to cut what the model wrote.
+
+**Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
+goodnight. Reading the room, her diary and pictures never think. The console shows the start of each
+thought: `She thought (212 words, 9.4s for all): '...'`. It makes each reply several seconds slower, and
+her replies aren't capped at `MAX_REPLY_TOKENS` (the thinking counts against it), but they still stop at
+4 sentences. Set it back to `false` to compare.
 
 ## Memory and diary
 - "**gomi remember that** I hate cilantro" (or @mention her) stores it word for word (📝).
@@ -113,7 +131,7 @@ own Discord export into training data, server channels only, never DMs.
 
 ## Tests
 ```bash
-tests/run_all.sh                     # all 27 suites, about half a minute
+tests/run_all.sh                     # all 28 suites, about half a minute
 tests/run_all.sh test_reactions.py   # one
 ```
 Ollama, Discord, Kaggle and Unsloth are faked, and the suites run on a temporary copy of the repo, so

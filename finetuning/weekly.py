@@ -174,10 +174,15 @@ def api(path: str, body: dict | None = None, timeout: float = 300) -> dict:
         return json.load(response)
 
 
-def chat(model: str, messages: list[dict], fmt: dict | None = None, options: dict | None = None) -> str | None:
+def thinks() -> bool:
+    """Whether her replies think first (OLLAMA_THINK); reading the room and the diary never do."""
+    return setting("OLLAMA_THINK", "false").lower() in ("1", "true", "yes", "on")
+
+
+def chat(model: str, messages: list[dict], fmt: dict | None = None, options: dict | None = None,
+         think: bool = False) -> str | None:
     """One answer from Ollama, the way the bot asks; None (and why, printed) if there's none."""
-    body = {"model": model, "messages": messages, "stream": False,
-            "think": setting("OLLAMA_THINK", "false").lower() in ("1", "true", "yes", "on"),
+    body = {"model": model, "messages": messages, "stream": False, "think": think,
             "options": {"num_ctx": int(setting("OLLAMA_NUM_CTX", "8192"))} | (options or {})}
     if fmt:
         body["format"] = fmt
@@ -458,7 +463,8 @@ def cmd_check(args) -> bool:
     seed = build_dataset.read_jsonl(build_dataset.SEED)
     earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"))
     anchor, full_at = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_FULL_AT", "200"))
-    cap = {"num_predict": int(setting("MAX_REPLY_TOKENS", "200"))}
+    think = thinks()
+    cap = {} if think else {"num_predict": int(setting("MAX_REPLY_TOKENS", "200"))}  # thinking counts against it
     chats = check_chats()
     print(f"Checking {new} against {now} (what she runs on now): {len(chats)} test chats, a minute or two")
 
@@ -470,8 +476,8 @@ def cmd_check(args) -> bool:
         examples = pick_examples(seed, earned, few, anchor, full_at, rng=random.Random(i)) if few > 0 else []
         context = {"vibe": vibe, "avatar": setting("AVATAR_DESCRIPTION", "")}
         replies.append((test, chat(now, build_messages(transcript, mentioned, speaker, examples=examples, **context),
-                                   options=cap),
-                        chat(new, build_messages(transcript, mentioned, speaker, **context), options=cap)))
+                                   options=cap, think=think),
+                        chat(new, build_messages(transcript, mentioned, speaker, **context), options=cap, think=think)))
     room = next(c["history"] for c in chats if c.get("use") == "room")
     diary_log = next(c["history"] for c in chats if c.get("use") == "diary")
     tasks = {model: (room_read(model, room, vibe), diary_read(model, diary_log)) for model in (now, new)}
