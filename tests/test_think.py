@@ -79,6 +79,21 @@ async def main():
     bot.REACT_ONLY_MAX_WORDS = 2; calls.clear()
     await bot.on_message(msg("oogaga"))
     assert len(calls) == 1 and "format" in calls[0] and calls[0]["think"] is False and calls[0]["options"] == {"num_ctx": 8192}
+
+    # OLLAMA_THINK on: her replies think, uncapped (the thinking counts against the cap), and the thought is
+    # logged, never posted; that's not a model thinking when told not to. Reading the room still doesn't think.
+    bot.OLLAMA_THINK, bot.model_thinks, mode["honors_think"] = True, False, True
+    bot.REACT_ONLY_MAX_WORDS = 0; calls.clear(); logged = []
+    class Keep(logging.Handler):
+        def emit(self, record): logged.append(record.getMessage())
+    bot.log.addHandler(Keep())
+    await bot.on_message(msg("<@1> smash or mario kart", [ME]))
+    assert ch.sent[-1] == "smash, obviously." and len(calls) == 1 and bot.model_thinks is False
+    assert calls[0]["think"] is True and calls[0]["options"] == {"num_ctx": 8192}
+    assert any(line.startswith("She thought (16 words") and "respond as Gomi" in line for line in logged), logged
+    bot.CHIME_IN_THRESHOLD = 6; calls.clear()
+    await bot.on_message(msg("anyone up"))
+    assert len(calls) == 1 and "format" in calls[0] and calls[0]["think"] is False
     await r.cleanup(); print("THINK TESTS PASSED")
 asyncio.run(main())
 
@@ -86,7 +101,7 @@ asyncio.run(main())
 out = subprocess.run([sys.executable, "-c", "import bot; print(bot.OLLAMA_THINK)"], cwd=REPO,
                      env={**os.environ, "OLLAMA_THINK": "true"}, capture_output=True, text=True)
 assert out.stdout.strip().endswith("True"), out
-out = subprocess.run([sys.executable, "-c", "import bot; print(bot.model_thinks)"], cwd=REPO,
-                     env={**os.environ, "OLLAMA_THINK": "true"}, capture_output=True, text=True)
-assert out.stdout.strip().endswith("True"), out  # thinking on: uncapped from the first reply
+out = subprocess.run([sys.executable, "-c", "import bot; print(bot.model_thinks, bot.cap(200, bot.OLLAMA_THINK), bot.cap(80))"],
+                     cwd=REPO, env={**os.environ, "OLLAMA_THINK": "true"}, capture_output=True, text=True)
+assert out.stdout.strip().endswith("False {} {'num_predict': 80}"), out  # replies uncapped from the first, the rest not
 print("OLLAMA_THINK ENV OK")

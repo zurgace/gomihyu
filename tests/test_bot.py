@@ -56,7 +56,7 @@ async def main():
     await bot.on_message(msg(c1, NORI, "hey @kaz0 <@1>", [KAZ, ME]))
     assert c1.sent == ["first", "Silence, <@100>."], c1.sent
     assert requests[1]["messages"] == persona.build_messages(
-        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True, now=NOW), requests[1]["messages"]
+        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True, one_line=True, now=NOW), requests[1]["messages"]
     assert requests[1]["messages"][1]["content"].startswith("Right now it's Sunday, October 4, 2026, 1:31 PM.\n\n")
     assert len(requests) == 3 and requests[2]["options"]["temperature"] == bot.RETRY_TEMPERATURE
     assert "directly mentioned" not in requests[0]["messages"][1]["content"]

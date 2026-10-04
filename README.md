@@ -36,15 +36,34 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   fail. Pictures, stickers, emoji-only posts and 1–2 word interjections ("lol wtf") only ever get a
   reaction. Sad news gets a reply and `:catsad:`. `emojis.py` lists every emoji and when to use it;
   edit the notes to change how she uses them. She writes custom emojis in replies as `:kekpoint:`.
-- **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences
-  (anything past `MAX_REPLY_SENTENCES`, 4, is cut). She answers questions plainly first, plays along,
-  and teases like a friend; the Archdemon act is a quick line, not a speech. She knows today's date.
+- **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences.
+  She answers questions plainly first, plays along, and teases like a friend; the Archdemon act is a
+  quick line, not a speech. She knows today's date.
   Calls people by nickname. Pings someone only to pull them in, never the person she's answering.
-  Never brings up the made-up people from her example chats (`kaz0`, `Nori`, ...).
-- **Voice**: until a fine-tuned model serves her, each reply's prompt has 8 example chats
-  (`FEW_SHOT_EXAMPLES`) from `finetuning/gomihyu_seed.jsonl`, plus the best of her own real replies.
+  Never brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
+  See "Her replies" below for how that's kept up.
+- **Voice**: until a fine-tuned model serves her, each reply's prompt has up to 8 of her own replies
+  that landed (`FEW_SHOT_EXAMPLES`). The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only
+  train her now; `SEED_EXAMPLES=true` puts them back in her prompt.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
+
+## Her replies
+A small model copies the shape of its own last few messages, so once a habit slips in (an emoji before
+every sentence, a question at the end of every reply), every reply has it. So code decides each
+reply's shape (`shape.py`) and tells her, instead of asking her to do things "now and then":
+- A post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question ("you're a slop bot",
+  "gomi hi") gets one short line. Anything else gets 2–4 sentences. A longer reply is cut after its
+  2nd or 4th sentence.
+- She asks something back, or uses an emoji, only if her last two messages didn't. A message has at
+  most one emoji either way.
+- The console shows `Trimmed to ...` when code had to cut what the model wrote.
+
+**Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
+goodnight. Reading the room, her diary and pictures never think. The console shows the start of each
+thought: `She thought (212 words, 9.4s for all): '...'`. It makes each reply several seconds slower, and
+her replies aren't capped at `MAX_REPLY_TOKENS` (the thinking counts against it), but they still stop at
+4 sentences. Set it back to `false` to compare.
 
 ## Memory and diary
 - "**gomi remember that** I hate cilantro" (or @mention her) stores it word for word (📝).
@@ -52,6 +71,10 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
 - She keeps a chat log of the server (`chatlogs/`, never DMs). At shutdown she writes her **diary**:
   a recap per channel (`diary.json`, her last 3 days go in her prompt) and notes on people (kept only
   if the words they're based on are really in the log). A crash is caught up on at the next start.
+- Each new recap is also **posted** in its channel (📔 Gomi's diary): right away on "gomi goodnight",
+  at the next start after a Ctrl+C. Her notes on people aren't posted. She ignores the post: it isn't
+  in her chat log, so she doesn't answer it, write it up again or learn from it. `POST_DIARY=false`
+  turns it off.
 - Each night she also keeps her replies that **landed** (someone reacted, replied or laughed) as
   examples of her voice (`earned_examples.jsonl`), and updates a short note on how the server talks.
 - To edit any of these files, stop the bot first. All of them are gitignored and stay on your PC.
@@ -73,7 +96,7 @@ so she can't argue. Anyone else saying them just gets a normal reply.
 | `gomi mute` / `for 2 hours` / `until i say so` | silent in this channel (🔇), 🤐 to people talking to her |
 | `gomi quiet mode` (same durations) | only answers posts aimed at her (🤫) |
 | `gomi unmute` / `quiet mode off` | back to normal (🔊) |
-| `gomi goodnight` | says goodnight, writes her diary, shuts down (💤) |
+| `gomi goodnight` | writes and posts her diary, says goodnight, shuts down (💤) |
 | `gomi post melee here` / `gomi stop posting melee` | where her Melee posts go (🎮 / 🔕) |
 | `gg` (to her, or in the Melee channel) | ends a Melee session now |
 
@@ -116,7 +139,7 @@ own Discord export into training data, server channels only, never DMs.
 
 ## Tests
 ```bash
-tests/run_all.sh                     # all 27 suites, about half a minute
+tests/run_all.sh                     # all 28 suites, about half a minute
 tests/run_all.sh test_reactions.py   # one
 ```
 Ollama, Discord, Kaggle and Unsloth are faked, and the suites run on a temporary copy of the repo, so

@@ -6,6 +6,7 @@ os.environ["PEOPLE_FILE"] = TMP + "/people_test_repeat.json"; os.environ["DISCOR
 sys.path.insert(0, REPO)
 import bot
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # these tests are about replies
+bot.ONE_LINE_MAX_WORDS = 0  # ...and the repeat guard, not their length (test_shape.py)
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 R2 = "I am the Archdemon of this realm, and you dare call me such? I shall crush your tiny ego like a fly. But I cannot help noticing you're the only one who dares to speak to me — perhaps I am not as feared as I claim."

@@ -24,7 +24,8 @@ WORD = re.compile(r"\w+")
 LAUGHING = re.compile(r"\b(?:lol|lmao|lmfao|rofl|haha\w*|kek)\b|[\U0001F602\U0001F923\U0001F480]", re.IGNORECASE)
 
 
-def _words(text: str) -> list[str]:
+def words(text: str) -> list[str]:
+    """The words someone typed: not links, media or emojis."""
     return WORD.findall(EMOJI.sub(" ", MEDIA.sub(" ", text)))
 
 
@@ -37,8 +38,8 @@ def reacts_instead(text: str, max_words: int) -> bool:
     """Whether a reaction says enough: no words at all, or a few without a question."""
     if names_her(text) or sad_news(text):
         return False
-    words = _words(text)
-    return not words or (len(words) <= max_words and "?" not in text)
+    said = words(text)
+    return not said or (len(said) <= max_words and "?" not in text)
 
 
 def sad_news(text: str) -> bool:
@@ -49,12 +50,12 @@ def sad_news(text: str) -> bool:
 
 def media_only(text: str) -> bool:
     """An image/video/file/sticker/link with nothing else: she can't see it, so she just looks."""
-    return bool(MEDIA.search(text)) and not _words(text) and not EMOJI.search(text)
+    return bool(MEDIA.search(text)) and not words(text) and not EMOJI.search(text)
 
 
 def posted_emoji(text: str) -> str | None:
     """The first emoji of an emoji-only post (":name:" for custom ones), for reacting the same."""
-    if _words(text) or MEDIA.search(text):
+    if words(text) or MEDIA.search(text):
         return None
     first = EMOJI.search(text)
     return first[0] if first else None

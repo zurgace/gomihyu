@@ -24,6 +24,7 @@ import json
 import time
 import random
 import asyncio
+import contextlib
 import logging
 import signal
 from collections import defaultdict, deque
@@ -39,7 +40,7 @@ from chatlog import ChatLog, local_day
 from chime import Reading, parse_room, room_format, room_messages
 from commands import (ALL, FOREVER, delete_request, gg_request, goodnight_request, melee_here_request, melee_stop_request,
                       mute_request, quiet_request, unmute_request)
-from diary import Diary, chunks, digest_format, digest_messages, parse_digest
+from diary import Diary, chunks, diary_posts, digest_format, digest_messages, parse_digest
 from meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
@@ -48,6 +49,7 @@ from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import (BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line,
                      made_up_names)
 from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
+from shape import LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, at_most, one_emoji, this_time, tidy
 import vision
 from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
 
@@ -68,6 +70,9 @@ REACT_THRESHOLD = int(os.environ.get("REACT_THRESHOLD", "8"))
 REACT_WHEN_REPLYING = os.environ.get("REACT_WHEN_REPLYING", "true").strip().lower() in ("1", "true", "yes", "on")
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
+# A post she answers of at most this many words, not a question (a jab, "gomi hi"), gets one short line
+# back; anything else 2 to 4 sentences (shape.py).
+ONE_LINE_MAX_WORDS = int(os.environ.get("ONE_LINE_MAX_WORDS", "6"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
 # A reply that copies REPEAT_WORDS words in a row from one of the bot's recent messages is
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
@@ -75,19 +80,17 @@ REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
 # Ceiling on a reply's length; one that hits it is cut back to its last full sentence.
 MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
-# Her prompt says 2 to 4 sentences, never more; a reply that runs on anyway is cut after this many, so
-# a long one never lands in her chat history to be copied (user, 2026-10-04: "verbose explanations").
-MAX_REPLY_SENTENCES = int(os.environ.get("MAX_REPLY_SENTENCES", "4"))
 # Context window, in tokens, for every call. Ollama's default of 4096 can be outgrown by the prompt
 # (system prompt, example chats, 12 messages of chat) when people post long messages, and Ollama then
 # silently cuts the prompt. Every call sends the same value, or Ollama reloads the model between them.
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
-# Let a thinking model reason before answering. Off: for chat it only adds delay, and its thinking
-# counts against MAX_REPLY_TOKENS, which can leave no room for the answer.
+# Let her think before she writes: her replies, Melee posts and goodnight, never reading the room, her
+# diary or pictures. Off by default: it adds seconds to every reply. On, her replies aren't capped at
+# MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds them to 4 sentences. The
+# console shows the start of each thought.
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
-# Whether answers come with thinking: OLLAMA_THINK, or seen in a response (some models think even when
-# told not to). Replies then go uncapped, since the thinking counts against MAX_REPLY_TOKENS.
-model_thinks = OLLAMA_THINK
+# Whether the model thinks even when told not to (some do), seen in a response. Nothing is capped then.
+model_thinks = False
 # Facts people ask her to remember; relative paths are next to this file. Survives restarts.
 PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
@@ -102,9 +105,11 @@ MAX_LEARNED_PER_PERSON = int(os.environ.get("MAX_LEARNED_PER_PERSON", "10"))
 RECAP_DAYS = int(os.environ.get("RECAP_DAYS", "3"))
 HISTORY_RELOAD_HOURS = float(os.environ.get("HISTORY_RELOAD_HOURS", "12"))
 DIARY_PART_CHARS = 12000  # chat per diary call: ~3k tokens, well inside OLLAMA_NUM_CTX with the answer
+# Post each new recap in the channel it's about, the next time she's online (diary.py, post_diary).
+POST_DIARY = os.environ.get("POST_DIARY", "true").strip().lower() in ("1", "true", "yes", "on")
 # Melding (meld.py): the server slowly shapes her. Each night her replies that landed are kept in
-# EARNED_FILE and join her example chats, replacing Satania ones as they pile up (MELD_FULL_AT earned:
-# all the way down to MELD_ANCHOR, the share of Satania examples that always stays); and, with at
+# EARNED_FILE as her example chats (with SEED_EXAMPLES, replacing Satania ones as they pile up: MELD_FULL_AT
+# earned, all the way down to MELD_ANCHOR, the share of Satania examples that always stays); and, with at
 # least VIBE_MIN_MESSAGES new messages, her note on how the server talks is updated.
 EARNED_FILE = Path(__file__).resolve().parent / os.environ.get("EARNED_FILE", "earned_examples.jsonl")
 MELD_ANCHOR = float(os.environ.get("MELD_ANCHOR", "0.3"))
@@ -127,10 +132,14 @@ MUTED_EMOJI = "🔇"  # reaction confirming she's muted
 QUIET_EMOJI = "🤫"  # reaction confirming quiet mode
 UNMUTED_EMOJI = "🔊"
 HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know she isn't broken
-# Made-up example chats (the fine-tuning seed) shown in her prompt to set her voice, until a
-# fine-tuned model carries it. A fresh random pick each reply; 0 turns them off.
-EXAMPLES_FILE = Path(__file__).resolve().parent / os.environ.get("EXAMPLES_FILE", "finetuning/gomihyu_seed.jsonl")
+# Example chats in her prompt, to set her voice until a fine-tuned model carries it: FEW_SHOT_EXAMPLES of
+# her own replies that landed (meld.py), a fresh random pick each reply; 0 turns them off. SEED_EXAMPLES
+# mixes in the made-up Satania chats (the fine-tuning seed) as before, with her landed replies taking over
+# bit by bit. Off by default (user, 2026-10-04: melon bread out of nowhere; her defiance is in the system
+# prompt): the seed only trains her now.
 FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
+SEED_EXAMPLES = os.environ.get("SEED_EXAMPLES", "false").strip().lower() in ("1", "true", "yes", "on")
+SEED_FILE = Path(__file__).resolve().parent / "finetuning" / "gomihyu_seed.jsonl"
 # Melee results (melee.py): the outbox folder AI-Melee leaves her taunts and matches in (by default the
 # one both programs know, ~/.local/share/gomihyu/melee-outbox), and the channel she posts them in: the
 # one an owner picked with "gomi post melee here" (kept in MELEE_CHANNEL_FILE), else MELEE_CHANNEL_ID.
@@ -210,16 +219,22 @@ diary_lock = asyncio.Lock()
 started = time.time()
 
 
+def seed_chats(path: Path) -> list[dict]:
+    """The fine-tuning seed's made-up chats."""
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.exists() else []
+
+
 def load_examples(path: Path) -> list[dict]:
-    if FEW_SHOT_EXAMPLES <= 0:
+    """The seed chats for her prompt, if SEED_EXAMPLES."""
+    if FEW_SHOT_EXAMPLES <= 0 or not SEED_EXAMPLES:
         return []
     if not path.exists():
         log.warning(f"No example chats at {path}; replying without them")
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return seed_chats(path)
 
 
-examples = load_examples(EXAMPLES_FILE)
+examples = load_examples(SEED_FILE)
 
 
 def made_up_pattern(chats: list[dict]) -> re.Pattern | None:
@@ -230,11 +245,13 @@ def made_up_pattern(chats: list[dict]) -> re.Pattern | None:
     return re.compile(r"(?<![\w.])@?(" + "|".join(names) + r")(?!\w)") if names else None
 
 
-MADE_UP = made_up_pattern(examples)
+# from the seed itself, in her prompt or not: it trains her, so a fine-tune knows those names too
+MADE_UP = made_up_pattern(seed_chats(SEED_FILE))
 
 
 def load_earned(path: Path) -> list[dict]:
-    """Her replies that landed (meld.py), kept one JSON per line; unreadable lines are skipped."""
+    """Her replies that landed (meld.py), kept one JSON per line; unreadable lines are skipped. Older ones
+    are held to today's length and emoji limits (shape.tidy), so they don't bring back an old habit."""
     earned = []
     for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
         try:
@@ -242,7 +259,7 @@ def load_earned(path: Path) -> list[dict]:
         except json.JSONDecodeError:
             continue
         if isinstance(example, dict) and example.get("reply") and isinstance(example.get("history"), list):
-            earned.append(example)
+            earned.append(example | {"reply": tidy(str(example["reply"]))})
     return earned
 
 
@@ -250,7 +267,7 @@ earned = load_earned(EARNED_FILE)
 
 
 def shown_examples() -> list[dict]:
-    """This reply's example chats: Satania ones and, more and more, her own that landed."""
+    """This reply's example chats: her own that landed, and Satania ones if SEED_EXAMPLES."""
     return pick_examples(examples, earned, FEW_SHOT_EXAMPLES, MELD_ANCHOR, MELD_FULL_AT)
 
 URL = re.compile(r"https?://\S+")
@@ -260,10 +277,6 @@ CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
 # Custom emojis she may post: the in-text ones, plus the stand-in she posts instead of a slur.
 POSTABLE_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text} | {SLUR_STANDIN.lower()}
 HANDLE = re.compile(r"@([\w.]*\w)")
-SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
-# Where one sentence stops and the next starts, for counting and dropping them: like SENTENCE_END, but
-# "but... I suppose" and "wait… what" are pauses, not two sentences (her lowercase "fine. what time" is).
-SENTENCE_BREAK = re.compile(r"(?:\.\.+|…)(?=\s+(?![a-z]|I\b)|\s*$)|(?<!\.)[.!?](?=\s|$)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*(?:{BOT_NAME}|{BOT_NICKNAME})[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
@@ -328,16 +341,8 @@ def without_names(text: str, names: list[str]) -> str:
     """text minus every sentence that mentions one of names (strangers'), a bare one with or without an @."""
     named = re.compile(r"(?<![\w.])(?:" + "|".join(re.escape(name) if name.startswith("@") else f"@?{re.escape(name)}"
                                                    for name in names) + r")(?!\w)")
-    cuts = [0, *(m.end() for m in SENTENCE_BREAK.finditer(text)), len(text)]
+    cuts = [0, *(m.end() for m in SENTENCE_END.finditer(text)), len(text)]
     return "".join(part for a, b in zip(cuts, cuts[1:]) if not named.search(part := text[a:b])).strip()
-
-
-def at_most_sentences(text: str, count: int) -> str:
-    """text cut after its count-th sentence, if it goes on past it (a last one without a full stop counts;
-    an emoji after the last one doesn't)."""
-    ends = list(SENTENCE_BREAK.finditer(text))
-    tail = CUSTOM_EMOJI_NAME.sub("", text[ends[-1].end() if ends else 0:])
-    return text[:ends[count - 1].end()] if 0 < count < len(ends) + bool(re.search(r"\w", tail)) else text
 
 
 def local_now() -> datetime:
@@ -373,22 +378,27 @@ def word_runs(text: str) -> set[tuple[str, ...]]:
 def repeats_itself(channel_id: int, reply: str) -> bool:
     """Whether reply copies a run of REPEAT_WORDS words from one of the bot's messages in the log,
     or from an example chat's reply."""
-    own = format_line(BOT_NAME, "")
     runs = word_runs(reply)
-    return (any(runs & word_runs(line[len(own):]) for line in history[channel_id] if line.startswith(own))
+    return (any(runs & word_runs(line) for line in own_lines(channel_id))
             or any(runs & word_runs(example["reply"]) for example in examples + earned))
 
 
+def cap(tokens: int, thinking: bool = False) -> dict:
+    """A call's num_predict, unless its answer comes after thinking, which would count against it."""
+    return {} if thinking or model_thinks else {"num_predict": tokens}
+
+
 async def ollama_chat(payload: dict) -> dict | None:
-    """One non-streaming call to Ollama's chat API: the response, or None with the reason logged."""
+    """One non-streaming call to Ollama's chat API: the response, or None with the reason logged. The model
+    only thinks if the payload says "think": True."""
     global model_thinks
     start = time.monotonic()
+    thinking = payload.get("think", False)
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "stream": False, "think": OLLAMA_THINK,
-                                                      **payload,
+            async with session.post(OLLAMA_URL, json={"model": MODEL_NAME, "stream": False, "think": False, **payload,
                                                       "options": {"num_ctx": OLLAMA_NUM_CTX} | payload.get("options", {})},
-                                    timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                                    timeout=aiohttp.ClientTimeout(total=120 if thinking else 60)) as resp:
                 if resp.status != 200:
                     # Ollama explains itself in the body (e.g. "model ... not found, try pulling it first").
                     log.error(f"Ollama returned HTTP {resp.status} for model {payload.get('model', MODEL_NAME)!r}: "
@@ -398,11 +408,16 @@ async def ollama_chat(payload: dict) -> dict | None:
     except Exception:
         log.exception(f"Generation failed after {time.monotonic() - start:.1f}s (Ollama at {OLLAMA_URL})")
         return None
-    if not model_thinks and data.get("message", {}).get("thinking"):
+    thought = data.get("message", {}).get("thinking")
+    if thought and thinking:
+        thought = " ".join(thought.split())
+        log.info(f"She thought ({len(thought.split())} words, {time.monotonic() - start:.1f}s for all): "
+                 f"{thought[:600]!r}" + ("..." if len(thought) > 600 else ""))
+    elif thought and not model_thinks:
         model_thinks = True
-        log.warning(f"{payload.get('model', MODEL_NAME)} thinks before answering even with OLLAMA_THINK=false, so "
-                    f"replies take longer. They're no longer capped at MAX_REPLY_TOKENS ({MAX_REPLY_TOKENS}), which "
-                    "the thinking counts against.")
+        log.warning(f"{payload.get('model', MODEL_NAME)} thinks before answering even when told not to, so "
+                    f"answers take longer. They're no longer capped (MAX_REPLY_TOKENS, {MAX_REPLY_TOKENS}), since "
+                    "the thinking counts against the cap.")
     return data
 
 
@@ -413,14 +428,17 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     speakers = dict.fromkeys(line.split(": ", 1)[0] for line in history[channel_id])
     nicknames = {handle: nick for handle in speakers
                  if (user_id := handles.get(handle.lower())) and (nick := memory.nickname_for(user_id))}
-    options = {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}  # thinking would eat into the cap
+    # How long, whether to ask back, whether an emoji fits: decided here, not left to the model (shape.py).
+    newest = history[channel_id][-1].split(": ", 1)[-1] if history[channel_id] else ""
+    shape = this_time(newest, own_lines(channel_id), ONE_LINE_MAX_WORDS)
+    options = cap(MAX_REPLY_TOKENS, OLLAMA_THINK)
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
                                           author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
                                           memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
-                                          diary.vibe(), avatar_description, local_now()),
-               "options": options}
+                                          diary.vibe(), avatar_description, **shape, now=local_now()),
+               "options": options, "think": OLLAMA_THINK}
 
     start = time.monotonic()
     data = await ollama_chat(payload)
@@ -432,20 +450,29 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         data = await ollama_chat(payload)
     if data is None:
         return None
-    reply = clean_reply(data, author_id, start)
-    if (short := at_most_sentences(reply, MAX_REPLY_SENTENCES)) != reply:
-        log.info(f"Reply ran past {MAX_REPLY_SENTENCES} sentences; cut to {short[:200]!r}")
-    return short
+    return clean_reply(data, author_id, start, LINE_SENTENCES if shape["one_line"] else MAX_SENTENCES, shape["emoji"])
 
 
-def clean_reply(data: dict, author_id: int | None, start: float) -> str:
-    """The model's answer as she'll post it; author_id is the person she's answering, if anyone."""
+def own_lines(channel_id: int) -> list[str]:
+    """What she said in this channel's recent chat, oldest first."""
+    own = format_line(BOT_NAME, "")
+    return [line[len(own):] for line in history[channel_id] if line.startswith(own)]
+
+
+def clean_reply(data: dict, author_id: int | None, start: float, sentences: int = MAX_SENTENCES,
+                emoji: bool = True) -> str:
+    """The model's answer as she'll post it; author_id is the person she's answering, if anyone. At most
+    `sentences` sentences and one emoji (none unless emoji), whatever the model wrote (shape.py)."""
     # Small models often start with "Gomihyu:" anyway, copying the log format.
     reply = OWN_NAME_PREFIX.sub("", strip_thinking(data.get("message", {}).get("content", "")).strip())
     if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
         reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
     if author_id is not None:
         reply = without_ping(reply, author_id)
+    if (shaped := at_most(one_emoji(reply, emoji), sentences)) != reply:
+        log.info(f"Trimmed to {sentences} sentences and {'one emoji' if emoji else 'no emojis'} at most, from: "
+                 f"{reply[:300]!r}")
+        reply = shaped
     # A reply with a slur in it is thrown away whole, before it's sent or kept in the chat
     # history: she just stares instead.
     if has_slur(reply):
@@ -684,7 +711,7 @@ async def look_at(message: discord.Message) -> tuple[discord.Message, dict]:
             continue
         start = time.monotonic()
         data = await ollama_chat({"model": VISION_MODEL, "messages": describe_messages(what, image),
-                                  "options": {"temperature": 0.2} | ({} if model_thinks else {"num_predict": 80})})
+                                  "options": {"temperature": 0.2} | cap(80)})
         description = clean_description(strip_thinking(data.get("message", {}).get("content", ""))) if data else None
         if description:
             seen[key] = seen_before[remembered] = description
@@ -710,7 +737,7 @@ async def learn_avatar() -> None:
     if not AVATAR_DESCRIPTION and VISION and (image := jpeg_b64(data)):
         answer = await ollama_chat({"model": VISION_MODEL,
                                     "messages": describe_messages("Discord profile picture", image),
-                                    "options": {"temperature": 0.2} | ({} if model_thinks else {"num_predict": 80})})
+                                    "options": {"temperature": 0.2} | cap(80)})
         content = answer.get("message", {}).get("content", "") if answer else ""
         avatar_description = clean_description(strip_thinking(content)) or avatar_description
     log.info(f"Her avatar: {avatar_description or '(not described: set AVATAR_DESCRIPTION)'}")
@@ -742,12 +769,13 @@ async def on_ready():
     others = {"reading the room, diary": TASK_MODEL, "pictures": VISION_MODEL if VISION else MODEL_NAME}
     log.info(f"Her voice: {MODEL_NAME}" + "".join(f"; {job}: {model}" for job, model in others.items()
                                                     if model != MODEL_NAME))
+    log.info(f"Example chats in her prompt: up to {FEW_SHOT_EXAMPLES} of her {len(earned)} landed replies"
+             + (f", mixed with the {len(examples)} seed chats" if examples else ""))
     asyncio.create_task(learn_avatar())
     # on_ready runs again after a reconnect: one watcher is enough.
     if melee_watcher is None:
         melee_watcher = asyncio.create_task(watch_melee())
-        # A crash or a closed terminal skips the diary; catch up on what it left.
-        asyncio.create_task(write_diary("catching up on chat from before she started", before=started))
+        asyncio.create_task(catch_up())
     try:
         app = await client.application_info()
     except discord.HTTPException as e:
@@ -928,17 +956,17 @@ def melee_player() -> str:
 async def session_post(channel_id: int, matches: list[dict], taunts: list[str] = (),
                        temperature: float | None = None) -> str | None:
     """Her one message about a Melee session (melee.py), or None if the model didn't answer."""
-    options = {} if model_thinks else {"num_predict": max(MAX_REPLY_TOKENS, 400)}  # 3-5 sentences
+    options = cap(max(MAX_REPLY_TOKENS, 400), OLLAMA_THINK)  # 3-5 sentences
     if temperature is not None:
         options["temperature"] = temperature
     player = melee_player()
     facts = session_facts(matches, player, taunts)
     payload = {"messages": build_session_messages(list(history[channel_id]), facts, player, shown_examples(),
                                                   diary.vibe(), avatar_description),
-               "options": options}
+               "options": options, "think": OLLAMA_THINK}
     start = time.monotonic()
     data = await ollama_chat(payload)
-    return clean_reply(data, None, start) if data else None
+    return clean_reply(data, None, start, sentences=5) if data else None  # asked for 3 to 5
 
 
 def melee_held() -> bool:
@@ -1127,7 +1155,7 @@ async def update_vibe(said: list[dict]) -> None:
     lines.reverse()
     data = await ollama_chat({"model": TASK_MODEL, "messages": vibe_messages(diary.vibe(), lines),
                               "format": VIBE_FORMAT,
-                              "options": {"temperature": 0.3} | ({} if model_thinks else {"num_predict": 400})})
+                              "options": {"temperature": 0.3} | cap(400)})
     if data is None:
         log.warning("Couldn't update her note on how the server talks; next time")
         return
@@ -1144,7 +1172,7 @@ async def diary_entry(channel_id: int, part: list[dict]) -> bool:
     ids = {entry["author"]: entry.get("author_id") for entry in part if entry["author"] != BOT_NAME}
     day, where = local_day(part[0]["time"]), part[-1].get("channel") or f"channel {channel_id}"
     if sum(entry["author"] != BOT_NAME for entry in part) >= 2:
-        options = {"temperature": 0.3} | ({} if model_thinks else {"num_predict": 700})
+        options = {"temperature": 0.3} | cap(700)
         lines = [format_line(e["author"], e["text"]) for e in part]
         data = await ollama_chat({"model": TASK_MODEL, "messages": digest_messages(where, day, lines),
                                   "format": digest_format(sorted(ids)), "options": options})
@@ -1166,19 +1194,55 @@ async def diary_entry(channel_id: int, part: list[dict]) -> bool:
     return True
 
 
+async def catch_up() -> None:
+    """At the start: write up what a crash or a closed terminal left unread, then post what's waiting."""
+    await write_diary("catching up on chat from before she started", before=started)
+    await post_diary()
+
+
+async def post_diary() -> None:
+    """Post her diary's new recaps (POST_DIARY), each channel's in that channel. Only posted: not in her chat
+    log or history, so she doesn't answer it, write it up again or learn her voice from it (meld.py), and
+    it doesn't come back after a restart."""
+    async with diary_lock:
+        waiting = diary.to_post()
+        by_channel = defaultdict(list)
+        for recap in waiting if POST_DIARY else []:
+            by_channel[recap["channel_id"]].append(recap)
+        for channel_id, recaps in by_channel.items():
+            where = recaps[-1].get("channel") or f"channel {channel_id}"
+            if muted(channel_id):
+                log.info(f"Muted in {where}; not posting her diary there")
+                continue
+            try:
+                channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
+                for text in diary_posts(recaps):
+                    await channel.send(text)
+            except discord.HTTPException as e:  # gone, or no Send Messages there
+                log.warning(f"Couldn't post her diary in {where}: {e}")
+                continue
+            log.info(f"Posted her diary in {where} ({len(recaps)} entr{'ies' if len(recaps) != 1 else 'y'})")
+        diary.mark_posted(waiting)
+
+
 async def go_to_bed(message: discord.Message) -> None:
-    """An owner's "gomi goodnight": she says goodnight, and the bot shuts down (main() then writes her
-    diary)."""
+    """An owner's "gomi goodnight": she writes and posts her diary, says goodnight, and the bot shuts down."""
     channel_id = message.channel.id
-    log.info(f"{message.author.name} put her to bed: saying goodnight, then writing her diary and shutting down")
+    log.info(f"{message.author.name} put her to bed: writing her diary, saying goodnight, then shutting down")
     await react(message, GOODNIGHT_EMOJI)
+    try:
+        async with contextlib.nullcontext() if muted(channel_id) else message.channel.typing():
+            await write_diary("going to bed")
+            await post_diary()
+    except Exception:  # bedtime goes ahead whatever happens; main() tries the diary again at shutdown
+        log.exception("Couldn't write or post her diary before bed")
     if not muted(channel_id):
         owner = memory.nickname_for(message.author.id) or message.author.display_name
         start = time.monotonic()
         data = await ollama_chat({"messages": build_goodnight_messages(list(history[channel_id]), owner, diary.vibe(),
                                                                        avatar_description),
-                                  "options": {} if model_thinks else {"num_predict": MAX_REPLY_TOKENS}})
-        if data and (line := clean_reply(data, message.author.id, start)):
+                                  "options": cap(MAX_REPLY_TOKENS, OLLAMA_THINK), "think": OLLAMA_THINK})
+        if data and (line := clean_reply(data, message.author.id, start, LINE_SENTENCES)):
             await send_reply(message.channel, channel_id, line, about="goodnight")
     await client.close()
 

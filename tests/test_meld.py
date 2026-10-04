@@ -73,6 +73,10 @@ def mix(n_earned):
     return len(picked), sum(bool(e.get("real")) for e in picked)
 assert [mix(n) for n in (0, 20, 25, 100, 200, 500)] == [(8, 0), (8, 0), (8, 1), (8, 4), (8, 5), (8, 5)], [mix(n) for n in (0, 20, 25, 100, 200, 500)]
 assert meld.pick_examples(seed, [], 0, 0.3, 200) == []
+# no seed in her prompt (bot.SEED_EXAMPLES off): her landed replies only, up to n
+landed = [{"history": [["x", "y"]], "reply": f"earned {n}", "real": True} for n in range(12)]
+assert len(meld.pick_examples([], landed, 8, 0.3, 200)) == 8 and len(meld.pick_examples([], landed[:3], 8, 0.3, 200)) == 3
+assert meld.pick_examples([], [], 8, 0.3, 200) == []
 assert [meld.persona_share(r, 0.3) for r in (1, 2, 3, 6, 10, 11, 20)] == [0.7, 0.66, 0.62, 0.5, 0.34, 0.3, 0.3]
 assert meld.persona_share(4, 0.7) == 0.7 and meld.persona_share(0, 0.3) == 0.7 and meld.persona_share(2, 0.3, 3) == 0.5
 assert meld.persona_share(1, 0.3, 1) == 0.3 and meld.persona_share(2, 0.5) == 0.68
@@ -85,7 +89,9 @@ assert pv("nope") is None and pv('{"notes": []}') is None and pv('{"notes": "x"}
 
 # --- prompts
 real = [{"history": [["kaz0", "hi"]], "reply": "greetings, mortal", "real": True}]
-assert "real ones from this server" in persona.format_examples(real) and "made-up chats" in persona.format_examples(seed[:1])
+assert persona.format_examples(real).startswith("Some real chats from this server") and "made-up" not in persona.format_examples(real)
+assert "made-up ones, and real ones from this server" in persona.format_examples(real + seed[:1])
+assert "made-up chats" in persona.format_examples(seed[:1])
 sysmsg = persona.build_messages(["kaz0: hi"], False, vibe=["lowercase, short bursts"])[0]["content"]
 assert "How people in this server talk, which you've been picking up (let it rub off on you, but you're still you):\n- lowercase, short bursts" in sysmsg
 assert "How people" not in persona.build_messages(["kaz0: hi"], False)[0]["content"]
@@ -169,10 +175,15 @@ async def main():
     mode["vibe"] = lambda body: "garbage"; await bot.write_diary("junk")
     assert bot.diary.vibe() == ["everyone lives for smash nights", "short lowercase messages"]
 
-    # with plenty earned, real chats fill most of the examples; copying one is caught
+    # her landed replies are all her examples (no seed in her prompt); copying one is caught
     bot.earned[:] = [{"history": [["kaz0", f"q {n}"]], "reply": f"earned line number {n} is here", "real": True} for n in range(300)]
     shown = bot.shown_examples()
+    assert len(shown) == 8 and all(e.get("real") for e in shown)
+    # with the seed mixed in (SEED_EXAMPLES), real chats fill most of the examples, down to the anchor
+    bot.examples = [json.loads(l) for l in (REPO / "finetuning" / "gomihyu_seed.jsonl").read_text().splitlines()]
+    shown = bot.shown_examples()
     assert len(shown) == 8 and sum(bool(e.get("real")) for e in shown) == 5
+    bot.examples = []
     assert bot.repeats_itself(10, "look, earned line number 42 is here again")
     await r.cleanup()
 asyncio.run(main())
@@ -193,27 +204,27 @@ def build(*args):
     assert out.returncode == 0, out.stderr
     return out.stdout, [json.loads(l) for l in (repo / "finetuning" / "train.jsonl").read_text().splitlines()]
 out, rows = build()
-assert len(rows) == 66 and "66 seed examples" in out
+assert len(rows) == 86 and "86 seed examples" in out
 seed_replies = {json.loads(l)["reply"] for l in (repo / "finetuning" / "gomihyu_seed.jsonl").read_text().splitlines()}
-for run, want_server in [(1, 85), (2, 102), (3, 121), (6, 198), (11, 462), (14, 462)]:
+for run, want_server in [(1, 111), (2, 133), (3, 158), (6, 258), (11, 602), (14, 602)]:
     out, rows = build("--meld", "--run", str(run))
     replies = [row["messages"][-1]["content"] for row in rows]
     n_seed = sum(r in seed_replies for r in replies); n_landed = sum(r.startswith("landed ") for r in replies)
-    assert n_seed == 198 and len(rows) == 198 + want_server and n_landed == 10, (run, n_seed, len(rows), n_landed, out)
+    assert n_seed == 258 and len(rows) == 258 + want_server and n_landed == 10, (run, n_seed, len(rows), n_landed, out)
     assert f"Run {run}:" in out and "persona" in out
     assert all(row["messages"][-1]["role"] == "assistant" and "How people" not in row["messages"][0]["content"]
                and "made-up chats" not in row["messages"][0]["content"] for row in rows)
 (repo / "finetuning" / "train.jsonl").unlink()
 shutil.rmtree(repo / "logs_here"); ChatLog(repo / "logs_here").add(1, "#c", 1, 5, "rexmode", "just one line here", when=tt)
 out, rows = build("--meld", "--run", "11")
-assert len(rows) == 208 and "95% persona (aimed for 30%)" in out, out                  # short on server data: says so
+assert len(rows) == 268 and "96% persona (aimed for 30%)" in out, out                  # short on server data: says so
 for n in range(600):
     cl.add(10 + n % 3, "#c", n, 6 if n % 2 else 5, "kaz0" if n % 2 else "rexmode", f"server message number {n} here", when=tt + n)
 out, rows = build("--meld", "--run", "1", "--persona-share", "0.5")
-assert len(rows) == 396
+assert len(rows) == 516
 _, a = build("--meld", "--run", "2"); _, b = build("--meld", "--run", "2"); assert a == b      # same run, same data
 (repo / ".env").write_text("CHAT_LOG_DIR=logs_here\nEARNED_FILE=earned_here.jsonl\nMELD_ANCHOR=0.3\nMELD_RUNS=3\n")
-out, rows = build("--meld", "--run", "3"); assert len(rows) == 198 + 462 and "aimed for 30%" in out, out
+out, rows = build("--meld", "--run", "3"); assert len(rows) == 258 + 602 and "aimed for 30%" in out, out
 out, rows = build("--meld", "--run", "2"); assert "aimed for 50%" in out, out
 shutil.rmtree(work)
 print("MELD TESTS PASSED")

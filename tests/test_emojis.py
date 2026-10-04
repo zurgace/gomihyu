@@ -135,9 +135,17 @@ async def main():
     assert mm.reactions == [] and nocat.sent == ["hmph"]              # no catsad on the server: just the reply
 
     # custom emojis in her reply become the real thing; reaction-only / unknown ones stay text
-    reply_text["v"] = "AGAIN?? :kekpoint: and :Kekpoint: but :aryanosaka: :DoWar: :nothere: 10:30:45"
+    said = "AGAIN?? :kekpoint: and :Kekpoint: but :aryanosaka: :DoWar: :nothere: 10:30:45"
+    assert bot.to_server_emojis(said, SERVER) == "AGAIN?? <:kekpoint:100> and <:kekpoint:100> but :aryanosaka: :DoWar: :nothere: 10:30:45"
+    # a reply keeps one of them (shape.py): the last she can post
+    reply_text["v"] = said
     m, c = await send("i failed my driving test again")
-    assert c.sent == ["AGAIN?? <:kekpoint:100> and <:kekpoint:100> but :aryanosaka: :DoWar: :nothere: 10:30:45"], c.sent
+    assert c.sent == ["AGAIN?? and but :DoWar: 10:30:45"], c.sent       # DoWar isn't on this server: stays text
+    reply_text["v"] = "AGAIN?? :kekpoint: third time's the charm"
+    await bot.on_message(Msg(c, "i failed my driving test again"))
+    assert c.sent[-1] == "AGAIN?? third time's the charm", c.sent    # her last message there had one
+    c = Channel(77); await bot.on_message(Msg(c, "i failed my driving test again"))
+    assert c.sent == ["AGAIN?? <:kekpoint:100> third time's the charm"], c.sent
     assert list(bot.history[c.id])[-1] == "Gomihyu: " + reply_text["v"]  # the log keeps :name:
     c2 = Channel(3, guild=None); await bot.on_message(Msg(c2, "no guild here at all")); assert c2.sent == [reply_text["v"]]
 

@@ -38,6 +38,7 @@ from dotenv import load_dotenv  # noqa: E402
 from chatlog import ChatLog  # noqa: E402
 from meld import MELD_RUNS, persona_share, voice_examples  # noqa: E402
 from persona import BOT_NAME, build_messages, format_line  # noqa: E402
+from shape import tidy  # noqa: E402
 
 SEED = HERE / "gomihyu_seed.jsonl"
 OUT = HERE / "train.jsonl"
@@ -78,6 +79,7 @@ def meld_examples(seed: list[dict], run: int, share: float | None, seed_repeat: 
     server_n = round(len(persona) * (1 - share) / share)
     rng = random.Random(run)
     landed = earned if len(earned) <= server_n else rng.sample(earned, server_n)
+    landed = [example | {"reply": tidy(example["reply"])} for example in landed]  # today's limits (shape.py)
     pool = voice_pool(chat_log)
     voice = rng.sample(pool, min(len(pool), server_n - len(landed)))
     rows = persona + landed + voice

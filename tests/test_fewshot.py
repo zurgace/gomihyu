@@ -11,7 +11,8 @@ NOW = datetime(2026, 10, 4, 13, 31); bot.local_now = lambda: NOW
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 seed = [json.loads(l) for l in open(REPO + "/finetuning/gomihyu_seed.jsonl") if l.strip()]
-assert len(bot.examples) == 66 == len(seed)
+assert len(seed) == 86 and bot.SEED_EXAMPLES is False and bot.examples == []   # the seed only trains her now
+assert bot.MADE_UP.search("go bother @kaz0")  # its people are fake all the same: the seed trains her
 
 calls, answers = [], []
 async def fake(request):
@@ -38,17 +39,27 @@ async def main():
     app = web.Application(); app.router.add_post("/api/chat", fake)
     r = web.AppRunner(app); await r.setup(); await web.TCPSite(r, "127.0.0.1", 8776).start()
 
-    # 8 example chats in the system prompt, the chat log and instruction untouched
+    # nothing landed yet: no example chats, just the persona
     await bot.on_message(msg("what games should we play this saturday"))
+    assert calls[0]["messages"][0]["content"] == persona.SYSTEM_PROMPT
+    # her landed replies are her examples: up to 8, a fresh pick each reply, the chat log and instruction untouched
+    bot.earned[:] = [{"history": [["kaz0", f"question {n}"]], "reply": f"landed line number {n}", "real": True}
+                     for n in range(12)]
+    calls.clear(); await bot.on_message(msg("ok but which character are you going to play then"))
+    first = shown(calls[0])
+    assert len(first) == 8 and all(line[len("Gomihyu: "):] in {e["reply"] for e in bot.earned} for line in first)
+    assert "Some real chats from this server" in calls[0]["messages"][0]["content"]
+    assert "made-up" not in calls[0]["messages"][0]["content"]
+    assert calls[0]["messages"][1] == persona.build_messages(list(bot.history[12])[:-1], False, "rexmode", now=NOW)[1]
+    await bot.on_message(msg("and which stage do you want to play on after that one"))
+    assert shown(calls[1]) != first
+
+    # SEED_EXAMPLES: the seed's made-up chats in her prompt, as before her landed replies took over
+    bot.examples, bot.earned[:] = seed, []
+    calls.clear(); await bot.on_message(msg("anyone want to play something later"))
     first = shown(calls[0])
     assert len(first) == 8 and all(line[len("Gomihyu: "):] in {e["reply"] for e in seed} for line in first)
     assert "made-up chats" in calls[0]["messages"][0]["content"]
-    plain = persona.build_messages(list(bot.history[12])[:-1], False, "rexmode", now=NOW)
-    assert calls[0]["messages"][1] == plain[1]
-    # a fresh pick for the next reply
-    await bot.on_message(msg("ok but which character though"))
-    assert shown(calls[1]) != first
-
     # copying an example's line counts as repeating: one retry, the retry is sent
     calls.clear(); answers[:] = [seed[3]["reply"], "nah, too easy for me."]
     await bot.on_message(msg("anyone up for ranked tonight"))
@@ -78,20 +89,25 @@ async def main():
     calls.clear(); answers[:] = ["onigiri needs nori. mint tea after."]
     await bot.on_message(msg("gomi what's for lunch"))
     assert len(calls) == 1 and ch.sent[-1] == "onigiri needs nori. mint tea after."
+    # the same with the seed out of her prompt (the default): it still trains her, so its people stay fake
+    bot.examples = []; bot.history[12].clear()
+    calls.clear(); answers[:] = ["ask sleepyfox, they'd know.", "no idea, honestly."]
+    await bot.on_message(msg("gomi who knows about tents"))
+    assert len(calls) == 2 and ch.sent[-1] == "no idea, honestly." and "made-up" not in calls[0]["messages"][0]["content"]
     await r.cleanup(); print("FEWSHOT TESTS PASSED")
 asyncio.run(main())
 
-# FEW_SHOT_EXAMPLES=0 turns them off; a missing file warns and carries on
+# SEED_EXAMPLES=true loads the seed; FEW_SHOT_EXAMPLES=0 turns example chats off; a missing seed warns and carries on
 env = {**os.environ}
-out = subprocess.run([sys.executable, "-c", "import bot; print(len(bot.examples))"], cwd=REPO,
-                     env={**env, "FEW_SHOT_EXAMPLES": "0"}, capture_output=True, text=True)
-assert out.stdout.strip().endswith("0"), out
-out = subprocess.run([sys.executable, "-c", "import bot; print(len(bot.examples))"], cwd=REPO,
-                     env={**env, "EXAMPLES_FILE": "nope.jsonl"}, capture_output=True, text=True)
+run = lambda code, **extra: subprocess.run([sys.executable, "-c", "import bot; " + code], cwd=REPO,
+                                           env={**env, **extra}, capture_output=True, text=True)
+out = run("print(len(bot.examples))", SEED_EXAMPLES="true"); assert out.stdout.strip().endswith("86"), out
+out = run("print(len(bot.examples))", SEED_EXAMPLES="true", FEW_SHOT_EXAMPLES="0"); assert out.stdout.strip().endswith("0"), out
+out = run("from pathlib import Path; print(len(bot.load_examples(Path('nope.jsonl'))))", SEED_EXAMPLES="true")
 assert out.stdout.strip().endswith("0") and "No example chats at" in out.stderr, out
-# training data never gets the example block
+# training data still comes from the seed, and never gets the example block
 subprocess.run([sys.executable, REPO + "/finetuning/build_dataset.py"], check=True, capture_output=True)
 rows = [json.loads(l) for l in open(REPO + "/finetuning/train.jsonl")]
-assert len(rows) == 66 and all(row["messages"][0]["content"] == persona.SYSTEM_PROMPT for row in rows)
+assert len(rows) == 86 and all(row["messages"][0]["content"] == persona.SYSTEM_PROMPT for row in rows)
 os.remove(REPO + "/finetuning/train.jsonl")
 print("FEWSHOT CONFIG OK")
