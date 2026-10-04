@@ -19,8 +19,8 @@ import os
 import time
 from pathlib import Path
 
-# A match's post draws on the taunts from up to this long before it ended (a Melee match is 8
-# minutes at most by default), so a match that was quit halfway doesn't lend its lines to the next.
+# A session's post draws on the taunts from its matches and from up to this long before its first one
+# (a Melee match is 8 minutes at most by default), so a game quit halfway doesn't lend its lines to the next.
 TAUNT_WINDOW_SECONDS = 15 * 60
 
 

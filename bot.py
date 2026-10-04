@@ -3,10 +3,11 @@ Gomihyu — a Discord conversationalist backed by a small local model (via Ollam
 
 Behavior:
   - Always replies when @mentioned, replied to, or named ("gomi"), and to sad news.
-  - Posts that don't need words (images, emoji-only posts, "lol") get an emoji reaction as her
-    whole response instead (reactions.py, emojis.py).
-  - Any other post, she chimes in only if it interests her: a short model call rates it 0-10,
-    and she replies at CHIME_IN_THRESHOLD or above (chime.py).
+  - Any other post, she reads the room first (chime.py): one short model call rates how much she'd
+    want to say something (replies at CHIME_IN_THRESHOLD) and how much it gets a rise out of her
+    (an emoji reaction at REACT_THRESHOLD). Posts that don't need words (pictures, emoji-only,
+    "lol") only ever get the reaction (reactions.py, emojis.py).
+  - Sees pictures (vision.py), knows her own avatar, and posts about her Melee sessions (melee.py).
   - One reply at a time per channel. Messages that arrive while a reply is being written get
     a single follow-up reply to the latest chat, not one reply each.
   - No cooldown — designed for a small, slow server (see README).

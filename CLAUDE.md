@@ -1,415 +1,130 @@
 # Gomihyu — Discord SLM Conversationalist
 
 ## What this is
-A small-model (Gemma 4 E4B) Discord bot, "Gomihyu," running locally via Ollama on an
-RTX 2070 (8GB VRAM). This is a standalone side project — a dry run of Discord +
-personality plumbing before a much larger, separate local assistant project
-(Nemotron-based, on a different machine — a Framework Desktop) comes online. Don't
-conflate the two: this repo is scoped to just being a Discord conversationalist,
-nothing more, until told otherwise. (Told otherwise once, 2026-09-29: she posts about the Melee
-matches she plays in AI-Melee; see `melee.py` under Current state.)
+"Gomi" (Discord username `Gomihyu`), a persona bot for the user's 5-person Discord server (~2 active),
+on a small local model: Ollama `gemma4:e4b` on an RTX 2070 (8GB). A side project and dry run before a
+separate, bigger assistant project (Nemotron, Framework Desktop): don't conflate them. Scope is a
+Discord conversationalist, plus (user, 2026-09-29) posting about the Melee sessions she plays in
+AI-Melee (`zurgace/aimelee`, read-only from here).
 
 ## Environment
-- OS: CachyOS (Arch-based Linux)
-- GPU: RTX 2070, 8GB VRAM — every model/training decision here has to fit this
-- Inference: Ollama serving `gemma4:e4b` (Ollama's official tag; `OLLAMA_MODEL` in `.env`).
-  User switched from LFM2.5-2.6B on 2026-09-26 because it felt like "a response bot, not an
-  AI" (Liquid built it for agents/tool calling). Gemma 4 E4B: ~4.5B effective params (8B with
-  per-layer embeddings), ~5GB at Q4_K_M; Ollama's tag is listed at ~9.6GB (bundles image + audio
-  encoders). Confirmed 2026-09-27 on the 2070: `ollama ps` shows 3.2GB, 100% GPU, at both 4096 and
-  8192 context (sliding-window attention keeps its cache small). The bot asks for `OLLAMA_NUM_CTX` (8192) on every
-  call: the prompt (system prompt + 8 example chats + 12 messages) is ~1.6–2.5k tokens normally,
-  but long posts can pass 4096, which Ollama silently cuts. Every call must send the same value or
-  Ollama reloads the model between the reply and read-the-room calls. Thinking is off unless
-  requested (a `<|think|>` token in the system prompt).
-  Rejected: Ternary Bonsai 2 27B (needs PrismML's llama.cpp fork, stock Ollama 0.34.2 can't load
-  it, 5.95GB of weights is too tight for 8GB, and it's a reasoning model).
-- LFM2.5-2.6B history, kept in `archive/lfm2.5/`: it's a pure reasoning model whose template
-  always opens `<think>`, so `think: false` did nothing (~1000 tokens, 8–13s per reply). The
-  archived `Modelfile` fixed that with a template ending in an empty, closed think block.
-- Python 3, using `discord.py`, `aiohttp`, `python-dotenv`
+- CachyOS (Arch), fish shell. Python 3 venv; run things as `venv/bin/python ...`.
+- `gemma4:e4b`: ~4.5B effective params; `ollama ps` shows 3.2GB, 100% GPU at 4096 and 8192 context.
+  Every call sends the same `OLLAMA_NUM_CTX` (8192), or Ollama reloads the model between calls.
+  Thinking is off (`think: false`). Vision works on the user's Ollama 0.34.2 (`tools/vision_check.py`;
+  ollama#18560's blank-image bug hits some setups, so re-run it after Ollama/model changes).
+- Rejected: LFM2.5-2.6B (felt like "a response bot"; always reasoned; kept in `archive/lfm2.5/`),
+  Ternary Bonsai 2 27B (needs a llama.cpp fork, too big for 8GB), anime-girl-1.5B.
+- Serving must fit the 2070 (check VRAM math before suggesting a model). Training runs elsewhere.
 
-## Current state
-- `bot.py` / `persona.py` / `requirements.txt` / `.env.example` — working Discord bot
-  that talks to Ollama. Running live on the server (replies and memory confirmed working;
-  the emoji rework, prompt fixes and slur filter not yet tested live).
-- `persona.py` — the system prompt AND the prompt format (`format_line`, `build_messages`).
-  Both the bot and any dataset builder use it, so training prompts match runtime prompts
-  exactly. Change the format there, never in only one place.
-- `emojis.py` — every emoji she uses (unicode + this server's custom ones) with a "when to use
-  it" note; the model only ever sees names + notes. `reactions.py` — when a post gets a
-  reaction instead of a reply (the reaction itself comes from `chime.py`'s read of the room).
-- `censor.py` + `slurs.txt` — a reply containing any slur (whole words, optional plural s) is
-  replaced entirely by the `:goonerstare:` emoji (`SLUR_STANDIN`), also in her chat history.
-  Swearing is deliberately not filtered; the server doesn't want her more PG.
-- `memory.py` — person memory: "remember that ..." parsing + `people.json` store (asked-for facts,
-  nicknames, and her diary's "learned" notes, kept apart).
-- `chatlog.py` — every server-channel message (hers too) on disk, `chatlogs/<date>/<channel>.jsonl`;
-  never DMs or owner commands; deleted posts taken out. Kept (user choice), gitignored.
-- `diary.py` — her diary: prompt, `format` schema and checks for the nightly write-up, and `diary.json`
-  (recaps, the vibe note, how far each channel's log has been read).
-- `meld.py` — how the server slowly shapes her persona: which of her replies landed, which messages
-  are the server's voice, the example-chat mix, the vibe note, the training-run schedule.
-- `vision.py` — what she sees: which media in a post she looks at, image prep (Pillow, first frame, on
-  white, <= 1024px JPEG), the one-line describe prompt, and the `[image: ...]` / `[gif: ...]` /
-  `[sticker: name, ...]` / `[link: "title", preview: ...]` labels, and the picture fingerprint that
-  knows her own avatar. `tools/vision_check.py` tests vision.
-- `chime.py` — her read of the room for a post not aimed at her: one call's prompt, `format` schema and
-  parsing for {read, interest 0–10, react 0–10, emoji}, which decides both whether she chimes in and
-  whether (and with what) she reacts.
-- `commands.py` — owner commands, parsed in code: `delete_request` ("gomi delete that" /
-  "your last 3 messages" / "all your messages"), `mute_request` ("gomi mute" / "for 2 hours" /
-  "until i say so"), `quiet_request` ("gomi quiet mode") and `unmute_request` (ends either).
-- `finetuning/` — the "Satania" seed, active again (user, 2026-09-26: reuse it until a rented
-  GPU is set up for training Gemma): 58 original synthetic exchanges (`gomihyu_seed.jsonl`), the
-  voice guide they were written from (`persona_guide.md`: paraphrased wiki bio + tonal patterns,
-  no copied dialogue), and `build_dataset.py` (renders them through `persona.build_messages`).
-  Nothing has ever been trained on it yet. Right now it's used as few-shot example chats (below).
-  The weekly fine-tune (see its locked-in decision): `weekly.py` (the round trip), `kaggle_train.py`
-  (runs on Kaggle), `check_chats.jsonl` (made-up test chats for its check); state in gitignored `runs/`.
-- `archive/discord-pipeline/` — parked until the rented GPU: turns the user's Discord export
-  into training data in their texting style. `extract.py` (export → cleaned server replies),
-  `backtranslate.py` (Ollama writes 1–3 friend messages before each reply; resumable, fixed
-  shuffled order, 2 tries then `rejected.jsonl`; 25% get an "@Gomihyu" ping; made-up handles),
-  `build_dataset.py` (examples → `train.jsonl`, several input files can be mixed). Runs from the
-  archive; output in its gitignored `data/`. Tested with a fake export/Ollama, never run for real.
-  On the export: 17,482 replies survive cleanup.
-- `melee.py` + `persona.build_session_messages` — Melee results (user, 2026-09-29: "lets have her
-  start yapping in discord on the outcome"). The first step past "just a Discord conversationalist":
-  AI-Melee (`zurgace/aimelee`, where she plays Mario or Fox through Ollama and learns between matches)
-  writes one JSON per match and per in-match taunt to an outbox both know by default,
-  `~/.local/share/gomihyu/melee-outbox` (atomic, newest 20 kept; `MELEE_OUTBOX` overrides).
-  `bot.py`'s `watch_melee` task (started once in `on_ready`) checks it every 5 s. She only talks once
-  a match is over (user, 2026-09-29, same day: she "yaps a bit too often during gameplay"; the first
-  version posted taunts live, at most one per 30 s). Taunt files are taken out of the outbox on sight
-  (so AI-Melee's newest-20 limit never pushes out a match) into `melee_taunts` (in memory), minus
-  slurs; a match post gets the ones said up to `TAUNT_WINDOW_SECONDS` (15 min) before it ended, the
-  last 3 quoted in `match_facts` ("call one back if it fits, don't list them"), and they're dropped
-  with the match (posted, muted, stale). Unmatched taunts expire with `MELEE_MAX_AGE_MINUTES`. Matches are
-  posted about through the normal paths
-  (`clean_reply` / `send_reply`, shared with `generate_reply` / `reply_to`): slur filter, repeat
-  retry, in her chat history and `posted`, holding the channel's reply lock, with any follow-up owed
-  answered right after (`converse`). User choices: through her own bot (not a webhook), one post per
-  match. Muted → dropped; model down → kept, retried after `MELEE_RETRY_SECONDS` (60) instead of every
-  5 s; a post Discord refuses (permissions) → dropped with a warning, never in her history; older than
-  `MELEE_MAX_AGE_MINUTES` → dropped; unreadable → renamed `.bad`. The player is `MELEE_PLAYER`,
-  else the app owner's nickname / display name / handle. The channel: an owner's "gomi post melee
-  here" (commands.py, owner-only like delete/mute, reacts 🎮; saved in gitignored
-  `melee_channel.json`), "gomi stop posting melee" (🔕, saves none, which also beats the env), else
-  `MELEE_CHANNEL_ID`. No channel → everything waits in the outbox. The user hadn't set the `.env`
-  lines the first design needed, so setup is a chat command now, not config.
-  Match posts say what she'll work on (user, 2026-09-29: "provide more meaningful information ... like
-  mention what she wants to work on and improve"). Since then, AI-Melee's match event also carries her `review`
-  (her own words), `notes` (its match log: what hit her, openings, how stocks went), `goal` (the drill she
-  practises next match) and `drill_result` (last match's goal: its number before -> after, better/worse).
-  `match_facts` quotes them; the prompt asks for 2-4 sentences naming what decided the match, whether
-  her practice paid off, and next match's goal as a scheme, never an apology (it no longer tells her to
-  blame anything but the player).
-  One post per session (user, 2026-09-30: "only post once I close the game or tell gomi GG"; the
-  per-match posts above were the design until then). Match files stay in the outbox until
-  `melee.session_ready` says the session is over: AI-Melee writes a `session_end` event when the game
-  closes (its agent waits for her last reflection first, and play.py waits for the agent), the owner
-  says "gg" (`commands.gg_request`: the whole message is gg / ggs / gg wp / good games / gg gomi; owner
-  only, to her or in the Melee channel, and only while matches are held (`melee_held`), else it's chat;
-  sets `melee_gg`, reacts 🎮), or no match came for `MELEE_SESSION_IDLE_MINUTES` (20; a force-quit).
-  `post_session` then writes one post from `session_facts` (a line per match, the last 8, then the last
-  match in full via `match_facts`, up to 3 taunts from the session) and deletes those files; matches
-  after a `session_end` wait for the next. `MELEE_MAX_AGE_MINUTES` is now 120, measured from the
-  session's last match; AI-Melee keeps its newest 200 files. Session posts get
-  `max(MAX_REPLY_TOKENS, 400)` tokens.
-- The repo lives on GitHub (`zurgace/gomihyu`); `.env` is gitignored.
+## Repo map
+- `bot.py` — Discord client, all runtime flow, every `.env` setting (documented in `.env.example`).
+- `persona.py` — system prompt + prompt builders (`build_messages`, session, goodnight). The dataset
+  builders use it too, so training prompts match runtime prompts: change the format only here.
+- `chime.py` — reading the room for a post not aimed at her: {read, interest 0–10, react 0–10, emoji}.
+- `reactions.py` — which posts get only a reaction, sad news, names_her. `emojis.py` — every emoji + "when".
+- `vision.py` — what she looks at, image prep, describe prompt, `[image: ...]` labels, avatar fingerprint.
+- `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
+  (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
+  `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
+- `finetuning/` — `gomihyu_seed.jsonl` (58 original Satania-style chats), `persona_guide.md` (voice
+  reference they were written from), `build_dataset.py`, `weekly.py` + `kaggle_train.py` +
+  `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
+- `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
+- `tests/run_all.sh` — 27 suites, everything faked (Ollama, Discord, Kaggle, Unsloth), run on a temp copy
+  of the repo. Run it after any change; `tests/run_all.sh test_x.py` for one.
 
-## Locked-in design decisions (don't change without asking)
-- Bot's Discord username is `Gomihyu`. Always replies when @mentioned — including
-  firing back rudely/dramatically if provoked (see `persona.py`: the persona is
-  explicitly instructed not to stay polite when insulted).
-- Always replies to posts aimed at her: @mention, a Discord reply to her message (ping on or
-  off, `replying_to_her`), her name anywhere outside links (`reactions.names_her`), sad news.
-  Anything else she chimes in on only if it interests her (user, 2026-09-27, replacing
-  `UNPROMPTED_REPLY_CHANCE`, which was 1.0 = every message): `chime.py` reads the room for the newest
-  post in one short Ollama call (`format`-constrained: a short read, interest 0–10 on an anchored
-  scale: her topics, bragging, plans without her, a funny line, a question to the room, someone
-  answering her; and a reaction), and she replies at `CHIME_IN_THRESHOLD` (default 6) or above; 0
-  skips the call and answers everything. A failed or unparseable interest = quiet. Posts arriving while she decides or
-  writes get one follow-up, rated on the newest post (or just answered if any was aimed at
-  her); a reply covers posts that arrived while she was deciding, so no double reply. No
-  cooldown (slow server, 5 people, ~2 active) — don't add one without checking first.
-  Exception (user decision): posts that don't need words —
-  image/sticker/bare-link/emoji-only, or at most `REACT_ONLY_MAX_WORDS` (2) words without "?"
-  — get an emoji reaction as her whole response (only at `REACT_THRESHOLD`, see emoji reactions;
-  otherwise nothing), unless they @mention or name her ("gomi", "gomihyu") or look serious; those
-  always get a reply.
-- Owner commands override the persona (user, 2026-09-28: "if I tell gomi to delete her posts,
-  I want her to delete them"). An owner (the bot application's owner from `application_info()`
-  at login, or a team's members, plus `OWNER_USER_IDS`) saying "delete that / your last N /
-  all your messages" in a message aimed at her (name, @mention, Discord reply to her) → the bot
-  deletes her own posts (the replied-to post, or her newest N via `channel.history`, "all" =
-  hers among the last `DELETE_SCAN` 200), reacts 🗑️ (🤷 if none), never replies, and neither
-  the command nor the deleted posts stay in her chat log (`posted` maps message id → log line).
-  Non-owners, "don't delete", "I'll delete" → normal chat. No extra permission: bots can always
-  delete their own messages.
-- Mute (user, 2026-09-28: for when she's "yapping a bit too much" or "wants to butt in"): an
-  owner's "gomi mute [for 10 minutes / 2h / an hour | until i say so]" silences her in that
-  channel (`muted_until`, in memory, so a restart unmutes; default `MUTE_MINUTES` 30), "gomi
-  unmute" ends it; reacts 🔇 / 🔊. While muted she still logs the chat and saves notes (📝), but
-  sends nothing and reacts to nothing, except 🤐 on posts aimed at her; a reply in progress is
-  dropped before sending and no follow-up runs. Only the literal word "mute": "gomi stfu" is
-  banter the user actually says to her. Negation and first-person ("don't make me mute you",
-  "I'll mute you") are checked only in the words before the verb.
-- Quiet mode, the softer mute (user, 2026-09-29): an owner's "gomi quiet mode [for ... | until i
-  say so]" or "gomi only talk/reply when ..." → in that channel she only answers posts aimed at her
-  (`for_her`); no chime-ins (no interest call), no reply to sad news not aimed at her (the sad cat
-  still goes on), but emoji reactions and Melee match posts continue. `quiet_until`, same default
-  and duration parsing as mute, reacts 🤫. Mute and quiet mode replace each other (the newest wins);
-  "unmute" / "quiet mode off" / "turn off quiet mode" / "you can talk again" end either (🔊).
-  Questions, "don't ..." and "I'll ..." before the phrase aren't commands; "be quiet" is banter.
-- One reply in flight per channel (per-channel lock). Messages arriving mid-reply get ONE
-  follow-up reply to the latest chat, not one each. The in-flight reply is logged ahead of
-  them so the follow-up prompt still ends on the newest unanswered message.
-- She goes by Gomi (`BOT_NICKNAME`) and calls people by their nicknames, falling back to
-  their handle (user decision; this replaced the earlier "full handle, never a nickname"
-  trait). The log labels speakers by handle (`author.name`); a "Nicknames, call these people
-  by them: ..." line covers everyone in the log. `@handle`, `@display name` or `@nickname` in
-  a reply becomes a real ping, except for the person she's answering (user, 2026-09-27: on Gemma
-  she @'d them in every reply and "stop pinging me" didn't stick). Code drops their @
-  (`without_ping`: a leading "@name" goes, others become the plain name), the prompt says never
-  to @ them, and the seed replies have no @. Never pings @everyone/@here/roles.
-- Vision (user, 2026-09-29, after `tools/vision_check.py` passed on their Ollama 0.34.2 / Linux /
-  NVIDIA; ollama#18560's blank-image bug doesn't hit them). User choices: describe once; look at
-  images, stickers, GIFs and link previews; a picture alone is still reaction-only, but reacted to by
-  what's in it. On a post with media or a URL, `on_message` logs the placeholder line first (so posts
-  arriving meanwhile stay in order), `look_at` (for a URL with no embeds yet: waits
-  `EMBED_WAIT_SECONDS` 2.5 and re-fetches the message) downloads each source (<= 10MB, 20 s,
-  `VISION_MAX_IMAGES` 3; link previews from Discord's `proxy_url`, never the page), asks
-  `VISION_MODEL` (default her model; temperature 0.2, 80 tokens) for one line, and `readable(message,
-  seen)` rebuilds the line, which replaces the placeholder in her history and is what the chat log
-  gets. Descriptions are cached by URL (without query), no brackets, slur → dropped. `take_notes`
-  gets the typed text, never descriptions (no memories planted by text in a picture). `reactions.MEDIA`
-  covers [gif]/[link], so descriptions never count as typed words, names or sad news. The system
-  prompt says bracketed media is what she saw and that she can't open links or play videos.
-  `VISION=false` → text-only, as before.
-  Her own avatar (user, 2026-10-01: "have gomi recognize her own avatar and have her associate with
-  it"; it's a grey hamster with furrowed brows): `learn_avatar` (each `on_ready`, again only if
-  `client.user.avatar.key` changed; Discord's default avatar is ignored) downloads it, fingerprints it
-  (`vision.avatar_prints`: 64-bit dHash on white, black and Discord's dark/light theme colours, since
-  it's a cut-out with a transparent background) and, unless `AVATAR_DESCRIPTION` is set, has
-  `VISION_MODEL` describe it once. The description goes into every prompt's system part
-  (`persona.system_content(avatar=)`: "Your Discord avatar ... is X. That's your face here: when
-  someone posts it or talks about it, they mean you"; `chime.room_messages` too); training data
-  leaves it out, like the vibe note. In `look_at`, a downloaded picture within `SAME_PICTURE_BITS` (12)
-  of one of those fingerprints isn't described: its label is `Gomi's own avatar, X`. Measured on the
-  real avatar: JPEG / resized / other-background copies 0–10 bits off, a mirrored copy 15, other
-  pictures 22+. A picture of her alone still only gets a reaction (labels never count as her name).
-- Emoji reactions are a response, not a random roll (the old independent `REACTION_CHANCE`
-  was removed at the user's request). Media she couldn't see (vision off or failed, videos, Lottie
-  stickers) → a "looking" emoji (👀 / :goonerstare:), never a judgment of the image. Everything
-  else: her read of the room (user, 2026-09-29: the old separate picker, 5 lines and a one-line
-  "bratty demon" persona, reacted 🙄 to a cat photo, a rabbit drawing and a link; "get gomi to be
-  even more aware of the conversation or situation"). `read_room` builds one call for a post not
-  aimed at her (`chime.room_messages`): persona incl. "secretly soft", the vibe note, the last 12
-  lines with picture descriptions, who the post replies to, and her last reactions; `format` = {read,
-  interest, emoji ∈ `emojis.py` names + usable customs + "same" for emoji-only posts + "none"}. The
-  names of her last two picked reactions per channel (`recent_reactions`; never "same") are left
-  out of the options. Only what gets a rise out of her (user, 2026-09-30: "currently she is reacting to
-  every single post ... react only if the item interests her (8/10 default ...) have the scale be
-  slightly different to the post scale"): the same call also scores `react` 0–10 on its own anchored
-  scale (0–2 chatter, logistics, questions, plans; 3–5 fine but unremarkable; 6–7 she notices; 8–10
-  really funny, big win/flex, cute past her act, cursed, painful fail, sad moment), and `read_room`
-  hands back an emoji only at `REACT_THRESHOLD` (8) or above (0 = whenever one fits); no score
-  (missing, or a bare non-JSON emoji) = no reaction. Posts that don't need words → that emoji as her
-  whole response, or nothing; other posts she doesn't answer → the emoji too (`REACT_TO_CHAT`,
-  default on); posts she chimes in on → the emoji as well as the reply (`REACT_WHEN_REPLYING`,
-  default on; user, 2026-09-30: a 10/10 💢 read on an insult to her AI got a reply and no react,
-  and they expected the react; until then chimed-in posts never got one). Posts aimed at
-  her aren't read, so they get no reaction. A mute arriving during the read → no reaction.
-  Quiet mode: no read for chat posts (reactions only for posts that don't need words). 🥺 (cute /
-  her soft spot), 😳 (flustered) and 💀 (dying laughing) were added to `UNICODE` for moments the
-  list couldn't express. Reactions are never added to the chat history.
-- Sad news (`reactions.sad_news`: serious words, not laughter like "crying lmao") gets a
-  reply plus a `:catsad:` reaction (`SAD_NEWS`), never a reaction alone.
-- She may write this server's custom emojis in replies as `:name:` (converted to the real
-  emoji at send time). Only `in_text=True` ones are listed in her prompt; `aryanosaka` and
-  `goonerstare` are reaction-only so those names aren't listed there. `goonerstare` is also
-  the slur stand-in, so it's always postable and can appear in her chat log.
-- Her diary (user, 2026-09-29: "have gomi store conversations into her memory whenever I shut down
-  gomi for the night"; this ended "person memory is explicit only, no auto-extraction"). Chosen: notes
-  + daily recaps; triggered by Ctrl+C / SIGTERM / SIGHUP (own `main()` instead of `client.run`; a
-  second Ctrl+C skips it) or an owner's "gomi goodnight" (💤, a goodnight line unless muted, then
-  `client.close()`), with a background catch-up at the next start for chat older than the start;
-  everyone in the server, no opt-out; raw logs kept. Every server-channel message goes to the chat
-  log (`chatlog.py`; DMs never, owner commands never, deleted posts removed). `write_diary` reads each
-  channel's log since `read_up_to` in ~12k-char parts; a part with <2 human messages is just marked
-  read. One `format`-constrained call per part (`who` is an enum of the part's speakers, temperature
-  0.3) returns a recap and notes, each note with a quote; `parse_digest` keeps a note only if its
-  quote (2+ whole words, case/punctuation-insensitive) is in one of the part's messages, the note has no
-  slur and is <= 200 chars. Notes → `people.json` "learned" (deduped against facts, at most
-  `MAX_LEARNED_PER_PERSON` 10); recaps → `diary.json`. Model down → stop, unread; unparseable → skip
-  and mark read. Prompt: the speaker's learned notes (after their asked-for facts) and the channel's
-  last `RECAP_DAYS` (3) of recaps, both ahead of the log; the system prompt's limits say she
-  remembers "what you wrote in your diary after past chats". Restarts reload each channel's last
-  `HISTORY_LENGTH` log lines from the last `HISTORY_RELOAD_HOURS` (12) and prefill `handles`.
-- Melding (user, 2026-09-29: "I'd like for gomi's personality to get influenced by the discord
-  server... slowly meld the current Satania persona to someone that fits in"). User choices: the members
-  have agreed to their chat being training data; learn from both her replies that landed and the
-  server's own voice; start melding now through the prompt; gradual with an anchor. Nightly (in
-  `write_diary`): `meld.landed_replies` over each channel's newly read log, reactions included (the
-  bot logs `on_raw_reaction_add` on her posts, `reply_to` on Discord replies, `about` on her posts:
-  reply / melee / goodnight). Landed = a reaction from someone else, a Discord reply to it, a laugh
-  (`reactions.LAUGHING`) as the next message, or her name in what people said next (up to her next
-  post, within 180 s, max 3), and no put-down ("stfu", "shut up", ...). Only "reply" posts of 2+
-  words, not the slur stand-in, with a human line in the context (last 6 lines, <= 30 min). Kept in
-  `EARNED_FILE` (earned_examples.jsonl, gitignored, dedup by message id, "real": true). Prompt:
-  `pick_examples` mixes seed and earned; persona share = max(`MELD_ANCHOR` 0.3, 1 - earned /
-  `MELD_FULL_AT` 200), so 8 examples go from 8 seed to 3 seed + 5 earned; with real ones in, the
-  examples' intro says so and not to bring up what happened in them; the repeat guard covers earned
-  replies. Vibe note: with >= `VIBE_MIN_MESSAGES` (10) new human messages, one `format`-constrained
-  call (temperature 0.3, newest ~8k chars) updates <= 6 lines on how the server talks (keep / add /
-  drop); in `diary.json`; in the system prompt via `persona.system_content` (all three prompt
-  builders). Training: `finetuning/build_dataset.py --meld --run N`: seed x3 + all earned + a
-  `Random(run)` pick of `meld.voice_examples` (people's messages answering someone else, 3+ words,
-  not naming her, no slur, not a link, not a burst continuation, <= 10 min after the previous line)
-  so the seed share is `meld.persona_share`: 0.7 at run 1 down in even steps to the anchor at run
-  `MELD_RUNS` (11; 0.7 / 0.66 / 0.62 ...; was 0.7 / 0.55 / 0.4 / 0.3 over 4 runs until the user chose
-  weekly runs, 2026-09-29), never below it; it prints the actual share (short on data early). Training
-  data keeps the prompt without examples and vibe, like recaps and notes.
-- Person memory, explicit part: a "remember (that) ..." / "don't forget ..." message aimed
-  at her (@mention, reply-ping, or "Gomi"/"Gomihyu" within the first 4 words) stores the rest verbatim for its
-  author (her own picked-up notes come only from the diary, above); questions ("remember when...?") are skipped. She
-  reacts 📝 on store. Nicknames ("call me X", "my nickname is X", "Y's nickname is X",
-  "call @y X") are stored on the person they're about (resolved by handle / display name /
-  mention / people.json), never with a slur, never for her. `people.json` (gitignored),
-  `{user_id: {"display_name", "facts", "nickname"?}}`,
-  deduped, capped at `MAX_FACTS_PER_PERSON` (20) with the oldest dropping off, written
-  atomically; invalid JSON stops startup rather than being overwritten. At reply time only
-  the latest message's author's facts go into the prompt, as one line ahead of the chat
-  log (not the system prompt, not next to the instruction, so it isn't forced into every
-  reply). No vector store/embeddings/RAG — it's 5 people.
-- Persona is inspired by an existing character but renamed and written fresh —
-  original writing only. A small (dozen-ish) set of quotes as a style reference is
-  fine; bulk verbatim dialogue as training data is not. This is an intentional
-  constraint, not a stylistic preference.
-- A small model will confabulate; that can be contained, not eliminated. Anything that has to
-  be true lives in code, not the model (memory storage, slur filter, constrained emoji picks).
-  The prompt states her limits (sees only the last few messages; can't read/search history,
-  look things up, run commands or do things later; remembers only nicknames + notes) and
-  spells out who sent the message she's answering ("When X says I/me/my, they mean
-  themselves"), because she mixed up "who am I?". Channel-history reading/summaries are out of
-  scope here (that's the bigger assistant project); she declines those in character.
-- Reply length matches the moment (user wants her to actively join discussions): a jab or
-  comeback is one short line, a question or real discussion 2–4 sentences ("never more", added
-  when Gemma wrote 5–7), building on others and giving opinions. A question gets a real answer
-  (Gemma dodged "the fuck is Malebolge"); asking something back is "now and then, not every
-  time" (Gemma ended nearly every reply with a question), and she mustn't open by repeating
-  the message back as a question. Don't bring back "a few words, at most 2 sentences" or "don't reuse topics" to fix
-  repetition: that turned her into a one-liner machine. Repetition is handled by "don't repeat
-  your own earlier lines / pet topics" plus the REPEAT_WORDS retry. `MAX_REPLY_TOKENS` (200)
-  is the safety cap; a reply that hits it is trimmed to its last full sentence. The cap counts
-  thinking tokens too: 200 tokens of planning left an empty reply and she went silent. So
-  thinking is requested off by default, and once any response shows thinking (`OLLAMA_THINK=true`,
-  or a model that ignores `think: false`, as LFM2.5-2.6B did) `model_thinks` is set and replies
-  go uncapped (the 60s request timeout still bounds them); a capped reply that ran out while
-  thinking is retried once uncapped. `<think>` text inside the content is stripped before posting.
-- Until a fine-tuned model serves her, her voice comes from few-shot example chats: each reply's
-  system prompt gets `FEW_SHOT_EXAMPLES` (8) seed examples, a fresh random pick every reply
-  (`persona.format_examples`, last 3 history lines + her reply, labelled made-up and not to be
-  reused). The repeat guard also retries a reply that copies 5 words from any example reply.
-  Training data is built without them; set `FEW_SHOT_EXAMPLES=0` once a fine-tuned model serves.
-- Fine-tuning approach is LoRA/QLoRA (Unsloth is the intended tool), not full fine-tuning.
-  Gemma 4 E4B QLoRA reportedly needs ~10GB VRAM, so it won't train on the 2070: training
-  happens elsewhere (now Kaggle, below); serving stays on the 2070.
-- Weekly fine-tune (user, 2026-09-29: "running the fine tuning once a week on gomi to slowly meld the
-  personality", then "go ahead and build it"): `finetuning/weekly.py` build → upload → fetch → install
-  → check → switch (`all` = build..check, never switches; `rollback`; `status`). Kaggle's free T4
-  (machine_shape `NvidiaTeslaT4`: Unsloth doesn't support the P100), private per-run dataset
-  `gomi-meld-wN` deleted after download, one private script notebook `gomi-meld`. Rules: every run
-  trains stock `unsloth/gemma-4-E4B-it` again on all data so far (never last week's model: no
-  compounding, no feedback loop on her own tics, redoable); the mix is the meld (`persona_share`); a
-  week with < `WEEKLY_MIN_NEW` (50) new server examples (landed + voice pool, vs the last installed
-  run) is skipped; each run is kept as `gomi-wN` in Ollama; switch needs a check. `kaggle_train.py`:
-  QLoRA r16, 1 epoch, lr 2e-4, max 2048 tokens (longer examples dropped, not cut), responses only
-  (verified on the first example, else it stops), merged → llama.cpp `convert_hf_to_gguf.py` f16 →
-  `llama-quantize` Q4_K_M (Unsloth's own GGUF export only does Q8_0/BF16/F16 for Gemma 4); the log
-  has counts and losses only; `result.json` carries the run number, which `fetch` checks. Install:
-  Ollama's docs no longer have `ADAPTER` and only import GGUF unquantized, hence the full GGUF;
-  the Modelfile is the stock one from `/api/show` with only FROM replaced (template, renderer,
-  parameters kept). The fine-tune is text only, so switch sets `VISION_MODEL` to the stock model
-  unless the check saw it see, `TASK_MODEL` (bot: room reads, diary, vibe note) to stock if both
-  models fit on the GPU (check: `/api/ps` size_vram) or `--tasks stock/her`, `FEW_SHOT_EXAMPLES=0`.
-  Kaggle username: `WEEKLY_KAGGLE_USER` (a blank `KAGGLE_*` variable would blank the CLI's login).
-- Training data must never be committed: the user's Discord export (`Messages/`, `*.zip`) holds
-  personal messages including DMs, and is gitignored. Builders read it from a local path.
+## Locked-in decisions (don't change without asking)
+**Talking**
+- Always replies to posts aimed at her: @mention, a Discord reply to her (ping on or off), her name
+  outside links, sad news. Fires back rudely in character when insulted.
+- Everything else: one `chime.py` read; she replies at `CHIME_IN_THRESHOLD` (default 6; user runs 8).
+  Failed read = quiet. No cooldown (slow server); ask before adding one.
+- One reply in flight per channel; posts arriving meanwhile get ONE follow-up on the newest chat.
+- Reply length matches the moment: a jab is one line, a question/discussion 2–4 sentences, never more.
+  She answers questions for real, builds on others, asks back only now and then, never opens by
+  echoing the message. Don't bring back "at most 2 sentences" or "don't reuse topics" (that made her a
+  one-liner machine); repetition is handled by "don't repeat your own lines" + the `REPEAT_WORDS` retry.
+  `MAX_REPLY_TOKENS` (200) caps a runaway reply (trimmed to a full sentence); if a model thinks anyway,
+  replies go uncapped (thinking ate the cap and she went silent once).
+- Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
+  the person she's answering (code strips it; she used to @ them every reply). Never @everyone/roles.
+- The prompt states her limits (sees only recent messages, can't search history or look things up)
+  and who "I" is in the message she answers. Channel summaries are out of scope; she declines.
+- Small models confabulate: anything that must be true lives in code (memory, slur filter,
+  constrained emoji picks, quote-checked diary notes).
+- A reply with any `slurs.txt` word (whole words, plural s) is replaced entirely by `:goonerstare:`,
+  also in her history. Swearing is not filtered (the server doesn't want her more PG).
+- Persona: inspired by an existing character (Satania), renamed and written fresh. Original writing
+  only; a dozen-ish quotes as style reference is fine, bulk verbatim dialogue never.
 
-## Open / not yet decided
-- (Settled 2026-09-29: channel history now survives restarts, reloaded from the chat log.)
-- Consent (2026-09-29): the user says the members agreed to their chat being used as training data,
-  so the kept chat logs are now option (a) below, via `build_dataset.py --meld`.
-- Training data from the user's own Discord export (received 2026-09-26, analysed in a
-  scratch space, not in the repo): 83,656 messages, 2017-05 to 2026-09. 56k from server
-  channels (4 servers still named in the export, plus 18k from ones that aren't), 27.6k from
-  111 DMs + 6 group DMs. Server names and message contents stay out of the repo. Only
-  the user's side is in it, never anyone else's messages. Median message is 5–6 words; they
-  post in bursts (22.8k server bursts of messages <=90s apart, 9.5k of 12+ words). ~730
-  messages contain a word from `slurs.txt`; a few emails / phone numbers; 4.4k link-only or
-  attachment-only posts. Decided 2026-09-26:
-  - Voice: yes, Gomi should text like the user (lowercase bursts, gaming talk), with the
-    archdemon persona from the prompt. Mix in persona examples so she doesn't just become them.
-  - DMs: OUT, never used. The user says they likely hold private information; they were deleted
-    from the session they were uploaded to. Any builder must skip DM / GROUP_DM channels.
-  - Context: option (b), an LLM writes the preceding friend messages ("instruction
-    backtranslation", `archive/discord-pipeline/backtranslate.py`). Later, with the other members' consent, the
-    bot will export the real channel history of its server (it has Read Message History) as a
-    second examples file: option (a).
-- Decided 2026-09-29: training runs use `build_dataset.py --meld --run N` (seed + the server). Still
-  open: whether to also mix in the parked export pipeline's output. Earlier question, for the record:
-  which data the first Gemma training run uses: the seed (58, active), the Discord pipeline's
-  output (parked), or a mix. Decide when the rented GPU is set up.
-- Target dataset size before a training run (likely 1–3k good examples). User, 2026-09-29: the diary
-  only started that day, so they'll check the data later that week before any run. Free training:
-  Kaggle (30 GPU-h/week, 16GB) chosen and built (weekly fine-tune above), Colab free T4 as backup; the
-  2070 alone is short of Unsloth's ~10GB for E4B QLoRA even with Ollama moved to CPU.
-- (Settled 2026-09-29: vision works on the user's setup and is built; see the Vision decision. Gemma 4
-  E4B's encoder is 150M, ~280 image tokens by default. ollama#18560, a dup of the open #16532, reports
-  blank images on some setups, so re-run `tools/vision_check.py` after Ollama or model changes.)
+**Reactions** (a response, never a random roll)
+- Same `chime.py` call scores `react` on its own scale (0–2 chatter/logistics/questions/plans, 3–5
+  fine, 6–7 she notices, 8–10 really funny / big win / cute past her act / cursed / painful fail / sad).
+  She reacts only at `REACT_THRESHOLD` (8) (user, 2026-09-30: she reacted to every post).
+- Posts that don't need words (picture, sticker, bare link, emoji-only, ≤ `REACT_ONLY_MAX_WORDS` 2
+  words without "?") get that reaction as her whole response, or nothing. Chat she doesn't answer
+  (`REACT_TO_CHAT`) and posts she chimes in on (`REACT_WHEN_REPLYING`) get it too. Posts aimed at her
+  aren't read, so no reaction. Her last 2 picks per channel are left out of the options.
+- Media she couldn't see → 👀 / :goonerstare:, never a judgment. Sad news → reply + `:catsad:`.
+- She may write in-text custom emojis as `:name:`; `aryanosaka`/`goonerstare` are reaction-only.
 
-## Next steps
-1. See how Gemma does with the seed as example chats. First live log (2026-09-27): voice good and
-   in character, but 60–90-word replies of 5–7 sentences (the seed's are ~20 words, max 36), an
-   @ping at the person every reply, near every reply opening by echoing the message as a question
-   and ending on a question, "Seriously though" filler, :AIEEE: in 3 of 6 replies (posted as plain text: the server's
-   emoji is `AIEEEE`, which the user fixed in `emojis.py`), melon bread
-   twice as an insult (4 of the seed's 6 melon bread lines are off-topic too). Fixed: pings, the
-   length/question/echo rules. Still to check after that: length, emoji and melon bread frequency.
-2. The first weekly run, step by step (never run on real Kaggle yet; tested with a fake CLI, fake
-   Ollama and faked Unsloth): Kaggle setup (phone verification, API token, `pip install kaggle`,
-   `WEEKLY_KAGGLE_USER`), then watch the notebook page. Unknowns: whether `machine_shape`
-   `NvidiaTeslaT4` is honored, the Unsloth/transformers pins (from Unsloth's Gemma 4 notebook), disk
-   on Kaggle for merged 16-bit + F16 GGUF, llama.cpp's converter on Gemma 4, and whether Ollama 0.34.2
-   runs a llama.cpp-converted Gemma 4 GGUF with the stock Modelfile (template/renderer) and matches
-   the training chat template. Also `ollama ps` with gomi-wN + the stock model loaded together.
-   Watch the nightly meld meanwhile: the vibe note (console / `diary.json`), which replies count as
-   landed (`earned_examples.jsonl`), and whether she drifts too far or too little (`MELD_ANCHOR`,
-   `MELD_FULL_AT`, `MELD_RUNS`).
-3. After a run is switched in: watch whether the fine-tune's voice holds without example chats
-   (`FEW_SHOT_EXAMPLES=0`), and whether earned replies still land. No bot code changes needed.
-4. Read the first diary entries (console at shutdown, `diary.json`, "learned" in `people.json`):
-   are notes lasting facts or chatter, does the quote check drop real notes (paraphrased quotes)
-   or let junk through, are recaps useful in her replies, how long shutdown takes.
-5. Tell the server she remembers things people tell her to (if not done yet).
-6. Test the emoji rework live: react-only posts, the room read's reactions, custom emojis in replies.
-7. Gemma 4 E4B live (100% GPU at 8192 context confirmed): reply speed, no thinking warning, and
-   whether the prompt (tuned on LFM) needs retuning, e.g. asterisk actions or rambling.
-8. Tune chiming in and reactions live: watch the `Read ... react n/10` / `Interest n/10` log lines.
-   Small models tend to give most posts the same middling-high number; if she's too chatty or too
-   quiet, move `CHIME_IN_THRESHOLD` first, then the prompt's anchors in `chime.py`. Reactions: move
-   `REACT_THRESHOLD` (8), then the react anchors; `REACT_TO_CHAT=false` limits them to posts that
-   don't need words.
-9. Vision live: description quality and speed (console `Saw ...`), `ollama ps` VRAM with the vision
-   part loaded, whether link previews arrive within `EMBED_WAIT_SECONDS`, reactions to pictures.
-10. Test nicknames, "who am I?" and the stated limits live. If "what do you remember about
-   me?" still comes back wrong, answer it from code (list the saved notes) instead.
+**Owner commands** (owner = app owner/team + `OWNER_USER_IDS`; parsed in code, override the persona)
+- "gomi delete that / your last N / all your messages" → deletes her posts, 🗑️, no reply, removed from
+  her log. "gomi mute [for X | until i say so]" → silent in that channel (🔇, 🤐 to people talking to
+  her), "unmute" 🔊; only the literal word "mute" ("gomi stfu" is banter). "gomi quiet mode" → only
+  answers posts aimed at her (🤫); reactions and Melee posts continue. "gomi goodnight" → 💤, goodnight
+  line, shutdown + diary. "gomi post melee here" / "stop posting melee" (🎮/🔕). "gg" ends a Melee
+  session. Negations, "I'll ...", questions aren't commands. Mute/quiet are in memory (restart clears).
 
-## Constraints
-- Serving runs on one RTX 2070 (8GB VRAM) — keep this in mind for any model change; check
-  VRAM math before suggesting a bigger model. Training can run elsewhere (see above).
-- Keep bot behavior config-driven via `.env`, not hardcoded, so it can be retuned
-  without a code change.
+**Memory, diary, melding**
+- "remember that ..." aimed at her → stored verbatim for its author (📝); nicknames stored on the person
+  they're about. Only the replied-to person's facts go in the prompt. No RAG (5 people).
+- Every server message is logged (`chatlog.py`; never DMs or owner commands; deleted posts removed).
+  At shutdown (Ctrl+C/SIGTERM/goodnight; catch-up at next start) she writes her diary: per-channel
+  recaps (last `RECAP_DAYS` 3 in her prompt) and notes on people, kept only if their quote is really
+  in the log. History reloads from the log after a restart (`HISTORY_RELOAD_HOURS` 12).
+- Melding (members agreed to their chat being training data): nightly, her replies that "landed"
+  (reaction, Discord reply, a laugh, her name said back; no put-down) join the few-shot examples,
+  replacing seed ones down to `MELD_ANCHOR` 30%; a ≤6-line vibe note on how the server talks goes in
+  her system prompt. Training data mixes seed ×3 + landed + people's messages (`meld.voice_examples`).
+
+**Vision**
+- Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
+  description replaces the placeholder in her chat log. Text in a picture never becomes a memory.
+- Her own avatar (user, 2026-10-01; a grey hamster with furrowed brows): fingerprinted at login (dHash
+  on 4 backgrounds: it's a transparent cut-out) and described once (or `AVATAR_DESCRIPTION`); every
+  prompt says it's her face; a posted copy is labelled "Gomi's own avatar" (≤12 of 64 bits). A
+  picture of her alone still only gets a reaction.
+
+**Melee** (one post per session; user, 2026-09-30: "only post once I close the game or tell gomi GG")
+- AI-Melee writes match/taunt/session_end JSON to `~/.local/share/gomihyu/melee-outbox`. Taunts are
+  held, never posted live. A session ends on `session_end`, the owner's "gg", or 20 idle minutes; then
+  one 3–5 sentence post: what decided it, whether her drill paid off, next goal as a scheme (never an
+  apology). Muted → dropped; model down → retried after 60 s; older than 120 min → dropped.
+
+**Fine-tuning**
+- Until a fine-tune serves her, her voice comes from `FEW_SHOT_EXAMPLES` (8) example chats per reply.
+- LoRA/QLoRA with Unsloth on Kaggle's free T4 (not the 2070: ~10GB+ needed). `finetuning/weekly.py`
+  (user, 2026-09-29): build → upload → fetch → install → check → switch, `all` never switches. Every
+  run trains stock Gemma again on all data (never last week's model); the seed share goes 70% → 30%
+  over `MELD_RUNS` (11) runs; weeks with < `WEEKLY_MIN_NEW` (50) new examples are skipped; each run
+  is kept as `gomi-wN`; the Kaggle data is deleted after download. The fine-tune is a text-only GGUF,
+  so switch points `VISION_MODEL` (and `TASK_MODEL`, if both fit on the GPU) at stock gemma4:e4b.
+- Never commit training data or the user's Discord export (`Messages/`, `*.zip`); DMs are never used.
+
+## Open questions
+- Whether training also mixes in the parked Discord-export pipeline (user texts in lowercase bursts;
+  voice "like the user" was wanted, DMs excluded). Target size before a run: likely 1–3k examples.
+- The user was to check the collected data "later that week" (from 2026-09-29) before a first run.
+
+## Next steps / to watch
+1. First weekly run, step by step (never run for real). Unknowns: Kaggle honoring `NvidiaTeslaT4`,
+   Unsloth/transformers pins, Kaggle disk for the merge, llama.cpp converting Gemma 4, Ollama 0.34.2
+   running the converted GGUF with the stock template, VRAM with gomi-wN + stock loaded together.
+2. Live tuning: `Read ... react n/10` / `Interest n/10` log lines → `CHIME_IN_THRESHOLD`,
+   `REACT_THRESHOLD`, then the anchors in `chime.py`.
+3. Read the first diary output (`diary.json`, "learned" in `people.json`, earned_examples.jsonl, the vibe
+   note): lasting facts or chatter? Does the quote check drop real notes?
+4. Live checks not done yet: reply length/emoji/melon-bread frequency, nicknames and "who am I?",
+   vision quality and speed, avatar recognition, slur filter.
