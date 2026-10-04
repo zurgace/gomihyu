@@ -31,7 +31,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
   (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
   `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
-- `finetuning/` — `gomihyu_seed.jsonl` (58 original Satania-style chats; training only),
+- `finetuning/` — `gomihyu_seed.jsonl` (78 original chats, Satania-style + lowercase; training only),
   `persona_guide.md` (voice reference they were written from), `build_dataset.py`, `weekly.py` +
   `kaggle_train.py` + `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
@@ -105,7 +105,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   landed + people's messages (`meld.voice_examples`).
 - The seed left her prompt (user, 2026-10-04: melon bread out of nowhere; her defiance is in the system
   prompt). `SEED_EXAMPLES=true` brings back the old mix, landed replies replacing seed ones down to
-  `MELD_ANCHOR` 30%. It stays in training: it's her only persona data there (see Open questions).
+  `MELD_ANCHOR` 30%. It stays in training as her persona anchor (her only persona data there). Same
+  day, user: cut the 4 chats that brought up melon bread out of nowhere (the 3 about food stay), added
+  24 in the server's lowercase texting style (`persona_guide.md`, "Texting style").
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
@@ -133,9 +135,6 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - Never commit training data or the user's Discord export (`Messages/`, `*.zip`); DMs are never used.
 
 ## Open questions
-- The seed in training (asked 2026-10-04): keep it as the persona anchor, cut its melon-bread lines (6
-  of 58, 4 out of nowhere), or replace it with fresh chats? Without any, a run is all server voice
-  (and `build_dataset --meld` sizes the server share from the seed, so it'd be empty).
 - Whether training also mixes in the parked Discord-export pipeline (user texts in lowercase bursts;
   voice "like the user" was wanted, DMs excluded). Target size before a run: likely 1–3k examples.
 - The user was to check the collected data "later that week" (from 2026-09-29) before a first run.
