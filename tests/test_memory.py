@@ -64,6 +64,9 @@ p.unlink()
 
 # --- in the bot ---
 import bot
+from datetime import datetime
+bot.local_now = lambda: datetime(2026, 10, 4, 0, 5)
+DATE = "Right now it's Sunday, October 4, 2026, 12:05 AM.\n\n"  # every reply's prompt starts with it
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # these tests are about replies
 requests = []
 async def fake(request):
@@ -84,7 +87,10 @@ class Msg:
         self.attachments, self.stickers, self.guild = [], [], None
         self.reactions = []
     async def add_reaction(self, emoji): self.reactions.append(emoji)
-user_turn = lambda i: requests[i]["messages"][1]["content"]
+def user_turn(i):
+    turn = requests[i]["messages"][1]["content"]
+    assert turn.startswith(DATE), turn[:100]
+    return turn[len(DATE):]
 
 async def main():
     app = web.Application(); app.router.add_post("/api/chat", fake)

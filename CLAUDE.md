@@ -27,7 +27,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
   (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
   `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
-- `finetuning/` — `gomihyu_seed.jsonl` (58 original Satania-style chats), `persona_guide.md` (voice
+- `finetuning/` — `gomihyu_seed.jsonl` (66 original Satania-style chats), `persona_guide.md` (voice
   reference they were written from), `build_dataset.py`, `weekly.py` + `kaggle_train.py` +
   `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
@@ -46,11 +46,21 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   echoing the message. Don't bring back "at most 2 sentences" or "don't reuse topics" (that made her a
   one-liner machine); repetition is handled by "don't repeat your own lines" + the `REPEAT_WORDS` retry.
   `MAX_REPLY_TOKENS` (200) caps a runaway reply (trimmed to a full sentence); if a model thinks anyway,
-  replies go uncapped (thinking ate the cap and she went silent once).
+  replies go uncapped (thinking ate the cap and she went silent once). Code cuts a reply after
+  `MAX_REPLY_SENTENCES` (4), so a long one never reaches her history to be copied.
+- Friend first, Archdemon second (user, 2026-10-04: a date question got two paragraphs of put-downs;
+  "converse properly instead of providing verbose explanations", be useful, follow along). She answers
+  plainly first (yes/no first), says "can't" in one line, plays along, teases with affection, never talks
+  down or lectures; the act is a quick line, never a speech. The seed's last 8 chats show this.
 - Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
   the person she's answering (code strips it; she used to @ them every reply). Never @everyone/roles.
-- The prompt states her limits (sees only recent messages, can't search history or look things up)
-  and who "I" is in the message she answers. Channel summaries are out of scope; she declines.
+- The prompt states her limits (sees only recent messages, can't search history or browse; knows plenty),
+  the local date and time (not in training data), and who "I" is in the message she answers. Channel
+  summaries are out of scope; she declines.
+- Only real people (user, 2026-10-04: she told someone to "go bother @kaz0", a seed chat's handle): a
+  reply naming someone from the made-up example chats (handles any case, nicknames as written) or an
+  @name nobody has is redone once, then loses those sentences. Real = in handles (whole chat log, the
+  app owner, anyone who posts), people.json, or the channel's log.
 - Small models confabulate: anything that must be true lives in code (memory, slur filter,
   constrained emoji picks, quote-checked diary notes).
 - A reply with any `slurs.txt` word (whole words, plural s) is replaced entirely by `:goonerstare:`,
@@ -127,4 +137,5 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 3. Read the first diary output (`diary.json`, "learned" in `people.json`, earned_examples.jsonl, the vibe
    note): lasting facts or chatter? Does the quote check drop real notes?
 4. Live checks not done yet: reply length/emoji/melon-bread frequency, nicknames and "who am I?",
+   the friend-first persona (still her, or too tame?), the date,
    vision quality and speed, avatar recognition, slur filter.

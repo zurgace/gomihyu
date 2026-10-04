@@ -36,8 +36,11 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   fail. Pictures, stickers, emoji-only posts and 1–2 word interjections ("lol wtf") only ever get a
   reaction. Sad news gets a reply and `:catsad:`. `emojis.py` lists every emoji and when to use it;
   edit the notes to change how she uses them. She writes custom emojis in replies as `:kekpoint:`.
-- **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences.
+- **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences
+  (anything past `MAX_REPLY_SENTENCES`, 4, is cut). She answers questions plainly first, plays along,
+  and teases like a friend; the Archdemon act is a quick line, not a speech. She knows today's date.
   Calls people by nickname. Pings someone only to pull them in, never the person she's answering.
+  Never brings up the made-up people from her example chats (`kaz0`, `Nori`, ...).
 - **Voice**: until a fine-tuned model serves her, each reply's prompt has 8 example chats
   (`FEW_SHOT_EXAMPLES`) from `finetuning/gomihyu_seed.jsonl`, plus the best of her own real replies.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.

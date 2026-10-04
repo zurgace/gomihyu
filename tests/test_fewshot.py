@@ -6,10 +6,12 @@ SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8776/api/chat", PEOPLE_FILE=f"{SP}/people_fewshot.json")
 sys.path.insert(0, REPO)
 import bot, persona
+from datetime import datetime
+NOW = datetime(2026, 10, 4, 13, 31); bot.local_now = lambda: NOW
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 seed = [json.loads(l) for l in open(REPO + "/finetuning/gomihyu_seed.jsonl") if l.strip()]
-assert len(bot.examples) == 58 == len(seed)
+assert len(bot.examples) == 66 == len(seed)
 
 calls, answers = [], []
 async def fake(request):
@@ -41,7 +43,7 @@ async def main():
     first = shown(calls[0])
     assert len(first) == 8 and all(line[len("Gomihyu: "):] in {e["reply"] for e in seed} for line in first)
     assert "made-up chats" in calls[0]["messages"][0]["content"]
-    plain = persona.build_messages(list(bot.history[12])[:-1], False, "rexmode")
+    plain = persona.build_messages(list(bot.history[12])[:-1], False, "rexmode", now=NOW)
     assert calls[0]["messages"][1] == plain[1]
     # a fresh pick for the next reply
     await bot.on_message(msg("ok but which character though"))
@@ -52,6 +54,30 @@ async def main():
     await bot.on_message(msg("anyone up for ranked tonight"))
     assert len(calls) == 2 and ch.sent[-1] == "nah, too easy for me.", (len(calls), ch.sent[-1])
     assert calls[1]["options"].get("temperature") == bot.RETRY_TEMPERATURE
+
+    # the people in the made-up chats aren't in the server (she once said "go bother @kaz0"): the prompt says
+    # so, a reply naming one is redone, and if the retry names one too, those sentences go
+    names = persona.made_up_names(seed)
+    assert names == ["norimaki", "mintchoco", "kaz0", "sleepyfox", "jake.b", "Kaz", "Nori", "Mint"], names
+    assert ") is in this server: never mention or @ them." in calls[0]["messages"][0]["content"]
+    assert "Nobody in the made-up ones (x) is" in persona.format_examples([{"history": [["x", "hi"]], "reply": "yo"},
+                                                                           {"history": [["rexmode", "hi"]], "reply": "yo", "real": True}])
+    calls.clear(); answers[:] = ["Go bother @kaz0 about it.", "fine, I'll judge it myself."]
+    await bot.on_message(msg("gomi who should i ask"))
+    assert len(calls) == 2 and ch.sent[-1] == "fine, I'll judge it myself.", (len(calls), ch.sent[-1])
+    assert calls[1]["options"].get("temperature") == bot.RETRY_TEMPERATURE
+    calls.clear(); answers[:] = ["smash, obviously. ask KAZ0, he's good.", "yes. Nori agrees. bring snacks."]
+    await bot.on_message(msg("gomi should we play tonight"))
+    assert len(calls) == 2 and ch.sent[-1] == "yes. bring snacks.", (len(calls), ch.sent[-1])
+    # someone else saying the name makes it fair game: "who's kaz0?" gets an answer
+    calls.clear(); answers[:] = ["no clue who kaz0 is, nobody here goes by that."]
+    await bot.on_message(msg("gomi who the heck is @kaz0"))
+    assert len(calls) == 1 and ch.sent[-1] == "no clue who kaz0 is, nobody here goes by that."
+    bot.history[12].clear()
+    # nicknames only as written: nori the seaweed and mint the flavor are fine
+    calls.clear(); answers[:] = ["onigiri needs nori. mint tea after."]
+    await bot.on_message(msg("gomi what's for lunch"))
+    assert len(calls) == 1 and ch.sent[-1] == "onigiri needs nori. mint tea after."
     await r.cleanup(); print("FEWSHOT TESTS PASSED")
 asyncio.run(main())
 
@@ -66,6 +92,6 @@ assert out.stdout.strip().endswith("0") and "No example chats at" in out.stderr,
 # training data never gets the example block
 subprocess.run([sys.executable, REPO + "/finetuning/build_dataset.py"], check=True, capture_output=True)
 rows = [json.loads(l) for l in open(REPO + "/finetuning/train.jsonl")]
-assert len(rows) == 58 and all(row["messages"][0]["content"] == persona.SYSTEM_PROMPT for row in rows)
+assert len(rows) == 66 and all(row["messages"][0]["content"] == persona.SYSTEM_PROMPT for row in rows)
 os.remove(REPO + "/finetuning/train.jsonl")
 print("FEWSHOT CONFIG OK")

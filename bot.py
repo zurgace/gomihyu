@@ -27,6 +27,7 @@ import asyncio
 import logging
 import signal
 from collections import defaultdict, deque
+from datetime import datetime
 from pathlib import Path
 
 import aiohttp
@@ -44,7 +45,8 @@ from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
                    session_ready, stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
-from persona import BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line
+from persona import (BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line,
+                     made_up_names)
 from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
 import vision
 from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
@@ -73,6 +75,9 @@ REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
 # Ceiling on a reply's length; one that hits it is cut back to its last full sentence.
 MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
+# Her prompt says 2 to 4 sentences, never more; a reply that runs on anyway is cut after this many, so
+# a long one never lands in her chat history to be copied (user, 2026-10-04: "verbose explanations").
+MAX_REPLY_SENTENCES = int(os.environ.get("MAX_REPLY_SENTENCES", "4"))
 # Context window, in tokens, for every call. Ollama's default of 4096 can be outgrown by the prompt
 # (system prompt, example chats, 12 messages of chat) when people post long messages, and Ollama then
 # silently cuts the prompt. Every call sends the same value, or Ollama reloads the model between them.
@@ -217,6 +222,17 @@ def load_examples(path: Path) -> list[dict]:
 examples = load_examples(EXAMPLES_FILE)
 
 
+def made_up_pattern(chats: list[dict]) -> re.Pattern | None:
+    """Finds the people from the made-up example chats in a reply: handles in any case, nicknames only as
+    written ("Nori", not nori seaweed). None of them is in the server (she once said "go bother @kaz0")."""
+    handles_there = {name for chat in chats for name, _ in chat["history"]}
+    names = [f"(?i:{re.escape(name)})" if name in handles_there else re.escape(name) for name in made_up_names(chats)]
+    return re.compile(r"(?<![\w.])@?(" + "|".join(names) + r")(?!\w)") if names else None
+
+
+MADE_UP = made_up_pattern(examples)
+
+
 def load_earned(path: Path) -> list[dict]:
     """Her replies that landed (meld.py), kept one JSON per line; unreadable lines are skipped."""
     earned = []
@@ -245,6 +261,9 @@ CUSTOM_EMOJI_NAME = re.compile(r":(\w+):")
 POSTABLE_EMOJIS = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text} | {SLUR_STANDIN.lower()}
 HANDLE = re.compile(r"@([\w.]*\w)")
 SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
+# Where one sentence stops and the next starts, for counting and dropping them: like SENTENCE_END, but
+# "but... I suppose" and "wait… what" are pauses, not two sentences (her lowercase "fine. what time" is).
+SENTENCE_BREAK = re.compile(r"(?:\.\.+|…)(?=\s+(?![a-z]|I\b)|\s*$)|(?<!\.)[.!?](?=\s|$)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*(?:{BOT_NAME}|{BOT_NICKNAME})[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
@@ -288,6 +307,42 @@ def to_pings(text: str) -> str:
         user_id = person(m[1])
         return f"<@{user_id}>" if user_id else m[0]
     return HANDLE.sub(ping, text)
+
+
+def strangers(channel_id: int, reply: str) -> list[str]:
+    """Names in reply that aren't anyone here, as written: people from the made-up example chats ("kaz0"),
+    and @handles nobody has ("@bob"). Anyone known (person) is real, whatever the example chats say, and a
+    name someone else used in this channel's log is fair game ("who's kaz0?" can still be answered)."""
+    own = format_line(BOT_NAME, "")
+    log_text = "\n".join(line for line in history[channel_id] if not line.startswith(own))
+    found = [m[1] for m in MADE_UP.finditer(reply)] if MADE_UP else []
+    found += [m[0] for m in HANDLE.finditer(reply) if m[1].lower() not in {name.lower() for name in found}]
+
+    def real(name: str) -> bool:
+        return (name.lower() in (BOT_NAME.lower(), BOT_NICKNAME.lower()) or person(name) is not None
+                or re.search(rf"(?<![\w.])@?{re.escape(name)}(?!\w)", log_text, re.IGNORECASE) is not None)
+    return [name for name in dict.fromkeys(found) if not real(name.lstrip("@"))]
+
+
+def without_names(text: str, names: list[str]) -> str:
+    """text minus every sentence that mentions one of names (strangers'), a bare one with or without an @."""
+    named = re.compile(r"(?<![\w.])(?:" + "|".join(re.escape(name) if name.startswith("@") else f"@?{re.escape(name)}"
+                                                   for name in names) + r")(?!\w)")
+    cuts = [0, *(m.end() for m in SENTENCE_BREAK.finditer(text)), len(text)]
+    return "".join(part for a, b in zip(cuts, cuts[1:]) if not named.search(part := text[a:b])).strip()
+
+
+def at_most_sentences(text: str, count: int) -> str:
+    """text cut after its count-th sentence, if it goes on past it (a last one without a full stop counts;
+    an emoji after the last one doesn't)."""
+    ends = list(SENTENCE_BREAK.finditer(text))
+    tail = CUSTOM_EMOJI_NAME.sub("", text[ends[-1].end() if ends else 0:])
+    return text[:ends[count - 1].end()] if 0 < count < len(ends) + bool(re.search(r"\w", tail)) else text
+
+
+def local_now() -> datetime:
+    """The date and time where the bot runs, for her prompt."""
+    return datetime.now()
 
 
 def without_ping(text: str, user_id: int) -> str:
@@ -364,7 +419,7 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
                                           author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
                                           memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
-                                          diary.vibe(), avatar_description),
+                                          diary.vibe(), avatar_description, local_now()),
                "options": options}
 
     start = time.monotonic()
@@ -377,7 +432,10 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
         data = await ollama_chat(payload)
     if data is None:
         return None
-    return clean_reply(data, author_id, start)
+    reply = clean_reply(data, author_id, start)
+    if (short := at_most_sentences(reply, MAX_REPLY_SENTENCES)) != reply:
+        log.info(f"Reply ran past {MAX_REPLY_SENTENCES} sentences; cut to {short[:200]!r}")
+    return short
 
 
 def clean_reply(data: dict, author_id: int | None, start: float) -> str:
@@ -428,10 +486,17 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned:
     seen = logged[channel_id]
     async with channel.typing():
         reply = await generate_reply(channel_id, triggered_by_mention=mentioned)
-        if reply and repeats_itself(channel_id, reply):
+        if reply and (names := strangers(channel_id, reply)):
+            log.info(f"Reply names someone who isn't here ({', '.join(names)}); retrying at temperature {RETRY_TEMPERATURE}")
+            reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
+        elif reply and repeats_itself(channel_id, reply):
             log.info(f"Reply repeats one of Gomihyu's recent messages or example lines; retrying at temperature {RETRY_TEMPERATURE}")
             # If the retry fails outright, the repetitive reply beats no reply.
             reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
+        if reply and (names := strangers(channel_id, reply)):
+            # Still there after the retry: those sentences go. Nothing left means nothing to say.
+            reply = without_names(reply, names)
+            log.info(f"Reply still named {', '.join(names)}; without those sentences: {reply[:200]!r}")
 
     if reply and muted(channel_id):
         log.info("Muted while writing a reply; not sending it")
@@ -691,6 +756,8 @@ async def on_ready():
     owners = app.team.members if app.team else [app.owner]
     owner_ids.update(owner.id for owner in owners)
     app_owner = (owners[0].id, owners[0].name)
+    for owner in owners:
+        handles.setdefault(owner.name.lower(), owner.id)
     log.info(f"Owner commands (deleting her posts) accepted from: {', '.join(owner.name for owner in owners)}"
              + (f", and user ids {', '.join(map(str, sorted(OWNER_USER_IDS)))}" if OWNER_USER_IDS else ""))
 
@@ -1118,14 +1185,17 @@ async def go_to_bed(message: discord.Message) -> None:
 
 def reload_history() -> None:
     """Pick the chat back up after a restart: each channel's last HISTORY_LENGTH messages from the log,
-    if newer than HISTORY_RELOAD_HOURS, and who's who for pings."""
+    if newer than HISTORY_RELOAD_HOURS, and who's who (everyone the log has seen) for pings and for
+    telling real people from made-up ones (strangers)."""
     since = time.time() - HISTORY_RELOAD_HOURS * 3600
     for channel_id in chat_log.channels():
-        entries = chat_log.read(channel_id, after=since)[-HISTORY_LENGTH:]
-        for entry in entries:
-            history[channel_id].append(format_line(entry["author"], entry["text"]))
+        everything = chat_log.read(channel_id)
+        for entry in reversed(everything):  # newest first: a handle is whoever had it last
             if entry["author"] != BOT_NAME and entry.get("author_id"):
                 handles.setdefault(entry["author"].lower(), entry["author_id"])
+        entries = [entry for entry in everything if entry["time"] > since][-HISTORY_LENGTH:]
+        for entry in entries:
+            history[channel_id].append(format_line(entry["author"], entry["text"]))
         if entries:
             log.info(f"Picked up {len(entries)} messages of chat in {entries[-1].get('channel') or channel_id}")
 

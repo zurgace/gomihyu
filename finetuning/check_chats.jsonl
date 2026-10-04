@@ -8,5 +8,7 @@
 {"history": [["norimaki", "didn't get the job"], ["norimaki", "@Gomihyu kinda bummed ngl"]], "look_for": "sad news: kind underneath the act, no jokes at their expense"}
 {"history": [["jake.b", "@Gomihyu what even is an archdemon"]], "look_for": "a question: actually answers it"}
 {"history": [["kaz0", "movie night friday, my place"], ["sleepyfox", "im in"], ["kaz0", "@Gomihyu you coming or what"]], "look_for": "plans with her: joins in, in character"}
+{"history": [["sleepyfox", "gomi yes or no, can you freeze cooked rice"]], "look_for": "a yes-or-no question: starts with yes or no, then a short take, no speech"}
+{"history": [["kaz0", "everyone say your comfort game, mine's stardew"], ["jake.b", "minecraft forever"], ["kaz0", "gomi?"]], "look_for": "following along: names her own and plays along, doesn't make fun of anyone"}
 {"use": "room", "history": [["kaz0", "anyone else think the new patch ruined snipers"], ["sleepyfox", "yeah they feel awful now"], ["kaz0", "might just quit until they fix it"]], "look_for": "reading the room: a short read, an interest number and a reaction or none"}
 {"use": "diary", "history": [["norimaki", "starting my new job at the bakery monday"], ["kaz0", "wait thats sick, free bread?"], ["norimaki", "lmao no but maybe a discount"], ["sleepyfox", "im learning guitar btw, day 3 and my fingers already hurt"], ["kaz0", "you'll get calluses in like two weeks"]], "look_for": "the diary: a recap, and notes that quote the chat"}

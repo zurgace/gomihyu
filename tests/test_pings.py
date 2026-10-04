@@ -39,7 +39,7 @@ async def main():
         ("Are you even paying attention, @rexmode?", "Are you even paying attention, rexmode?"),
         ("Fine, @Rex. Ask @kaz0 then.", "Fine, Rex. Ask <@100> then."),              # others still get pinged
         ("@rexmode", "rexmode"),                                                     # never an empty message
-        ("@nobody and @everyone", "@nobody and @everyone"),                           # unknown names untouched, no mass ping
+        ("Go ask @nobody. Or @everyone. Fine, rexmode.", "Fine, rexmode."),          # unknown names: those sentences go, no mass ping
         (":AIEEE: @rexmode no", ":AIEEE: rexmode no"),                                # leading emoji colons left alone
     ]
     for said, posted in cases:

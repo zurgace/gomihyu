@@ -7,7 +7,9 @@ os.environ["PEOPLE_FILE"] = TMP + "/people_test_bot.json"; os.environ["DISCORD_B
 os.environ["OLLAMA_URL"] = "http://127.0.0.1:8765/api/chat"
 sys.path.insert(0, REPO)
 import bot, persona
+from datetime import datetime
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # these tests are about replies
+NOW = datetime(2026, 10, 4, 13, 31); bot.local_now = lambda: NOW
 bot.examples = []  # example chats are covered by test_fewshot.py
 
 requests = []          # user-turn content of every prompt Ollama received
@@ -46,14 +48,17 @@ async def main():
     m = msg(Channel(9), KAZ, "<@1> hi <@!200> ask <@&300> in <#400> <@999>", [ME, NORI], [role], [chan])
     assert bot.readable(m) == "@Gomihyu hi @NoriMaki ask @mods in #general <@999>", bot.readable(m)
 
-    # 2. every message gets a reply; prefix stripped; @handle -> ping; payload == build_messages
+    # 2. every message gets a reply; prefix stripped; @handle -> ping; payload == build_messages, with the
+    #    date; @names nobody has: one retry, then those sentences go (never a mass ping)
     c1 = Channel(10)
-    canned = iter(["Gomihyu: first", "**Gomihyu:** Silence, @KAZ0. And @nobody, and @everyone."])
+    canned = iter(["Gomihyu: first", *["**Gomihyu:** Silence, @KAZ0. And @nobody, and @everyone."] * 2])
     await bot.on_message(msg(c1, KAZ, "morning chat"))
     await bot.on_message(msg(c1, NORI, "hey @kaz0 <@1>", [KAZ, ME]))
-    assert c1.sent == ["first", "Silence, <@100>. And @nobody, and @everyone."], c1.sent
+    assert c1.sent == ["first", "Silence, <@100>."], c1.sent
     assert requests[1]["messages"] == persona.build_messages(
-        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True), requests[1]["messages"]
+        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True, now=NOW), requests[1]["messages"]
+    assert requests[1]["messages"][1]["content"].startswith("Right now it's Sunday, October 4, 2026, 1:31 PM.\n\n")
+    assert len(requests) == 3 and requests[2]["options"]["temperature"] == bot.RETRY_TEMPERATURE
     assert "directly mentioned" not in requests[0]["messages"][1]["content"]
 
     # 3. burst of 4 messages while generating -> first reply + ONE follow-up that sees all 4,

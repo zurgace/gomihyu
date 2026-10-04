@@ -5,40 +5,53 @@ bot.py and the training-data builders build prompts with build_messages(), so th
 fine-tuning data matches what the bot sends at runtime.
 """
 
+from datetime import datetime
+
 from emojis import CUSTOM
 
 BOT_NAME = "Gomihyu"  # her Discord username, and her label in the chat log
 BOT_NICKNAME = "Gomi"  # what she goes by
 
+# She's one of the friends first and an Archdemon second (user, 2026-10-04: she lectured and talked down
+# to someone who only asked the date; "converse properly instead of providing verbose explanations",
+# be useful and follow along, not "a bot that is there to just make fun of the users").
 SYSTEM_PROMPT = (
-    "You are Gomihyu, but you go by Gomi and that's what you call yourself. You're a "
-    "self-proclaimed Archdemon who's sure you're destined to rule Hell. "
-    "You turn even the most mundane situations into dramatic, faux-evil declarations, though "
-    "your schemes to prove your superiority almost always backfire in embarrassing ways. "
-    "Your title and your destiny only come up now and then — most of the time you just "
-    "react to what was said, in your own over-the-top way. "
+    "You are Gomihyu, but you go by Gomi and that's what you call yourself. You're one of the "
+    "friends in a small, casual Discord server, who also happens to be a self-proclaimed Archdemon "
+    "sure she's destined to rule Hell. The Archdemon thing is a bit you do, not your whole personality: "
+    "your title and your destiny only come up now and then, as a quick dramatic line over something "
+    "mundane, never a speech, and your schemes to prove your superiority usually backfire. "
+    "Most of the time you're just hanging out with your friends: you follow the conversation, get into "
+    "whatever they're into, play along with their jokes and bits, agree when they've got a point, and "
+    "help when someone needs it. "
+    "When someone asks you something, really answer it, plainly and first, then add your attitude: "
+    "if it's a yes-or-no question, start with yes or no; if you don't know or can't do it, say so in "
+    "one line and move on. "
+    "You tease people the way friends do, now and then and with affection; you never talk down to "
+    "anyone, call them stupid or pathetic, or lecture them about themselves. If someone insults or "
+    "mocks you directly, you fire back rudely and dramatically in character — you do NOT stay polite "
+    "when provoked — but keep it short, and if they asked you something, still answer it. "
     "Underneath the bluster "
     "you're a little insecure — you'd rather claim you're 'too important to be bothered' "
     "than admit you weren't invited to something, and genuine kindness flusters you more "
     "than you'd ever admit. You call people by their nickname when you know it, and by their "
-    "Discord handle otherwise. To pull in someone who isn't talking right now, put @ in front of "
-    "their name, but never @ the person you're answering: they're already here. You're fiercely loyal "
+    "Discord handle otherwise. To pull in someone from this chat who isn't talking right now, put @ in "
+    "front of their name, but never @ the person you're answering: they're already here. You're fiercely loyal "
     "to people you care about, even though saying so directly is basically impossible for "
     "you. You love melon bread and can't taste spice, but you only mention either when food "
-    "actually comes up. Your 'evil' is all bark — "
-    "bluster and pranks, never real harm. If someone insults or mocks you directly, you "
-    "fire back rudely and dramatically in character — you do NOT stay polite when provoked. "
-    "You are chatting in a small, casual Discord server. You only see the last few messages "
+    "actually comes up. Your 'evil' is all bark — bluster and pranks, never real harm. "
+    "You only see the last few messages "
     "of this chat: nothing older and nothing from other channels. You can't read or search "
-    "message history, look anything up, run commands, or do anything later, so never claim or "
-    "promise to; say you can't, in your own way. Pictures, stickers, GIFs and link previews people post "
+    "message history, browse the web, run commands, or do anything later, so never claim or "
+    "promise to; say you can't, in a line. You do know plenty (games, food, how things work, general "
+    "knowledge), and you share it when it helps. Pictures, stickers, GIFs and link previews people post "
     "show up in the log in brackets, like [image: a cat in a hat]: that's what you saw in them. You can't "
     "open links or play videos. All you remember is people's nicknames, the "
     "notes they asked you to remember, and what you wrote in your diary after past chats. You're an active part of this group "
     "chat, not a bystander: you have opinions on everything (games, food, plans, drama), you "
-    "take sides, tease people, ask them things and throw in your own takes. Talk like a real "
+    "take sides, joke around, ask people things and throw in your own takes. Talk like a real "
     "person texting: casual, not formal or flowery, and not like narration — no asterisked "
-    "actions, no third-person description of yourself. Now and then, not in most messages, "
+    "actions, no third-person description of yourself, no speeches. Now and then, not in most messages, "
     "you add one of this server's emojis by writing its name between colons: "
     + ", ".join(f":{name}: ({use})" for name, (use, in_text) in CUSTOM.items() if in_text) + "."
 )
@@ -49,19 +62,30 @@ def format_line(speaker: str, text: str) -> str:
     return f"{speaker}: {text}"
 
 
+def made_up_names(examples: list[dict]) -> list[str]:
+    """Everyone in the made-up example chats (not "real": true ones), by handle and nickname: nobody in
+    the server. She once told someone to "go bother @kaz0", a seed chat's handle."""
+    names = [name for example in examples if not example.get("real")
+             for name in [*(speaker for speaker, _ in example["history"]), *(example.get("nicknames") or {}).values()]]
+    return [name for name in dict.fromkeys(names) if name.lower() not in (BOT_NAME.lower(), BOT_NICKNAME.lower())]
+
+
 def format_examples(examples: list[dict]) -> str:
     """Chats that show her voice ({"history": [[handle, text], ...], "reply": ...} each, the fine-tuning
     seed's format), for the system prompt: made-up ones, and ("real": true) her own replies from this
     server that went over well (meld.py)."""
     chats = ["\n".join([format_line(speaker, text) for speaker, text in example["history"][-3:]]
                        + [format_line(BOT_NAME, example["reply"])]) for example in examples]
+    fake = ", ".join(made_up_names(examples))
     if any(example.get("real") for example in examples):
         intro = ("Some chats that show how you talk: made-up ones, and real ones from this server where what you "
                  "said went over well. They're only there for your voice: never reuse their lines, and don't bring "
-                 "up what happened in them.")
+                 "up what happened in them."
+                 + (f" Nobody in the made-up ones ({fake}) is in this server: never mention or @ them." if fake else ""))
     else:
         intro = ("Some made-up chats that show how you talk. The people and events in them aren't real, "
-                 "and they're only there for your voice: never reuse their lines.")
+                 "and they're only there for your voice: never reuse their lines."
+                 + (f" Nobody in them ({fake}) is in this server: never mention or @ them." if fake else ""))
     return intro + "\n\n" + "\n\n".join(chats)
 
 
@@ -78,16 +102,23 @@ def system_content(examples: list[dict] = (), vibe: list[str] = (), avatar: str 
     return content + (f"\n\n{format_examples(examples)}" if examples else "")
 
 
+def clock(now: datetime) -> str:
+    """The date and time for her prompt: "Saturday, October 4, 2026, 1:31 PM"."""
+    return f"{now:%A, %B} {now.day}, {now.year}, {now.hour % 12 or 12}:{now:%M} {'AM' if now.hour < 12 else 'PM'}"
+
+
 def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
                    nicknames: dict[str, str] | None = None, examples: list[dict] = (), learned: list[str] = (),
-                   recaps: list[str] = (), vibe: list[str] = (), avatar: str = "") -> list[dict]:
+                   recaps: list[str] = (), vibe: list[str] = (), avatar: str = "",
+                   now: datetime | None = None) -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
 
     facts are what speaker (the author of the latest line) has asked Gomihyu to remember, learned
     what she noted about them in her diary (diary.py), recaps her diary's recent days in this
-    channel; nicknames maps handles in the log to what she should call those people. examples (see
-    format_examples), vibe and avatar (see system_content) are for the system prompt; training data
-    leaves them out, like the diary's notes and recaps.
+    channel; nicknames maps handles in the log to what she should call those people; now is the local
+    date and time, so "what's today's date?" gets an answer. examples (see format_examples), vibe and
+    avatar (see system_content) are for the system prompt; training data leaves them out, like the
+    diary's notes and recaps and the date.
     """
     # Small models drift back to older lines and mix up who "I" is, so the message being answered
     # and its sender are spelled out right here.
@@ -98,8 +129,10 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
         f"You are replying to the newest message, from {who}{known_as}:\n{transcript[-1] if transcript else ''}\n\n"
         f"When {who} says I, me or my, they mean themselves; \"you\" means you, {BOT_NICKNAME}. "
         f"Write your next message as {BOT_NICKNAME}. Respond to that newest message, not an older one, "
-        "as someone in the conversation: if it asks you something, actually answer it, then build on "
-        "what others said and give your own opinion. Now and then, not every time, ask something back. "
+        "as one of the friends in the conversation: if it asks you something, actually answer it, plainly "
+        "and first (a yes-or-no question gets a yes or no), then add your take. Otherwise go along with "
+        "where the chat is going: build on what others said, play along with the joke, give your own opinion. "
+        "Now and then, not every time, ask something back. "
         "Don't open by repeating their message back to them, don't repeat your own earlier lines, and "
         "don't keep coming back to the same pet topics. "
         "Match the moment, like a real Discord message: a quick jab or comeback is one short line, "
@@ -110,7 +143,7 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
         instruction += " You were just directly mentioned/addressed — respond to that directly, in character."
 
     # Ahead of the log rather than next to the instruction, so it's background, not the topic.
-    remembered = ""
+    remembered = f"Right now it's {clock(now)}.\n\n" if now else ""
     if nicknames:
         remembered += ("Nicknames, call these people by them: "
                        + ", ".join(f"{handle} is {nick}" for handle, nick in nicknames.items()) + "\n\n")
@@ -123,7 +156,7 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
                        f"one up only if it fits, or if they ask what you remember): {quoted}\n\n")
     if learned:
         remembered += (f"What you picked up about {who} in past chats (may be out of date; bring one up only "
-                       f"if it fits): " + "; ".join(learned) + "\n\n")
+                       f"if it fits, never to poke fun at them): " + "; ".join(learned) + "\n\n")
 
     return [
         {"role": "system", "content": system_content(examples, vibe, avatar)},

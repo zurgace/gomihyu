@@ -103,6 +103,7 @@ async def main():
     app = web.Application(); app.router.add_post("/api/chat", fake)
     r = web.AppRunner(app); await r.setup(); await web.TCPSite(r, "127.0.0.1", 8766).start()
     bot.owner_ids.clear(); bot.owner_ids.add(REX.id)
+    bot.handles["rexmode"] = REX.id  # as at login (the app's owner), so "@rexmode" is someone real before he talks
     gen, memes, dm = Channel(10, "general"), Channel(20, "memes"), Channel(30, None, guild=None)
 
     # everything in server channels is logged, her posts too; DMs and owner commands aren't; deletes are forgotten
@@ -138,7 +139,7 @@ async def main():
     calls.clear(); await say(gen, KAZ, "gomi what should i practice")
     user = calls[-1]["messages"][1]["content"]
     assert "From your diary, what happened here lately (background, not the topic): " in user and "Kaz started guitar" in user
-    assert "What you picked up about kaz0 in past chats (may be out of date; bring one up only if it fits): kaz0 is taking guitar lessons." in user
+    assert "What you picked up about kaz0 in past chats (may be out of date; bring one up only if it fits, never to poke fun at them): kaz0 is taking guitar lessons." in user
     assert "what you wrote in your diary after past chats" in calls[-1]["messages"][0]["content"]
     calls.clear(); await say(memes, REX, "gomi hows it going over here")
     user = calls[-1]["messages"][1]["content"]
@@ -161,9 +162,11 @@ async def main():
     bot.history.clear(); bot.handles.clear()
     old = bot.chat_log.read(10)[0]["time"]
     bot.chat_log.add(50, "#old", 1, 6, "kaz0", "ancient", when=time.time() - 13 * 3600)
+    bot.chat_log.add(51, "#older", 2, 8, "yuzuki", "quiet lately", when=time.time() - 13 * 3600)
     bot.reload_history()
     assert list(bot.history[10])[-2:] == ["rexmode: anyone up for smash tonight or nah", "Gomihyu: nighty night, rexmode. dream of losing to me."], list(bot.history[10])
     assert 50 not in bot.history
+    assert bot.handles["yuzuki"] == 8  # who's who from the whole log: someone quiet lately is still real, and pingable
     assert len(bot.history[40]) == bot.HISTORY_LENGTH and bot.handles["kaz0"] == 6 and "gomihyu" not in bot.handles
 
     # "gomi goodnight": 💤, a goodnight line (no ping at her owner), then the bot closes

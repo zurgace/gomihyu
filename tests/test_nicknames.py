@@ -21,6 +21,8 @@ assert n("gomi call me later") == [] and n("gomi call me when you're free") == [
 assert n("gomi, kaz0's nick is Kaz. also hi") == [("kaz0", "Kaz")] and n("gomi call me " + "x" * 33) == []
 
 import bot, persona
+from datetime import datetime
+bot.local_now = lambda: datetime(2026, 10, 4, 23, 59)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 assert "you go by Gomi and that's what you call yourself" in persona.SYSTEM_PROMPT
 assert "never a nickname" not in persona.SYSTEM_PROMPT and "call people by their nickname" in persona.SYSTEM_PROMPT
@@ -70,7 +72,7 @@ async def main():
     reply["v"] = "Gomi: hey @Yuzu, and @rex too"
     await bot.on_message(Msg(YUZU, "hi gomi"))
     turn = user_turn()
-    assert turn.startswith("Nicknames, call these people by them: rexmode is Rex, yuzuki is Yuzu\n\n"
+    assert turn.startswith("Right now it's Sunday, October 4, 2026, 11:59 PM.\n\nNicknames, call these people by them: rexmode is Rex, yuzuki is Yuzu\n\n"
                            'Your notes on yuzuki'), turn[:200]
     assert "You are replying to the newest message, from yuzuki (Yuzu):\nyuzuki: hi gomi" in turn
     assert 'When yuzuki says I, me or my, they mean themselves; "you" means you, Gomi.' in turn

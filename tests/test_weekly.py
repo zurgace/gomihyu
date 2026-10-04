@@ -228,7 +228,7 @@ code, out = weekly("build")
 assert code == 0 and "Built run 1" in out and "persona (aimed for 70%)" in out, out
 upload = repo / "finetuning" / "runs" / "w1" / "upload"
 rows = [json.loads(l) for l in (upload / "train.jsonl").read_text().splitlines()]
-assert len(rows) == 174 + 75 and all(r["messages"][-1]["role"] == "assistant" for r in rows)
+assert len(rows) == 198 + 85 and all(r["messages"][-1]["role"] == "assistant" for r in rows)
 assert json.loads((upload / "run.json").read_text()) == {"run": 1, "base": "unsloth/gemma-4-E4B-it", "epochs": 1,
                                                           "rank": 16, "lr": 2e-4, "max_len": 2048, "quant": "Q4_K_M"}
 assert state()["runs"][0]["stage"] == "built" and state()["runs"][0]["landed"] == 10
@@ -241,7 +241,7 @@ assert code == 0 and "tester/gomi-meld-w1" in out and "kaggle.com/code/tester/go
 k = kaggle_state()
 assert ["datasets", "create", "-p", str(upload)] in k["log"] and "tester/gomi-meld-w1" in k["datasets"]
 p = k["pushed"]
-assert p["run"] == 1 and p["data_run"] == 1 and p["accelerator"] == "NvidiaTeslaT4" and p["rows"] == 249
+assert p["run"] == 1 and p["data_run"] == 1 and p["accelerator"] == "NvidiaTeslaT4" and p["rows"] == 198 + 85
 assert p["meta"]["is_private"] and p["meta"]["enable_gpu"] and p["meta"]["enable_internet"]
 assert p["meta"]["dataset_sources"] == ["tester/gomi-meld-w1"] and p["meta"]["id"] == "tester/gomi-meld"
 assert state()["runs"][0]["stage"] == "training"
@@ -268,7 +268,7 @@ assert code == 1 and "hasn't been checked" in out.replace("No run has got as far
 server["requests"].clear()
 code, out = weekly("check")
 assert code == 0, out
-assert "gomi-w1 next to gemma4:e4b" in out and out.count("## ") == 10, out
+assert "gomi-w1 next to gemma4:e4b" in out and out.count("## ") == 12, out
 assert "Reading the room, gomi-w1: ok: 'kaz0 venting about the patch', interest 4" in out, out
 assert "Diary, gomi-w1: ok:" in out and "1 note(s) that check out" in out, out
 assert "gomi-w1 sees pictures: no" in out and "on the GPU together: yes" in out, out
@@ -277,10 +277,10 @@ assert "OLLAMA_MODEL=gomi-w1, FEW_SHOT_EXAMPLES=0, VISION_MODEL=gemma4:e4b, TASK
 replies = [r for r in server["requests"] if not r.get("format") and r["messages"][0]["role"] == "system"]
 stock = [r for r in replies if r["model"] == "gemma4:e4b"]
 mine = [r for r in replies if r["model"] == "gomi-w1"]
-assert len(stock) == 10 and len(mine) >= 10
+assert len(stock) == 12 and len(mine) >= 12
 assert all("made-up" in r["messages"][0]["content"] for r in stock)            # the stock model gets example chats
 assert not any("made-up" in r["messages"][0]["content"] for r in mine)         # hers doesn't, as it'll run
-assert all(r["options"]["num_predict"] == 200 for r in stock + mine[:10])
+assert all(r["options"]["num_predict"] == 200 for r in stock + mine[:12])
 check = state()["runs"][0]["check"]
 assert check == {"against": "gemma4:e4b", "sees": False, "tasks_ok": True, "both_fit": True}, check
 assert (repo / "finetuning" / "runs" / "w1" / "check.md").read_text().startswith("# gomi-w1 next to gemma4:e4b")
