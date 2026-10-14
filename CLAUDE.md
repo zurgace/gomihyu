@@ -9,7 +9,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 
 ## Environment
 - CachyOS (Arch), fish shell. Python 3 venv; run things as `venv/bin/python ...`.
-- `gemma4:e4b`: ~4.5B effective params; `ollama ps` shows 3.2GB, 100% GPU at 4096 and 8192 context.
+- `gemma4:e4b`: ~4.5B effective params; `ollama ps` shows 3.2GB, 100% GPU at 8192 context.
   Every call sends the same `OLLAMA_NUM_CTX` (8192), or Ollama reloads the model between calls.
   Thinking is off by default. `OLLAMA_THINK=true` makes only her own writing think (replies, Melee,
   goodnight; never reads, diary, vision), uncapped by `MAX_REPLY_TOKENS`, with the thought logged
@@ -45,21 +45,19 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - Everything else: one `chime.py` read; she replies at `CHIME_IN_THRESHOLD` (default 6; user runs 8).
   Failed read = quiet. No cooldown (slow server); ask before adding one.
 - One reply in flight per channel; posts arriving meanwhile get ONE follow-up on the newest chat.
-- Reply length matches the moment: a jab is one line, a question/discussion 2–4 sentences, never more.
-  She answers questions for real, builds on others, asks back only now and then, never opens by
-  echoing the message. Code decides which, per reply (`shape.py`; user, 2026-10-04: every reply had
-  become emoji + sentence ×5, ending in a question): ≤ `ONE_LINE_MAX_WORDS` (6) words, no question,
-  not sad news → told "one short line" (cut after 2 sentences), else 2–4 (cut after 4; bits under 3
-  words don't count). Told not to ask back / not to use an emoji if one of her last 2 messages did; at
-  most one emoji per post, enforced. Her old landed replies get the same caps (`tidy`). Don't bring
-  back "at most 2 sentences" or "don't reuse topics" (that made her a one-liner machine); repetition is
-  handled by "don't repeat your own lines" + the `REPEAT_WORDS` retry.
-  `MAX_REPLY_TOKENS` (200) caps a runaway reply (trimmed to a full sentence); if a model thinks anyway,
-  replies go uncapped (thinking ate the cap and she went silent once).
+- She answers questions for real, builds on others, never opens by echoing the message. Each reply's
+  shape is decided in code (`shape.py`; user, 2026-10-04: every reply had become emoji + sentence ×5,
+  ending in a question): ≤ `ONE_LINE_MAX_WORDS` (6) words, no question, not sad news → "one short
+  line" (cut after 2 sentences), else 2–4 sentences (cut after 4; bits under 3 words don't count). No
+  asking back / no emoji if one of her last 2 messages did; one emoji per post, enforced. Landed replies
+  get the same caps (`tidy`). Don't bring back "at most 2 sentences" or "don't reuse topics" (made her a
+  one-liner machine); repetition is handled by "don't repeat your own lines" + the `REPEAT_WORDS` retry.
+  `MAX_REPLY_TOKENS` (200) caps a runaway reply (trimmed to a full sentence); a model that thinks goes
+  uncapped (thinking ate the cap and she went silent once).
 - Friend first, Archdemon second (user, 2026-10-04: a date question got two paragraphs of put-downs;
   "converse properly instead of providing verbose explanations", be useful, follow along). She answers
   plainly first (yes/no first), says "can't" in one line, plays along, teases with affection, never talks
-  down or lectures; the act is a quick line, never a speech. The seed's last 8 chats show this.
+  down or lectures; the act is a quick line, never a speech. 8 seed chats added that day show this.
   Diary notes on someone are never to poke fun at them.
 - Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
   the person she's answering (code strips it; she used to @ them every reply). Never @everyone/roles.
@@ -111,17 +109,16 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   come from every channel). Muted / can't post → dropped. The post is only sent: never in the chat
   log or her history, so she doesn't answer it, recap it again or meld from it (user asked).
 - Melding (members agreed to their chat being training data): nightly, her replies that "landed"
-  (reaction, Discord reply, a laugh, her name said back; no put-down) are her few-shot examples; a
+  (reaction, Discord reply, a laugh, her name said back; no put-down) are her few-shot examples (up to
+  `FEW_SHOT_EXAMPLES` 8 a reply: with the system prompt, her voice until a fine-tune serves her); a
   ≤6-line vibe note on how the server talks goes in her system prompt. Training data mixes seed ×3 +
   landed + people's messages (`meld.voice_examples`).
 - The seed left her prompt (user, 2026-10-04: melon bread out of nowhere; her defiance is in the system
-  prompt). `SEED_EXAMPLES=true` brings back the old mix, landed replies replacing seed ones down to
-  `MELD_ANCHOR` 30%. It stays in training as her persona anchor (her only persona data there). Same
-  day, user: cut the 4 chats that brought up melon bread out of nowhere (the 3 about food stay), added
-  24 in the server's lowercase texting style (`persona_guide.md`, "Texting style"). 2026-10-14, user:
-  added 8 from their own comedy list (4 shouted corrections of a friend's claim, 4 bluster that
-  backfires; `persona_guide.md`, "Moves added 2026-10-14"), so 94; kept to about a tenth because a small
-  model copies the beat it sees most.
+  prompt); `SEED_EXAMPLES=true` brings back the old mix, landed replies replacing seed ones down to
+  `MELD_ANCHOR` 30%. It stays in training as her only persona data. The user's edits since: 2026-10-04
+  cut the 4 melon-bread-out-of-nowhere chats (the 3 about food stay), added 24 in the server's texting
+  style; 2026-10-14 added 8 from their comedy list (4 shouted corrections, 4 bluster that backfires),
+  kept to about a tenth: a small model copies the beat it sees most. `persona_guide.md` has both.
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
@@ -138,8 +135,6 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   apology). Muted → dropped; model down → retried after 60 s; older than 120 min → dropped.
 
 **Fine-tuning**
-- Until a fine-tune serves her, her voice comes from the system prompt and up to `FEW_SHOT_EXAMPLES`
-  (8) of her landed replies per reply.
 - LoRA/QLoRA with Unsloth on Kaggle's free T4 (not the 2070: ~10GB+ needed). `finetuning/weekly.py`
   (user, 2026-09-29): build → upload → fetch → install → check → switch, `all` never switches. Every
   run trains stock Gemma again on all data (never last week's model); the seed share goes 70% → 30%

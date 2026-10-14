@@ -36,15 +36,10 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   fail. Pictures, stickers, emoji-only posts and 1–2 word interjections ("lol wtf") only ever get a
   reaction. Sad news gets a reply and `:catsad:`. `emojis.py` lists every emoji and when to use it;
   edit the notes to change how she uses them. She writes custom emojis in replies as `:kekpoint:`.
-- **Talks like a member of the chat**: a jab is one line, a question or discussion 2–4 sentences.
-  She answers questions plainly first, plays along, and teases like a friend; the Archdemon act is a
-  quick line, not a speech. She knows today's date.
-  Calls people by nickname. Pings someone only to pull them in, never the person she's answering.
-  Never brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
-  See "Her replies" below for how that's kept up.
-- **Voice**: until a fine-tuned model serves her, each reply's prompt has up to 8 of her own replies
-  that landed (`FEW_SHOT_EXAMPLES`). The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only
-  train her now; `SEED_EXAMPLES=true` puts them back in her prompt.
+- **Talks like a member of the chat**: she answers questions plainly first, plays along, and teases
+  like a friend; the Archdemon act is a quick line, not a speech (lengths: "Her replies" below). She
+  knows today's date, calls people by nickname, and pings someone only to pull them in, never the
+  person she's answering. Never brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
 
@@ -60,10 +55,9 @@ reply's shape (`shape.py`) and tells her, instead of asking her to do things "no
 - The console shows `Trimmed to ...` when code had to cut what the model wrote.
 
 **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
-goodnight. Reading the room, her diary and pictures never think. The console shows the start of each
-thought: `She thought (212 words, 9.4s for all): '...'`. It makes each reply several seconds slower, and
-her replies aren't capped at `MAX_REPLY_TOKENS` (the thinking counts against it), but they still stop at
-4 sentences. Set it back to `false` to compare.
+goodnight, never for reading the room, her diary or pictures. Each reply is several seconds slower and
+not capped at `MAX_REPLY_TOKENS` (the thinking would eat it), but still stops at 4 sentences. The console
+shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
 
 ## Memory and diary
 - "**gomi remember that** I hate cilantro" (or @mention her) stores it word for word (📝).
@@ -76,7 +70,8 @@ her replies aren't capped at `MAX_REPLY_TOKENS` (the thinking counts against it)
   in her chat log, so she doesn't answer it, write it up again or learn from it. `POST_DIARY=false`
   turns it off.
 - Each night she also keeps her replies that **landed** (someone reacted, replied or laughed) as
-  examples of her voice (`earned_examples.jsonl`), and updates a short note on how the server talks.
+  examples of her voice (`earned_examples.jsonl`; until a fine-tuned model serves her, up to
+  `FEW_SHOT_EXAMPLES` 8 go in each reply's prompt), and updates a short note on how the server talks.
 - To edit any of these files, stop the bot first. All of them are gitignored and stay on your PC.
 
 ## What she sees
@@ -133,9 +128,10 @@ venv/bin/python finetuning/weekly.py switch   # if the check reads right; then r
 - The new model can't see pictures, so `switch` points `VISION_MODEL` (and `TASK_MODEL` for reading
   the room and her diary, if both fit on the GPU) at the stock `gemma4:e4b`.
 
-`finetuning/build_dataset.py [--meld --run N]` builds the training data by hand. `finetuning/persona_guide.md`
-is the style reference for writing more seed chats. `archive/discord-pipeline/` (parked) turns your
-own Discord export into training data, server channels only, never DMs.
+The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only train her (`SEED_EXAMPLES=true` puts
+them back in her prompt); `finetuning/persona_guide.md` is the style reference for writing more.
+`finetuning/build_dataset.py [--meld --run N]` builds the training data by hand. `archive/discord-pipeline/`
+(parked) turns your own Discord export into training data, server channels only, never DMs.
 
 ## Tests
 ```bash
