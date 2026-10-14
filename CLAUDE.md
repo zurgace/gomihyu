@@ -31,7 +31,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
   (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
   `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
-- `finetuning/` — `gomihyu_seed.jsonl` (86 original chats, Satania-style + lowercase; training only),
+- `finetuning/` — `gomihyu_seed.jsonl` (94 original chats, Satania-style + lowercase; training only),
   `persona_guide.md` (voice reference they were written from), `build_dataset.py`, `weekly.py` +
   `kaggle_train.py` + `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
@@ -118,7 +118,10 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   prompt). `SEED_EXAMPLES=true` brings back the old mix, landed replies replacing seed ones down to
   `MELD_ANCHOR` 30%. It stays in training as her persona anchor (her only persona data there). Same
   day, user: cut the 4 chats that brought up melon bread out of nowhere (the 3 about food stay), added
-  24 in the server's lowercase texting style (`persona_guide.md`, "Texting style").
+  24 in the server's lowercase texting style (`persona_guide.md`, "Texting style"). 2026-10-14, user:
+  added 8 from their own comedy list (4 shouted corrections of a friend's claim, 4 bluster that
+  backfires; `persona_guide.md`, "Moves added 2026-10-14"), so 94; kept to about a tenth because a small
+  model copies the beat it sees most.
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
@@ -160,6 +163,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
    feels right? Then `OLLAMA_THINK=true` for a while: more varied replies, worth the seconds? Judge it
    on stock gemma4:e4b (a fine-tune trained without thinking may not think well).
 4. Live checks not done yet: the friend-first persona (still her, or too tame?), the date, melon-bread
-   frequency, nicknames and "who am I?", vision quality and speed, slur filter. Checked live (user,
-   2026-10-04): reactions at 8, reacting when chiming in, her avatar, diary and melding output
+   frequency, nicknames and "who am I?", vision quality and speed, slur filter, and (once a
+   fine-tune serves her) whether the shouted corrections added 2026-10-14 stay rare. Checked live
+   (user, 2026-10-04): reactions at 8, reacting when chiming in, her avatar, diary and melding output
    (melding is slow only because the server is).
