@@ -42,7 +42,7 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   person she's answering. Never brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
-
+Dropbox link for seed/finetune/voice data: removed
 ## Her replies
 A small model copies the shape of its own last few messages, so once a habit slips in (an emoji before
 every sentence, a question at the end of every reply), every reply has it. So code decides each
