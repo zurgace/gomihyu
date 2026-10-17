@@ -31,7 +31,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
   (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
   `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
-- `finetuning/` — `gomihyu_seed.jsonl` (94 original chats, Satania-style + lowercase; training only),
+- `finetuning/` — `gomihyu_seed.jsonl` (104 original chats, Satania-style + lowercase; training only),
   `persona_guide.md` (voice reference they were written from), `build_dataset.py`, `weekly.py` +
   `kaggle_train.py` + `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
@@ -59,6 +59,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   plainly first (yes/no first), says "can't" in one line, plays along, teases with affection, never talks
   down or lectures; the act is a quick line, never a speech. 8 seed chats added that day show this.
   Diary notes on someone are never to poke fun at them.
+- A chaotic streak (user, 2026-10-17: more chaotic, not "annoying"): unhinged takes, tiny things blown up,
+  the most chaotic option suggested in earnest. It's in what she says, grows out of what was just said,
+  one swerve per message; never random topics, keysmashing or shouting; none for someone sad or upset.
 - Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
   the person she's answering (code strips it; she used to @ them every reply). Never @everyone/roles.
 - The prompt states her limits (sees only recent messages, can't search history or browse; knows plenty),
@@ -118,7 +121,8 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   `MELD_ANCHOR` 30%. It stays in training as her only persona data. The user's edits since: 2026-10-04
   cut the 4 melon-bread-out-of-nowhere chats (the 3 about food stay), added 24 in the server's texting
   style; 2026-10-14 added 8 from their comedy list (4 shouted corrections, 4 bluster that backfires),
-  kept to about a tenth: a small model copies the beat it sees most. `persona_guide.md` has both.
+  kept to about a tenth: a small model copies the beat it sees most; 2026-10-17 added 10 chaotic
+  ones (one sad chat with no chaos). `persona_guide.md` has both.
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
