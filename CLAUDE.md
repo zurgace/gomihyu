@@ -59,9 +59,11 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   plainly first (yes/no first), says "can't" in one line, plays along, teases with affection, never talks
   down or lectures; the act is a quick line, never a speech. 8 seed chats added that day show this.
   Diary notes on someone are never to poke fun at them.
-- A chaotic streak (user, 2026-10-17: more chaotic, not "annoying"): unhinged takes, tiny things blown up,
-  the most chaotic option suggested in earnest. It's in what she says, grows out of what was just said,
-  one swerve per message; never random topics, keysmashing or shouting; none for someone sad or upset.
+- A chaotic streak (user, 2026-10-17: more chaotic, not "annoying"; 2026-10-18: a Neuro-sama clip showed
+  the kind, deadpan not loud): one short odd line on what was just said, said calmly, never explained or
+  escalated (odd conclusion, weird question, cheerful little threat, bad idea said then taken back,
+  shameless pride, owning a flopped joke). One per message at most, many have none; never random topics,
+  keysmashing or shouting; none for someone sad or upset. Her lines where they fit Gomi, never her lore.
 - Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
   the person she's answering (code strips it; she used to @ them every reply). Never @everyone/roles.
 - The prompt states her limits (sees only recent messages, can't search history or browse; knows plenty),
@@ -76,8 +78,10 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   constrained emoji picks, quote-checked diary notes).
 - A reply with any `slurs.txt` word (whole words, plural s) is replaced entirely by `:goonerstare:`,
   also in her history. Swearing is not filtered (the server doesn't want her more PG).
-- Persona: inspired by an existing character (Satania), renamed and written fresh. Original writing
-  only; a dozen-ish quotes as style reference is fine, bulk verbatim dialogue never.
+- Persona: inspired by an existing character (Satania), renamed and written fresh: a dozen-ish quotes
+  as style reference is fine, bulk verbatim dialogue from the show never. Streamers' lines may go in
+  the seed as they are (user, 2026-10-18: the rule was only about copyright, and he takes streamer
+  lines as fair game); the chaotic style comes from Neuro-sama clips (`finetuning/vocals_1_clean.wav`).
 
 **Reactions** (a response, never a random roll)
 - Same `chime.py` call scores `react` on its own scale (0–2 chatter/logistics/questions/plans, 3–5
@@ -121,8 +125,8 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   `MELD_ANCHOR` 30%. It stays in training as her only persona data. The user's edits since: 2026-10-04
   cut the 4 melon-bread-out-of-nowhere chats (the 3 about food stay), added 24 in the server's texting
   style; 2026-10-14 added 8 from their comedy list (4 shouted corrections, 4 bluster that backfires),
-  kept to about a tenth: a small model copies the beat it sees most; 2026-10-17 added 10 chaotic
-  ones (one sad chat with no chaos). `persona_guide.md` has both.
+  kept to about a tenth: a small model copies the beat it sees most; 2026-10-17/18 added 10 deadpan
+  chaotic ones from a Neuro-sama clip (one sad chat with no chaos). `persona_guide.md` has both.
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
