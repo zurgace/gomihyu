@@ -204,27 +204,27 @@ def build(*args):
     assert out.returncode == 0, out.stderr
     return out.stdout, [json.loads(l) for l in (repo / "finetuning" / "train.jsonl").read_text().splitlines()]
 out, rows = build()
-assert len(rows) == 104 and "104 seed examples" in out
+assert len(rows) == 108 and "108 seed examples" in out
 seed_replies = {json.loads(l)["reply"] for l in (repo / "finetuning" / "gomihyu_seed.jsonl").read_text().splitlines()}
-for run, want_server in [(1, 134), (2, 161), (3, 191), (6, 312), (11, 728), (14, 728)]:
+for run, want_server in [(1, 139), (2, 167), (3, 199), (6, 324), (11, 756), (14, 756)]:
     out, rows = build("--meld", "--run", str(run))
     replies = [row["messages"][-1]["content"] for row in rows]
     n_seed = sum(r in seed_replies for r in replies); n_landed = sum(r.startswith("landed ") for r in replies)
-    assert n_seed == 312 and len(rows) == 312 + want_server and n_landed == 10, (run, n_seed, len(rows), n_landed, out)
+    assert n_seed == 324 and len(rows) == 324 + want_server and n_landed == 10, (run, n_seed, len(rows), n_landed, out)
     assert f"Run {run}:" in out and "persona" in out
     assert all(row["messages"][-1]["role"] == "assistant" and "How people" not in row["messages"][0]["content"]
                and "made-up chats" not in row["messages"][0]["content"] for row in rows)
 (repo / "finetuning" / "train.jsonl").unlink()
 shutil.rmtree(repo / "logs_here"); ChatLog(repo / "logs_here").add(1, "#c", 1, 5, "rexmode", "just one line here", when=tt)
 out, rows = build("--meld", "--run", "11")
-assert len(rows) == 322 and "97% persona (aimed for 30%)" in out, out                  # short on server data: says so
+assert len(rows) == 334 and "97% persona (aimed for 30%)" in out, out                  # short on server data: says so
 for n in range(800):
     cl.add(10 + n % 3, "#c", n, 6 if n % 2 else 5, "kaz0" if n % 2 else "rexmode", f"server message number {n} here", when=tt + n)
 out, rows = build("--meld", "--run", "1", "--persona-share", "0.5")
-assert len(rows) == 624
+assert len(rows) == 648
 _, a = build("--meld", "--run", "2"); _, b = build("--meld", "--run", "2"); assert a == b      # same run, same data
 (repo / ".env").write_text("CHAT_LOG_DIR=logs_here\nEARNED_FILE=earned_here.jsonl\nMELD_ANCHOR=0.3\nMELD_RUNS=3\n")
-out, rows = build("--meld", "--run", "3"); assert len(rows) == 312 + 728 and "aimed for 30%" in out, out
+out, rows = build("--meld", "--run", "3"); assert len(rows) == 324 + 756 and "aimed for 30%" in out, out
 out, rows = build("--meld", "--run", "2"); assert "aimed for 50%" in out, out
 shutil.rmtree(work)
 print("MELD TESTS PASSED")
