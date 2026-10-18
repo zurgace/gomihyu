@@ -31,7 +31,7 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - `memory.py` (people.json: facts, nicknames, learned notes) · `chatlog.py` (chatlogs/) · `diary.py`
   (nightly recaps/notes, diary.json) · `meld.py` (landed replies, voice examples, vibe note, schedule) ·
   `melee.py` (AI-Melee outbox → session facts) · `commands.py` (owner commands) · `censor.py` + `slurs.txt`.
-- `finetuning/` — `gomihyu_seed.jsonl` (104 original chats, Satania-style + lowercase; training only),
+- `finetuning/` — `gomihyu_seed.jsonl` (108 original chats, Satania-style + lowercase; training only),
   `persona_guide.md` (voice reference they were written from), `build_dataset.py`, `weekly.py` +
   `kaggle_train.py` + `check_chats.jsonl` (weekly fine-tune), state in gitignored `runs/`.
 - `archive/discord-pipeline/` — parked: turns the user's Discord export into training data (never run).
@@ -81,7 +81,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - Persona: inspired by an existing character (Satania), renamed and written fresh: a dozen-ish quotes
   as style reference is fine, bulk verbatim dialogue from the show never. Streamers' lines may go in
   the seed as they are (user, 2026-10-18: the rule was only about copyright, and he takes streamer
-  lines as fair game); the chaotic style comes from Neuro-sama clips (`finetuning/vocals_1_clean.wav`).
+  lines as fair game); the chaotic style comes from Neuro-sama clips (`finetuning/vocals_1_clean.wav`),
+  4 chats from a Pippa clip (2026-10-18; the 160 MB `vocals_clean.wav` is on Dropbox, linked in the
+  README). The user transcribes new clips with Whisper and pastes the text.
 
 **Reactions** (a response, never a random roll)
 - Same `chime.py` call scores `react` on its own scale (0–2 chatter/logistics/questions/plans, 3–5
@@ -126,7 +128,8 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   cut the 4 melon-bread-out-of-nowhere chats (the 3 about food stay), added 24 in the server's texting
   style; 2026-10-14 added 8 from their comedy list (4 shouted corrections, 4 bluster that backfires),
   kept to about a tenth: a small model copies the beat it sees most; 2026-10-17/18 added 10 deadpan
-  chaotic ones from a Neuro-sama clip (one sad chat with no chaos). `persona_guide.md` has both.
+  chaotic ones from a Neuro-sama clip (one sad chat with no chaos), then 4 friend-first deadpan ones from a
+  Pippa clip (its rants and gun/bomb/kill jokes left out). `persona_guide.md` has them all.
 
 **Vision**
 - Pictures, GIFs (first frame), stickers and link previews are described once (cached), and the
