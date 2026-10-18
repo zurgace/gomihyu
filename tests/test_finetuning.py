@@ -129,6 +129,6 @@ for row, x in zip(train, ex):
     assert roles == ["system", "user", "assistant"] and row["messages"][2]["content"] == x["reply"]
     assert ("directly mentioned" in row["messages"][1]["content"]) == x["history"][-1][1].startswith("@Gomihyu")
 r = run(FT / "build_dataset.py", FT / "data" / "examples.jsonl", work / "repo" / "finetuning" / "gomihyu_seed.jsonl")
-assert f"Wrote {len(ex) + 94} examples" in r.stdout, r.stdout
+assert f"Wrote {len(ex) + 104} examples" in r.stdout, r.stdout
 print("BUILD OK")
 shutil.rmtree(work)
