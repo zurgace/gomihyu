@@ -5,7 +5,8 @@
 on a small local model: Ollama `gemma4:e4b` on an RTX 2070 (8GB). A side project and dry run before a
 separate, bigger assistant project (Nemotron, Framework Desktop): don't conflate them. Scope is a
 Discord conversationalist, plus (user, 2026-09-29) posting about the Melee sessions she plays in
-AI-Melee (`zurgace/aimelee`, read-only from here).
+AI-Melee (`zurgace/aimelee`, read-only from here). Since 2026-10-18 the user's local coding model, Doumi
+Coder, also pushes branches here: review them before merging (its first one committed a password file).
 
 ## Environment
 - CachyOS (Arch), fish shell. Python 3 venv; run things as `venv/bin/python ...`.
@@ -43,7 +44,9 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - Always replies to posts aimed at her: @mention, a Discord reply to her (ping on or off), her name
   outside links, sad news. Fires back rudely in character when insulted.
 - Everything else: one `chime.py` read; she replies at `CHIME_IN_THRESHOLD` (default 6; user runs 8).
-  Failed read = quiet. No cooldown (slow server); ask before adding one.
+  Failed read = quiet. No cooldown (slow server); ask before adding one. Interest anchors (user via Doumi,
+  2026-10-18: always chiming in made her annoying): 6–7 background chatter she leaves alone, 8–9 demands
+  a response, 10 a question to the room or an answer to her.
 - One reply in flight per channel; posts arriving meanwhile get ONE follow-up on the newest chat.
 - She answers questions for real, builds on others, never opens by echoing the message. Each reply's
   shape is decided in code (`shape.py`; user, 2026-10-04: every reply had become emoji + sentence ×5,
@@ -64,6 +67,12 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
   escalated (odd conclusion, weird question, cheerful little threat, bad idea said then taken back,
   shameless pride, owning a flopped joke). One per message at most, many have none; never random topics,
   keysmashing or shouting; none for someone sad or upset. Her lines where they fit Gomi, never her lore.
+- Direct, witty, and not everything is about her (user, 2026-10-18): her "opinions on everything, takes
+  sides, asks people things" line is gone. A reply to a post not aimed at her is told so (she took every
+  "you" as her): "you" is her only if they're clearly talking to her, and she adds to their talk, never
+  takes it over. Training and check prompts call a post aimed at her the same way (`names_her`). Doumi's
+  "one or two lines, three max" and "stay quiet" were dropped: length stays with `shape.py`, and the
+  reply model can't stay quiet (the read decides).
 - Goes by Gomi; calls people by nickname, else handle. "@name" in a reply becomes a real ping, except for
   the person she's answering (code strips it; she used to @ them every reply). Never @everyone/roles.
 - The prompt states her limits (sees only recent messages, can't search history or browse; knows plenty),
@@ -77,7 +86,8 @@ AI-Melee (`zurgace/aimelee`, read-only from here).
 - Small models confabulate: anything that must be true lives in code (memory, slur filter,
   constrained emoji picks, quote-checked diary notes).
 - A reply with any `slurs.txt` word (whole words, plural s) is replaced entirely by `:goonerstare:`,
-  also in her history. Swearing is not filtered (the server doesn't want her more PG).
+  also in her history. Swearing is not filtered (the server doesn't want her more PG), except "bitch(es)"
+  (user, 2026-10-18: out of character for her).
 - Persona: inspired by an existing character (Satania), renamed and written fresh: a dozen-ish quotes
   as style reference is fine, bulk verbatim dialogue from the show never. Streamers' lines may go in
   the seed as they are (user, 2026-10-18: the rule was only about copyright, and he takes streamer

@@ -56,7 +56,8 @@ from chime import parse_room, room_format, room_messages  # noqa: E402
 from diary import Diary, digest_format, digest_messages, parse_digest  # noqa: E402
 from emojis import UNICODE  # noqa: E402
 from meld import MELD_RUNS, persona_share, pick_examples  # noqa: E402
-from persona import BOT_NAME, build_messages, format_line  # noqa: E402
+from persona import build_messages, format_line  # noqa: E402
+from reactions import names_her  # noqa: E402
 
 RUNS = HERE / "runs"
 STATE = RUNS / "runs.json"
@@ -474,7 +475,7 @@ def cmd_check(args) -> bool:
     for i, test in enumerate(c for c in chats if c.get("use", "reply") == "reply"):
         transcript = [format_line(h, t) for h, t in test["history"]]
         speaker, last = test["history"][-1]
-        mentioned = f"@{BOT_NAME}".lower() in last.lower()
+        mentioned = names_her(last)  # aimed at her, as in build_dataset.py
         examples = pick_examples(seed, earned, few, anchor, full_at, rng=random.Random(i)) if few > 0 else []
         context = {"vibe": vibe, "avatar": setting("AVATAR_DESCRIPTION", "")}
         replies.append((test, chat(now, build_messages(transcript, mentioned, speaker, examples=examples, **context),

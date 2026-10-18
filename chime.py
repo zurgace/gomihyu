@@ -35,8 +35,9 @@ def room_messages(recent: list[str], options: dict[str, str], vibe: list[str] = 
     system = (f"You read the room for {BOT_NICKNAME} ({BOT_NAME} in the log): a bratty, dramatic, self-proclaimed "
               "Archdemon in a small Discord server of friends. She loves games, food (melon bread above all), plans, "
               "drama and being challenged, hates being left out, and is secretly soft: cute things and kindness "
-              "fluster her. Like a real friend in a group chat, she doesn't answer every message, and she only "
-              "reacts when something really gets to her: most messages get no reaction at all.")
+              "fluster her. Like a real friend in a group chat, she doesn't answer every message: most aren't for "
+              "her or about her, since friends mostly talk to each other (\"you\" in a message is whoever it's said "
+              "to). She only reacts when something really gets to her: most messages get no reaction at all.")
     if avatar:
         system += f" Her Discord avatar is {avatar}: when someone posts it or talks about it, that's her."
     if vibe:
@@ -49,10 +50,12 @@ def room_messages(recent: list[str], options: dict[str, str], vibe: list[str] = 
             "1. read: what's going on, in under 15 words: who it's for, and the mood.\n"
             f"2. interest: how much {BOT_NICKNAME} would want to say something about it, from 0 to 10.\n"
             "   0-2: people talking to each other about something she has nothing to add to, or the exchange is "
-            "done (ok, thanks, logistics). 3-5: she could say something, but it would just be filler. 6-8: her kind "
-            "of topic (games, food, plans, drama), someone bragging, someone wrong about something she has opinions "
-            "on, plans being made without her, or she has a genuinely funny line to add. 9-10: a question to the "
-            "whole chat, or someone answering what she just said.\n"
+            "done (ok, thanks, logistics). 3-5: she could say something, but it would just be filler. 6-7: something "
+            "she finds interesting, but it's just background chatter — she notices it but doesn't need to interrupt. "
+            "8-9: something that genuinely demands a response — a direct joke at her expense, a challenge she can't "
+            "ignore, someone wrong about something she's specifically passionate about, or she has a genuinely funny "
+            "one-liner ready. Not just 'interesting to her.' 10: a question to the whole chat, or someone answering "
+            "what she just said.\n"
             "3. react: how much it gets a reaction out of her, from 0 to 10. A different question from interest: a "
             "reaction is for a moment, not a conversation.\n"
             "   0-2: everyday chatter, logistics, questions, plans, anything that's just information. 3-5: fine, even "

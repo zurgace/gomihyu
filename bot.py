@@ -188,8 +188,8 @@ history = defaultdict(lambda: deque(maxlen=HISTORY_LENGTH))
 logged = defaultdict(int)
 # channel_id -> held while a reply is being generated and sent
 reply_locks = defaultdict(asyncio.Lock)
-# channel_id -> (whether anything that arrived mid-reply @mentioned her, whether anything was aimed at
-# her so it must be answered); present = one follow-up owed
+# channel_id -> (whether anything that arrived mid-reply was for her: an @mention, a reply to her, her
+# name; whether anything must be answered: that, or sad news); present = one follow-up owed
 pending_followup = {}
 # lowercase Discord handle or display name -> user id, for real pings and for "Yuzuki's nickname is..."
 handles = {}
@@ -421,7 +421,7 @@ async def ollama_chat(payload: dict) -> dict | None:
     return data
 
 
-async def generate_reply(channel_id: int, triggered_by_mention: bool, temperature: float | None = None) -> str | None:
+async def generate_reply(channel_id: int, for_her: bool, temperature: float | None = None) -> str | None:
     # Only the person being replied to gets their facts in context, never everyone's.
     author_id, author_handle = last_author[channel_id]
     # Everyone in the log gets their nickname, though, so she can call them by it.
@@ -434,7 +434,7 @@ async def generate_reply(channel_id: int, triggered_by_mention: bool, temperatur
     options = cap(MAX_REPLY_TOKENS, OLLAMA_THINK)
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
-    payload = {"messages": build_messages(list(history[channel_id]), triggered_by_mention,
+    payload = {"messages": build_messages(list(history[channel_id]), for_her,
                                           author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
                                           memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
                                           diary.vibe(), avatar_description, **shape, now=local_now()),
@@ -509,17 +509,17 @@ async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: s
             chat_log.add(channel_id, channel_label(channel), sent.id, client.user.id, BOT_NAME, reply, about=about)
 
 
-async def reply_to(channel: discord.abc.Messageable, channel_id: int, mentioned: bool) -> None:
+async def reply_to(channel: discord.abc.Messageable, channel_id: int, for_her: bool) -> None:
     seen = logged[channel_id]
     async with channel.typing():
-        reply = await generate_reply(channel_id, triggered_by_mention=mentioned)
+        reply = await generate_reply(channel_id, for_her)
         if reply and (names := strangers(channel_id, reply)):
             log.info(f"Reply names someone who isn't here ({', '.join(names)}); retrying at temperature {RETRY_TEMPERATURE}")
-            reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
+            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE) or reply
         elif reply and repeats_itself(channel_id, reply):
             log.info(f"Reply repeats one of Gomihyu's recent messages or example lines; retrying at temperature {RETRY_TEMPERATURE}")
             # If the retry fails outright, the repetitive reply beats no reply.
-            reply = await generate_reply(channel_id, triggered_by_mention=mentioned, temperature=RETRY_TEMPERATURE) or reply
+            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE) or reply
         if reply and (names := strangers(channel_id, reply)):
             # Still there after the retry: those sentences go. Nothing left means nothing to say.
             reply = without_names(reply, names)
@@ -920,27 +920,27 @@ async def on_message(message: discord.Message):
     lock = reply_locks[channel_id]
     if lock.locked():
         # Already deciding or writing a reply here; everything that arrives meanwhile gets one follow-up.
-        was_mentioned, was_addressed = pending_followup.get(channel_id, (False, False))
-        pending_followup[channel_id] = (was_mentioned or mentioned, was_addressed or addressed)
+        was_for_her, was_addressed = pending_followup.get(channel_id, (False, False))
+        pending_followup[channel_id] = (was_for_her or for_her, was_addressed or addressed)
         return
 
     async with lock:
         try:
-            await converse(message.channel, channel_id, mentioned, addressed)
+            await converse(message.channel, channel_id, for_her, addressed)
         finally:
             pending_followup.pop(channel_id, None)
 
 
-async def converse(channel: discord.abc.Messageable, channel_id: int, mentioned: bool, addressed: bool) -> None:
+async def converse(channel: discord.abc.Messageable, channel_id: int, for_her: bool, addressed: bool) -> None:
     """Reply if she should, then once more for whatever arrived meanwhile. Holds the channel's lock."""
     while not muted(channel_id):
         if addressed or (not quiet(channel_id) and await chimes_in(channel_id)):
             # What arrived while she was deciding is already in the log, so this reply covers it.
-            was_mentioned, _ = pending_followup.pop(channel_id, (False, False))
-            await reply_to(channel, channel_id, mentioned or was_mentioned)
+            was_for_her, _ = pending_followup.pop(channel_id, (False, False))
+            await reply_to(channel, channel_id, for_her or was_for_her)
         if channel_id not in pending_followup:
             break
-        mentioned, addressed = pending_followup.pop(channel_id)
+        for_her, addressed = pending_followup.pop(channel_id)
 
 
 def melee_player() -> str:
@@ -1048,8 +1048,8 @@ async def post_session(outbox: Path) -> bool:
                     await send_reply(channel, channel_id, post, about="melee")
             # Anything said while she was writing gets its usual answer now.
             if channel_id in pending_followup:
-                mentioned, addressed = pending_followup.pop(channel_id)
-                await converse(channel, channel_id, mentioned, addressed)
+                for_her, addressed = pending_followup.pop(channel_id)
+                await converse(channel, channel_id, for_her, addressed)
         finally:
             pending_followup.pop(channel_id, None)
     return not post  # the model didn't answer: try again later
