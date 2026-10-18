@@ -9,9 +9,10 @@ sys.path.insert(0, REPO)
 from censor import has_slur, WORDS
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
-assert len(WORDS) == 23 and "#" not in "".join(WORDS)
+assert len(WORDS) == 25 and "#" not in "".join(WORDS)
 for text in ["you absolute faggot", "FAGGOTS everywhere", "that's so Retarded lol", "quit being a retard, @kaz0",
-             "no nigga that's wild", "trannies"]:
+             "no nigga that's wild", "trannies",
+             "ok bitch", "BITCHES be like"]:  # the one swear filtered (user, 2026-10-18: out of character for her)
     assert has_slur(text), text
 for text in ["this is so spicy", "a raccoon ate my melon bread", "japan trip", "cocoon", "the fagioli soup",
              "shit fuck damn, swearing stays", ""]:

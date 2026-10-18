@@ -10,13 +10,20 @@ import bot, persona
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 
-# the prompt no longer asks for one-liners, and asks her to take part
+# the prompt no longer asks for one-liners (nor "three max", 2026-10-18), and not everything is about her
 s, m = persona.SYSTEM_PROMPT, persona.build_messages(["kaz0: pineapple pizza is good", "nori: no it isn't"], False)[1]["content"]
 assert "at most 2 sentences" not in m and "often just a few words" not in m and "only context" not in m
 assert "a question or a real discussion gets 2 to 4 sentences, never more" in m and "give your own opinion" in m
 assert "actually answer it" in m and "Now and then, not every time, ask something back" in m
 assert "You are replying to the newest message, from nori:\nnori: no it isn't" in m
-assert "You're an active part of this group chat, not a bystander" in s and "casual and quick" not in s
+assert "Not every message is for you or about you" in s and "casual and quick" not in s and "three max" not in s
+assert "Be direct" in s and "Be witty, not wordy" in s and "opinions on everything" not in s
+# a chime-in isn't told "you" is her (she took every post as aimed at her), and can't stay quiet anyway
+assert "chiming in from the side" in m and '"you" means you' not in m and "stay quiet" not in s + m
+# training prompts agree (finetuning/build_dataset.py): her name makes it aimed at her, as in bot.py
+sys.path.insert(0, REPO + "/finetuning"); import build_dataset
+turn = lambda last: build_dataset.render({"history": [["kaz0", last]], "reply": "x"})["messages"][1]["content"]
+assert '"you" means you, Gomi.' in turn("gomi settle this") and "chiming in from the side" in turn("morning chat")
 # one of the friends first, the Archdemon a bit (user, 2026-10-04: a date question got a lecture and put-downs)
 assert "You're one of the friends" in s and "not your whole personality" in s and "never a speech" in s
 assert "really answer it, plainly and first" in s and "start with yes or no" in s and "say so in one line" in s
@@ -29,6 +36,7 @@ assert persona.clock(datetime(2026, 10, 4, 0, 5)) == "Sunday, October 4, 2026, 1
 assert persona.clock(datetime(2026, 1, 9, 12, 30)) == "Friday, January 9, 2026, 12:30 PM"
 dated = persona.build_messages(["kaz0: gomi what's the date"], True, now=datetime(2026, 10, 4, 13, 31))[1]["content"]
 assert dated.startswith("Right now it's Sunday, October 4, 2026, 1:31 PM.\n\nkaz0: gomi what's the date")
+assert '"you" means you, Gomi.' in dated and "chiming in" not in dated
 
 out = {"v": None}
 async def fake(request):
@@ -60,5 +68,6 @@ async def main():
         out["v"] = (content, reason); await bot.on_message(msg("what game should we play saturday"))
         assert ch.sent[-1] == want, (ch.sent[-1], want)
     assert out["req"]["options"] == {"num_ctx": 6144, "num_predict": 120}  # both from .env
+    assert "chiming in from the side" in out["req"]["messages"][1]["content"]  # nobody asked her
     await r.cleanup(); print("LENGTH TESTS PASSED")
 asyncio.run(main())

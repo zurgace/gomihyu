@@ -37,7 +37,8 @@ from dotenv import load_dotenv  # noqa: E402
 
 from chatlog import ChatLog  # noqa: E402
 from meld import MELD_RUNS, persona_share, voice_examples  # noqa: E402
-from persona import BOT_NAME, build_messages, format_line  # noqa: E402
+from persona import build_messages, format_line  # noqa: E402
+from reactions import names_her  # noqa: E402
 from shape import tidy  # noqa: E402
 
 SEED = HERE / "gomihyu_seed.jsonl"
@@ -47,7 +48,7 @@ OUT = HERE / "train.jsonl"
 def render(example: dict) -> dict:
     transcript = [format_line(speaker, text) for speaker, text in example["history"]]
     speaker, last_text = example["history"][-1]
-    mentioned = f"@{BOT_NAME}".lower() in last_text.lower()
+    mentioned = names_her(last_text)  # aimed at her, as bot.py sees it (minus Discord replies: not in the data)
     messages = build_messages(transcript, mentioned, speaker, example.get("facts", []), example.get("nicknames"))
     messages.append({"role": "assistant", "content": example["reply"]})
     return {"messages": messages}
