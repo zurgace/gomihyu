@@ -28,58 +28,45 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
 
 ## How she behaves
 - **Always answers posts aimed at her**: an @mention, a Discord reply to her, her name, sad news.
-- **Everything else, she reads the room first**: one short model call rates how much she'd want to
-  say something (she replies at `CHIME_IN_THRESHOLD`, default 6) and how much it gets a rise out of
-  her (she reacts at `REACT_THRESHOLD`, default 8). The console shows each read:
+- **Everything else, she reads the room first**: one short model call rates how much she'd want to say
+  something (she replies at `CHIME_IN_THRESHOLD`, default 6) and how much it gets a rise out of her (she
+  reacts at `REACT_THRESHOLD`, default 8). The console shows each read:
   `Read kaz0's post: '...', interest 3, react 9/10 (reacts at 8), 🔥 fits`.
-- **Reactions** are for moments, not chatter: a big win, something really funny or cute, a painful
-  fail. Pictures, stickers, emoji-only posts and 1–2 word interjections ("lol wtf") only ever get a
-  reaction. Sad news gets a reply and `:catsad:`. `emojis.py` lists every emoji and when to use it;
-  edit the notes to change how she uses them. She writes custom emojis in replies as `:kekpoint:`.
-- **Talks like a member of the chat**: she answers questions plainly first, plays along, and teases
-  like a friend; the Archdemon act is a quick line, not a speech (lengths: "Her replies" below). She
-  knows today's date, calls people by nickname, and pings someone only to pull them in, never the
-  person she's answering. Never brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
+- **Reactions** are for moments: a big win, something really funny or cute, a painful fail. Pictures,
+  stickers, emoji-only posts and 1–2 word interjections ("lol wtf") only ever get a reaction; sad news
+  gets a reply and `:catsad:`. `emojis.py` lists every emoji and when to use it: edit the notes to change
+  her picks.
+- **Talks like a member of the chat**: plain answers first, plays along, teases like a friend. She calls
+  people by nickname, pings someone only to pull them in (never the person she's answering), and never
+  brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
+- **Reply shape is decided in code** (`shape.py`), since a small model copies its own last few messages:
+  a post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question gets one short line, anything
+  else 2–4 sentences (cut if longer: `Trimmed to ...` in the console). She asks back, or uses an emoji
+  (one at most), only if her last two messages didn't.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
-Dropbox link for seed/finetune/voice data: removed
-## Her replies
-A small model copies the shape of its own last few messages, so once a habit slips in (an emoji before
-every sentence, a question at the end of every reply), every reply has it. So code decides each
-reply's shape (`shape.py`) and tells her, instead of asking her to do things "now and then":
-- A post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question ("you're a slop bot",
-  "gomi hi") gets one short line. Anything else gets 2–4 sentences. A longer reply is cut after its
-  2nd or 4th sentence.
-- She asks something back, or uses an emoji, only if her last two messages didn't. A message has at
-  most one emoji either way.
-- The console shows `Trimmed to ...` when code had to cut what the model wrote.
-
-**Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
-goodnight, never for reading the room, her diary or pictures. Each reply is several seconds slower and
-not capped at `MAX_REPLY_TOKENS` (the thinking would eat it), but still stops at 4 sentences. The console
-shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
+- **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
+  goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still 4 sentences at most. The
+  console shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
 
 ## Memory and diary
 - "**gomi remember that** I hate cilantro" (or @mention her) stores it word for word (📝).
   "gomi call me Rex" / "gomi Yuzuki's nickname is Yuzu" sets nicknames. Kept in `people.json`.
-- She keeps a chat log of the server (`chatlogs/`, never DMs). At shutdown she writes her **diary**:
-  a recap per channel (`diary.json`, her last 3 days go in her prompt) and notes on people (kept only
-  if the words they're based on are really in the log). A crash is caught up on at the next start.
-- Each new recap is also **posted** in its channel (📔 Gomi's diary): right away on "gomi goodnight",
-  at the next start after a Ctrl+C. Her notes on people aren't posted. She ignores the post: it isn't
-  in her chat log, so she doesn't answer it, write it up again or learn from it. `POST_DIARY=false`
-  turns it off.
-- Each night she also keeps her replies that **landed** (someone reacted, replied or laughed) as
-  examples of her voice (`earned_examples.jsonl`; until a fine-tuned model serves her, up to
-  `FEW_SHOT_EXAMPLES` 8 go in each reply's prompt), and updates a short note on how the server talks.
-- To edit any of these files, stop the bot first. All of them are gitignored and stay on your PC.
+- She logs the server's chat (`chatlogs/`, never DMs). At shutdown she writes her **diary**: a recap per
+  channel (`diary.json`; her last 3 days go in her prompt) and notes on people (kept only if the words
+  they're based on are really in the log). A crash is caught up on at the next start.
+- Each new recap is also **posted** in its channel (📔): right away on "gomi goodnight", at the next start
+  after a Ctrl+C. Never her notes on people, and she ignores the post. `POST_DIARY=false` turns it off.
+- Each night her replies that **landed** (someone reacted, replied or laughed) become examples of her
+  voice (`earned_examples.jsonl`, up to `FEW_SHOT_EXAMPLES` 8 per reply's prompt), and she updates a
+  short note on how the server talks.
+- Stop the bot before editing any of these files. All of them are gitignored and stay on your PC.
 
 ## What she sees
-Images, GIFs, stickers and link previews are described once by the model, and the description is
-what she "sees" from then on (`kaz0: rate my setup [image: a desk with three monitors]`). She never
-opens links or plays videos. **Her own avatar** is learned at login: her prompts say it's her face,
-and when someone posts it (even as a resized JPEG) her log reads `[image: Gomi's own avatar, ...]`.
-`VISION=false` turns vision off; `venv/bin/python tools/vision_check.py` tests it after an Ollama update.
+Images, GIFs, stickers and link previews are described once, and the description is what she "sees"
+from then on (`kaz0: rate my setup [image: a desk with three monitors]`). She never opens links or plays
+videos, and knows **her own avatar** when someone posts it. `VISION=false` turns vision off;
+`venv/bin/python tools/vision_check.py` tests it after an Ollama update.
 
 ## Owner commands
 Said to her (her name, @mention or a reply to her) by the bot's owner or `OWNER_USER_IDS`. Done in code,
@@ -98,16 +85,15 @@ so she can't argue. Anyone else saying them just gets a normal reply.
 Mute and quiet mode last `MUTE_MINUTES` (30) by default, and a restart clears them.
 
 ## Melee
-[AI-Melee](https://github.com/zurgace/aimelee) has her play Mario or Fox against you. She stays quiet
-while you play and posts **once per session**: when you close the game, say "gg", or after 20 minutes
-without a match. Her post says what decided it, whether her practice paid off, and what she'll work
-on next. Set it up once with "gomi post melee here"; both programs share
-`~/.local/share/gomihyu/melee-outbox`. `MELEE_PLAYER` names someone else playing her.
+[AI-Melee](https://github.com/zurgace/aimelee) has her play Mario or Fox against you. She posts **once per
+session**, when you close the game, say "gg", or after 20 minutes without a match: what decided it,
+whether her practice paid off, what she'll work on next. Set it up once with "gomi post melee here"; both
+programs share `~/.local/share/gomihyu/melee-outbox`. `MELEE_PLAYER` names someone else playing her.
 
 ## Training her (weekly, on Kaggle's free GPU)
-Her persona slowly melds with the server: each run trains on the seed chats plus the server's chat
-(the members agreed), 70% seed at run 1 down to 30% by run 11. Training needs more VRAM than the 2070,
-so it runs on Kaggle's free T4 (30 GPU hours a week; a run takes about an hour).
+Each run trains on the seed chats plus the server's chat (the members agreed), 70% seed at run 1 down to
+30% by run 11. Training needs more VRAM than the 2070, so it runs on Kaggle's free T4 (30 GPU hours a
+week; a run takes about an hour).
 
 **Once:** verify your phone on [Kaggle](https://www.kaggle.com) (needed for GPUs), get an API token
 (Settings → API, saved under `~/.kaggle/`), `venv/bin/pip install kaggle`, and put
@@ -119,19 +105,18 @@ venv/bin/python finetuning/weekly.py all      # build, upload, train, download, 
 venv/bin/python finetuning/weekly.py switch   # if the check reads right; then restart the bot
 ```
 - `all` skips a week with fewer than 50 new examples from the server, and never switches by itself.
-- The steps one at a time: `build`, `upload`, `fetch`, `install`, `check`. `status` shows the runs so
-  far, `rollback` undoes a switch, and `--help` lists the options.
-- `check` answers made-up test chats with her current model and the new one, side by side, and tests
-  reading the room, the diary, vision and VRAM. The report is saved in `finetuning/runs/wN/check.md`.
-- Each run is kept in Ollama as `gomi-wN`. The data is deleted from Kaggle once the model is
-  downloaded, and everything local stays in `finetuning/runs/` (gitignored).
+  `check` puts her current model and the new one side by side (report in
+  `finetuning/runs/wN/check.md`); `rollback` undoes a switch; `--help` lists the single steps.
+- Each run stays in Ollama as `gomi-wN`. The data is deleted from Kaggle once the model is downloaded;
+  everything local stays in `finetuning/runs/` (gitignored).
 - The new model can't see pictures, so `switch` points `VISION_MODEL` (and `TASK_MODEL` for reading
   the room and her diary, if both fit on the GPU) at the stock `gemma4:e4b`.
 
-The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only train her (`SEED_EXAMPLES=true` puts
-them back in her prompt); `finetuning/persona_guide.md` is the style reference for writing more.
-`finetuning/build_dataset.py [--meld --run N]` builds the training data by hand. `archive/discord-pipeline/`
-(parked) turns your own Discord export into training data, server channels only, never DMs.
+The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only train her (`SEED_EXAMPLES=true` puts them
+back in her prompt); `finetuning/persona_guide.md` is the guide for writing more. Voice clips behind
+some of them: `finetuning/vocals_1_clean.wav` (Neuro-sama) and `vocals_clean.wav` (Pippa, 160 MB) on
+[Dropbox](removed).
+`archive/discord-pipeline/` (parked) turns your own Discord export into training data, never DMs.
 
 ## Tests
 ```bash
@@ -142,7 +127,6 @@ Ollama, Discord, Kaggle and Unsloth are faked, and the suites run on a temporary
 your `.env` and data are never touched.
 
 ## Known limitations
-- A small model makes things up. Anything that must be right (memory, the slur filter, diary notes)
-  is checked in code; her opinions and facts aren't.
-- A picture is one short description from a small model: the gist, not the details.
+- A small model makes things up. Anything that must be right (memory, the slur filter, diary notes) is
+  checked in code; her opinions and facts aren't. A picture is one short description: the gist.
 - Built for one small server: history and logs are per channel, with no cooldowns.
