@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Kaggle's "T4 x2": Unsloth trains on one
@@ -56,7 +57,7 @@ def write_result(**extra) -> None:
 def fail(text: str) -> None:
     say(f"FAILED: {text}")
     write_result(error=text)
-    sys.exit(1)
+    sys.exit(0)  # not 1: Kaggle may not keep a failed run's output, and result.json is how weekly.py hears why
 
 
 def run(*command: str, what: str) -> None:
@@ -100,11 +101,12 @@ def masks_prompts(trainer, tokenizer, reply: str) -> bool:
 
 def train(config: dict, rows: list[dict]) -> Path:
     """The merged model, in 16-bit safetensors, in SCRATCH."""
+    # Unsloth first: imported after trl, SFTConfig is TRL's own, which wants bf16 the T4 lacks (run 1 died of it)
+    from unsloth import FastModel
+    from unsloth.chat_templates import get_chat_template, train_on_responses_only
     import torch
     from datasets import Dataset
     from trl import SFTConfig, SFTTrainer
-    from unsloth import FastModel
-    from unsloth.chat_templates import get_chat_template, train_on_responses_only
 
     max_len = config["max_len"]
     say(f"Loading {config['base']} in 4 bits")
@@ -137,6 +139,7 @@ def train(config: dict, rows: list[dict]) -> Path:
                        warmup_steps=5, num_train_epochs=config["epochs"], learning_rate=config["lr"],
                        logging_steps=5, optim="adamw_8bit", weight_decay=0.001, lr_scheduler_type="linear",
                        seed=3407, report_to="none", save_strategy="no", output_dir=str(SCRATCH / "checkpoints"),
+                       bf16=False,  # the T4 has none; Unsloth trains Gemma 4 in float32 there ("Using float32")
                        **{length: max_len}))
     trainer = train_on_responses_only(trainer)
     if not masks_prompts(trainer, tokenizer, replies[0]):  # the template's markers weren't found: say so
@@ -181,17 +184,21 @@ def to_gguf(merged: Path, quant: str) -> Path:
 
 
 def main() -> None:
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    os.chdir(SCRATCH)  # Unsloth's compile cache lands in the working folder: not in what gets downloaded
-    config, rows = load_data()
-    result.update(base=config["base"], epochs=config["epochs"], rank=config["rank"], gpu=check_gpu())
-    say(f"Run {RUN}: {len(rows)} examples on a {result['gpu']}")
-    for args in PIP:
-        run(sys.executable, "-m", "pip", "install", "-q", *args, what=f"pip install {' '.join(args)}")
-    merged = train(config, rows)
-    gguf = to_gguf(merged, config["quant"])
-    write_result(gguf=gguf.name, gguf_bytes=gguf.stat().st_size)
-    say(f"Done: {gguf.name}, {gguf.stat().st_size / 1e9:.1f} GB")
+    try:
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        os.chdir(SCRATCH)  # Unsloth's compile cache lands in the working folder: not in what gets downloaded
+        config, rows = load_data()
+        result.update(base=config["base"], epochs=config["epochs"], rank=config["rank"], gpu=check_gpu())
+        say(f"Run {RUN}: {len(rows)} examples on a {result['gpu']}")
+        for args in PIP:
+            run(sys.executable, "-m", "pip", "install", "-q", *args, what=f"pip install {' '.join(args)}")
+        merged = train(config, rows)
+        gguf = to_gguf(merged, config["quant"])
+        write_result(gguf=gguf.name, gguf_bytes=gguf.stat().st_size)
+        say(f"Done: {gguf.name}, {gguf.stat().st_size / 1e9:.1f} GB")
+    except Exception as e:  # a crash in Unsloth, torch or the like: the traceback goes to the log
+        traceback.print_exc()
+        fail(f"{type(e).__name__}: {str(e)[:300]}; the log has the traceback")
 
 
 if __name__ == "__main__":
