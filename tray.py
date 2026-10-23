@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QStyle, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 HERE = Path(__file__).resolve().parent
 LOG = HERE / "gomi.log"
@@ -29,7 +29,7 @@ PR_SET_PDEATHSIG = 1
 
 def tray(app: QApplication, bot: subprocess.Popen) -> QSystemTrayIcon:
     """Her icon and its menu; quits the app once the bot has exited."""
-    icon = QSystemTrayIcon(QIcon.fromTheme("face-devilish", app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)))
+    icon = QSystemTrayIcon(QIcon(str(HERE / "icon.png")))
     icon.setToolTip("Gomi")
     menu = QMenu()
     menu.addAction("Open log", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(LOG))))

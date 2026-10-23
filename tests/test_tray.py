@@ -4,7 +4,7 @@ import os as _os; REPO, TMP = _os.environ["GOMI_REPO"], _os.environ["GOMI_TMP"] 
 import os, shutil, signal, subprocess, sys, time
 from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
-T = Path(TMP); shutil.copy(REPO + "/tray.py", T)
+T = Path(TMP); shutil.copy(REPO + "/tray.py", T); shutil.copy(REPO + "/icon.png", T)
 (T / "bot.py").write_text("""import os, signal, sys, time
 print("Logged in as Gomihyu", flush=True)
 if os.environ.get("FAKE_CRASH"): sys.exit(3)
@@ -30,6 +30,7 @@ marker = T / "marker"
 
 bot = fake(); time.sleep(0.5)
 icon = tray.tray(app, bot)
+assert not icon.icon().isNull()                                       # icon.png, her app image
 stop = [a for a in icon.contextMenu().actions() if a.text() == "Shut down"][0]
 texts = []
 QTimer.singleShot(100, lambda: (stop.trigger(), texts.append(stop.text())))
