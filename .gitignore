@@ -19,6 +19,9 @@ people.json.tmp
 chatlogs/
 diary.json
 diary.json.tmp
+# Her console output under tray.py (quotes the chat)
+gomi.log
+gomi.log.old
 # Her replies that landed (meld.py), with the chat around them
 earned_examples.jsonl
 # Weekly fine-tune runs (finetuning/weekly.py): the uploaded data, downloaded models, check reports

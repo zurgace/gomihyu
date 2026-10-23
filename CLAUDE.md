@@ -12,7 +12,7 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
 
 ## Environment
 - CachyOS (Arch), fish shell; run things as `venv/bin/python ...`. After any change run `tests/run_all.sh`
-  (28 suites, everything faked, on a temp copy of the repo; `tests/run_all.sh test_x.py` for one).
+  (29 suites, everything faked, on a temp copy of the repo; `tests/run_all.sh test_x.py` for one).
 - `gemma4:e4b`: 3.2GB, 100% GPU at 8192 context. Every call sends the same `OLLAMA_NUM_CTX`, or Ollama
   reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first); training runs on Kaggle.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
@@ -24,7 +24,7 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   `persona.py`: the system prompt and every prompt builder; the training data is built with them too,
   so the prompt format changes only there.
 - `chime.py` reads the room · `shape.py` each reply's shape · `reactions.py` + `emojis.py` · `vision.py` ·
-  `commands.py` owner commands · `censor.py` + `slurs.txt`.
+  `commands.py` owner commands · `censor.py` + `slurs.txt` · `tray.py` runs her from the system tray.
 - `memory.py` people.json · `chatlog.py` · `diary.py` · `meld.py` landed replies, vibe note · `melee.py`.
 - `finetuning/`: `gomihyu_seed.jsonl` (108 made-up chats, training only), `persona_guide.md` (read it
   before writing seed chats), `build_dataset.py`, `weekly.py` + `kaggle_train.py`. `archive/`: parked.
