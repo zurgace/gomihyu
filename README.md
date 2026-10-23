@@ -26,6 +26,16 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
    `ModuleNotFoundError` after a system update (CachyOS upgrades Python): rebuild the venv with
    `rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt`.
 
+   **As an app** (no console): `venv/bin/python tray.py` (Qt, from `requirements.txt`) puts her icon in
+   the system tray. Right-click it for **Open log** (what the console showed is in `gomi.log`, the run
+   before in `gomi.log.old`) and **Shut down** (the Ctrl+C above; click again to skip the diary). The
+   icon goes when she stops, with a notification if she crashed. To start her from the app menu (search
+   "Gomi"), once, in the repo folder:
+   ```bash
+   sed "s|GOMI_DIR|$PWD|g" gomihyu.desktop > ~/.local/share/applications/gomihyu.desktop
+   ```
+   Also copy that file into `~/.config/autostart/` to start her at login.
+
 ## How she behaves
 - **Always answers posts aimed at her**: an @mention, a Discord reply to her, her name, sad news.
 - **Everything else, she reads the room first**: one short model call rates how much she'd want to say
@@ -120,7 +130,7 @@ some of them: `finetuning/vocals_1_clean.wav` (Neuro-sama) and `vocals_clean.wav
 
 ## Tests
 ```bash
-tests/run_all.sh                     # all 28 suites, about half a minute
+tests/run_all.sh                     # all 29 suites, about half a minute
 tests/run_all.sh test_reactions.py   # one
 ```
 Ollama, Discord, Kaggle and Unsloth are faked, and the suites run on a temporary copy of the repo, so
