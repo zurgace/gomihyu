@@ -101,11 +101,12 @@ def masks_prompts(trainer, tokenizer, reply: str) -> bool:
 
 def train(config: dict, rows: list[dict]) -> Path:
     """The merged model, in 16-bit safetensors, in SCRATCH."""
+    # Unsloth first: imported after trl, SFTConfig is TRL's own, which wants bf16 the T4 lacks (run 1 died of it)
+    from unsloth import FastModel
+    from unsloth.chat_templates import get_chat_template, train_on_responses_only
     import torch
     from datasets import Dataset
     from trl import SFTConfig, SFTTrainer
-    from unsloth import FastModel
-    from unsloth.chat_templates import get_chat_template, train_on_responses_only
 
     max_len = config["max_len"]
     say(f"Loading {config['base']} in 4 bits")
@@ -138,6 +139,7 @@ def train(config: dict, rows: list[dict]) -> Path:
                        warmup_steps=5, num_train_epochs=config["epochs"], learning_rate=config["lr"],
                        logging_steps=5, optim="adamw_8bit", weight_decay=0.001, lr_scheduler_type="linear",
                        seed=3407, report_to="none", save_strategy="no", output_dir=str(SCRATCH / "checkpoints"),
+                       bf16=False,  # the T4 has none; Unsloth trains Gemma 4 in float32 there ("Using float32")
                        **{length: max_len}))
     trainer = train_on_responses_only(trainer)
     if not masks_prompts(trainer, tokenizer, replies[0]):  # the template's markers weren't found: say so

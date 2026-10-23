@@ -175,6 +175,7 @@ peft = next(c[1] for c in calls if c[0] == "peft")
 assert peft["r"] == 16 and not peft["finetune_vision_layers"]
 trainer_args = next(c[1] for c in calls if c[0] == "trainer")
 assert trainer_args["max_length"] == 60 and trainer_args["num_train_epochs"] == 1 and trainer_args["save_strategy"] == "no"
+assert trainer_args["bf16"] is False                                         # the T4 has no bf16
 assert ("train", 4) in calls and "merged" in calls
 pips = [c[1] for c in calls if c[0] == "run" and c[1][1:3] == ["-m", "pip"]]
 assert len(pips) >= len(kt.PIP)
