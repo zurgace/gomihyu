@@ -323,11 +323,16 @@ def cmd_fetch(args) -> bool:
     kaggle("kernels", "output", notebook, "-p", str(out), "-o")
     result_file = out / "result.json"
     result = json.loads(result_file.read_text()) if result_file.exists() else {}
+    log = next(out.glob("*.log"), None)
+    if not result and status == "failed" and run.get("seen_running"):  # killed by Kaggle (time, memory, disk)
+        run["error"] = "stopped without a result.json; see its log"
+        save_state(state)
+        raise Stop(f"Run {number} failed on Kaggle without saying why. Its log: {log or 'not downloaded'} (the "
+                   "error is near the end). Fix it, then weekly.py upload to try again.")
     if result.get("run") != number:
         print(f"Kaggle's output isn't run {number}'s yet (it says run {result.get('run')}); weekly.py fetch again "
               "in a few minutes.")
         return False
-    log = next(out.glob("*.log"), None)
     if result.get("error"):
         run["error"] = result["error"]
         save_state(state)

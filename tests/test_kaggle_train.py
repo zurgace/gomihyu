@@ -182,20 +182,20 @@ assert len(pips) >= len(kt.PIP)
 # --- last week's data still attached: stops before installing anything
 setup(run=2)
 code, log, result = main_output()
-assert code == 1 and "run 2, not run 3" in result["error"] and not any(c[0] == "load" for c in calls if isinstance(c, tuple))
+assert code == 0 and "run 2, not run 3" in result["error"] and not any(c[0] == "load" for c in calls if isinstance(c, tuple))
 
 # --- a P100: Unsloth can't use it
 setup()
 GPU["line"] = "Tesla P100-PCIE-16GB, 6.0\n"
 code, log, result = main_output()
-assert code == 1 and "P100" in result["error"] and "T4" in result["error"], result
+assert code == 0 and "P100" in result["error"] and "T4" in result["error"], result
 GPU["line"] = "Tesla T4, 7.5\n"
 
 # --- prompts not masked: stops rather than train on the chat log
 setup()
 MASK["on"] = False
 code, log, result = main_output()
-assert code == 1 and "mask" in result["error"] and not any(c[0] == "train" for c in calls if isinstance(c, tuple))
+assert code == 0 and "mask" in result["error"] and not any(c[0] == "train" for c in calls if isinstance(c, tuple))
 MASK["on"] = True
 
 # --- F16: no quantizing
@@ -207,5 +207,11 @@ assert not any(c[0] == "run" and "llama-quantize" in c[1][0] for c in calls if i
 # --- nothing fits
 setup(data=rows(2, reply_words=80))
 code, log, result = main_output()
-assert code == 1 and "no examples fit" in result["error"]
+assert code == 0 and "no examples fit" in result["error"]
+
+# --- a crash fail() didn't see coming: still a result.json, the traceback in the log
+setup()
+FastModel.from_pretrained = staticmethod(lambda **kw: (_ for _ in ()).throw(ImportError("torchcodec mismatch")))
+code, log, result = main_output()
+assert code == 0 and result["error"].startswith("ImportError: torchcodec mismatch") and result["run"] == 3, result
 print("KAGGLE TRAIN TESTS PASSED")

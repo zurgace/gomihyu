@@ -70,7 +70,8 @@ if a[:2] == ["kernels", "output"]:
         result["error"] = "pip install unsloth failed"
     else:
         result["gguf"] = f"gomi-w{run}.Q4_K_M.gguf"; (out / result["gguf"]).write_bytes(b"GGUF" * 10)
-    (out / "result.json").write_text(json.dumps(result)); (out / "gomi-meld.log").write_text("[log]")
+    if not os.environ.get("FAKE_KAGGLE_NO_RESULT"): (out / "result.json").write_text(json.dumps(result))
+    (out / "gomi-meld.log").write_text("[log]")
     save(); sys.exit(0)
 die(f"fake kaggle: unknown {a}")
 '''
@@ -318,6 +319,10 @@ assert code == 1 and "Run 2 failed on Kaggle: pip install unsloth failed" in out
 assert state()["runs"][1]["stage"] == "training" and state()["runs"][1]["error"]
 code, out = weekly("status")
 assert "ERROR: pip install unsloth failed" in out, out
+# --- killed on Kaggle with no result.json: says so and where the log is, not "fetch again"
+code, out = weekly("fetch", *FAST, FAKE_KAGGLE_END="error", FAKE_KAGGLE_NO_RESULT="1")
+assert code == 1 and "Run 2 failed on Kaggle without saying why" in out and "gomi-meld.log" in out, out
+assert state()["runs"][1]["stage"] == "training" and "result.json" in state()["runs"][1]["error"]
 code, out = weekly("upload", *FAST)
 assert code == 0 and "again" in out, out
 assert ["datasets", "version", "-p", str(repo / "finetuning" / "runs" / "w2" / "upload"), "-m", "run 2", "-d"] \

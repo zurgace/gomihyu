@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Kaggle's "T4 x2": Unsloth trains on one
@@ -56,7 +57,7 @@ def write_result(**extra) -> None:
 def fail(text: str) -> None:
     say(f"FAILED: {text}")
     write_result(error=text)
-    sys.exit(1)
+    sys.exit(0)  # not 1: Kaggle may not keep a failed run's output, and result.json is how weekly.py hears why
 
 
 def run(*command: str, what: str) -> None:
@@ -181,17 +182,21 @@ def to_gguf(merged: Path, quant: str) -> Path:
 
 
 def main() -> None:
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    os.chdir(SCRATCH)  # Unsloth's compile cache lands in the working folder: not in what gets downloaded
-    config, rows = load_data()
-    result.update(base=config["base"], epochs=config["epochs"], rank=config["rank"], gpu=check_gpu())
-    say(f"Run {RUN}: {len(rows)} examples on a {result['gpu']}")
-    for args in PIP:
-        run(sys.executable, "-m", "pip", "install", "-q", *args, what=f"pip install {' '.join(args)}")
-    merged = train(config, rows)
-    gguf = to_gguf(merged, config["quant"])
-    write_result(gguf=gguf.name, gguf_bytes=gguf.stat().st_size)
-    say(f"Done: {gguf.name}, {gguf.stat().st_size / 1e9:.1f} GB")
+    try:
+        SCRATCH.mkdir(parents=True, exist_ok=True)
+        os.chdir(SCRATCH)  # Unsloth's compile cache lands in the working folder: not in what gets downloaded
+        config, rows = load_data()
+        result.update(base=config["base"], epochs=config["epochs"], rank=config["rank"], gpu=check_gpu())
+        say(f"Run {RUN}: {len(rows)} examples on a {result['gpu']}")
+        for args in PIP:
+            run(sys.executable, "-m", "pip", "install", "-q", *args, what=f"pip install {' '.join(args)}")
+        merged = train(config, rows)
+        gguf = to_gguf(merged, config["quant"])
+        write_result(gguf=gguf.name, gguf_bytes=gguf.stat().st_size)
+        say(f"Done: {gguf.name}, {gguf.stat().st_size / 1e9:.1f} GB")
+    except Exception as e:  # a crash in Unsloth, torch or the like: the traceback goes to the log
+        traceback.print_exc()
+        fail(f"{type(e).__name__}: {str(e)[:300]}; the log has the traceback")
 
 
 if __name__ == "__main__":
