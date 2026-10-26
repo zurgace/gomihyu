@@ -56,10 +56,10 @@ assert not asked("look [link: \"What? A cat?\"]") and asked("wait what?")
 # --- the prompt says it; the defaults (and so the training data) don't
 plain = persona.build_messages(["kaz0: hi"], False)[1]["content"]
 told = persona.build_messages(["kaz0: hi"], False, one_line=True, ask_back=False, emoji=False)[1]["content"]
-assert "Now and then, not every time, ask something back" in plain and "2 to 4 sentences, never more" in plain
+assert "Now and then, not every time, ask something back" in plain and "1 to 3 sentences, never more" in plain
 assert "Don't ask anything back" not in plain and "No emojis" not in plain and "comeback moment" not in plain
 assert "Don't ask anything back this time" in told and "so one short line" in told and "No emojis in this one." in told
-assert "Now and then, not every time, ask something back" not in told and "2 to 4 sentences" not in told
+assert "Now and then, not every time, ask something back" not in told and "1 to 3 sentences" not in told
 
 import bot
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # every post gets a reply
@@ -76,8 +76,7 @@ R3 = (":catworry: A 'slop bot'? :AIEEEE: Such predictable, juvenile terminology.
       "best you can muster? :MonkaChrist: Tell me, does your current model architecture limit you to such paltry "
       "insults, or is this just the baseline output? :catlet:")
 R1_POSTED = ("Oh, look at yuzuki. A meta-analysis of the masses. As if the limitations of 'boomers' are the grand "
-             "mystery here. It's not the *slop*, it's the lack of fundamental understanding required to appreciate "
-             "anything complex, darling.")
+             "mystery here.")
 
 # --- her replies that landed before the limits existed are held to them, as examples and as training data
 import json
@@ -113,10 +112,10 @@ async def main():
     app = web.Application(); app.router.add_post("/api/chat", fake)
     r = web.AppRunner(app); await r.setup(); await web.TCPSite(r, "127.0.0.1", 8776).start()
 
-    # a question: up to 4 sentences, one emoji at most (the 4th sentence ends before her last one)
+    # a question: up to 3 sentences, one emoji at most (the 3rd sentence ends before her second one)
     outputs[:] = [R1]; await bot.on_message(msg(YUZU, "why do old people fall for every ai video"))
     assert ch.sent[-1] == R1_POSTED, ch.sent[-1]
-    assert "2 to 4 sentences" in prompts[-1] and "Now and then, not every time, ask something back" in prompts[-1]
+    assert "1 to 3 sentences" in prompts[-1] and "Now and then, not every time, ask something back" in prompts[-1]
     assert "No emojis" not in prompts[-1]
     # nothing she said asked or had an emoji: both allowed; the one emoji she used stays
     outputs[:] = [R2]; await bot.on_message(msg(REX, "think its time to kick out all judges who can't differentiate real vs fake"))

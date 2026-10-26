@@ -6,7 +6,7 @@ A small model can't follow "now and then" (it doesn't count its own messages) or
 and it copies whatever its last few messages in the log looked like, so once a habit slips in, every
 reply has it. So code decides, per reply, and tells her concretely (persona.build_messages):
   - length: a short post that isn't a question (a jab, "slopot", "gomi hi") gets one short line, anything
-    else 2 to 4 sentences. A reply that runs longer is cut after its 2nd or 4th sentence (at_most).
+    else 1 to 3 sentences. A reply that runs longer is cut after its 2nd or 3rd sentence (at_most).
   - asking back: only if none of her last RECENT messages asked anything;
   - emojis: at most one per message (the last she can post), and none if one of her last RECENT had one.
 Her replies that landed before this (meld.py) are held to the same limits (tidy) as examples and training data.
@@ -19,7 +19,7 @@ from reactions import ADDRESSED, EMOJI, MEDIA, sad_news, words
 
 RECENT = 2  # her own latest messages that "now and then" looks back on
 LINE_SENTENCES = 2  # a one-line reply: "AGAIN?? ...third time's the charm, kaz0. probably." is still one
-MAX_SENTENCES = 4  # anything else ("2 to 4 sentences, never more")
+MAX_SENTENCES = 3  # anything else ("1 to 3 sentences, never more")
 SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
 NAMES = {name.lower() for name in CUSTOM}  # ":200:" is an emoji, "10:30:45" isn't
 IN_TEXT = {name.lower() for name, (_, in_text) in CUSTOM.items() if in_text}  # what she can post
@@ -92,5 +92,5 @@ def this_time(newest: str, mine: list[str], max_words: int) -> dict:
 
 
 def tidy(reply: str) -> str:
-    """One of her old replies held to today's limits: 4 sentences, one emoji."""
+    """One of her old replies held to today's limits: 3 sentences, one emoji."""
     return at_most(one_emoji(reply), MAX_SENTENCES)

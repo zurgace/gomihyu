@@ -51,12 +51,12 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
 - **Reply shape is decided in code** (`shape.py`), since a small model copies its own last few messages:
   a post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question gets one short line, anything
-  else 2–4 sentences (cut if longer: `Trimmed to ...` in the console). She asks back, or uses an emoji
+  else 1–3 sentences (cut if longer: `Trimmed to ...` in the console). She asks back, or uses an emoji
   (one at most), only if her last two messages didn't.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up.
 - **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
-  goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still 4 sentences at most. The
+  goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still 3 sentences at most. The
   console shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
 
 ## Memory and diary
