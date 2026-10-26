@@ -71,7 +71,7 @@ REACT_WHEN_REPLYING = os.environ.get("REACT_WHEN_REPLYING", "true").strip().lowe
 # Posts of at most this many words (no "?", not aimed at her) get a reaction instead of a reply.
 REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 # A post she answers of at most this many words, not a question (a jab, "gomi hi"), gets one short line
-# back; anything else 2 to 4 sentences (shape.py).
+# back; anything else 1 to 3 sentences (shape.py).
 ONE_LINE_MAX_WORDS = int(os.environ.get("ONE_LINE_MAX_WORDS", "6"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
 # A reply that copies REPEAT_WORDS words in a row from one of the bot's recent messages is
@@ -86,7 +86,7 @@ MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 # Let her think before she writes: her replies, Melee posts and goodnight, never reading the room, her
 # diary or pictures. Off by default: it adds seconds to every reply. On, her replies aren't capped at
-# MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds them to 4 sentences. The
+# MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds them to 3 sentences. The
 # console shows the start of each thought.
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 # Whether the model thinks even when told not to (some do), seen in a response. Nothing is capped then.

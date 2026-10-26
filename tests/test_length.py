@@ -13,7 +13,7 @@ bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 # the prompt no longer asks for one-liners (nor "three max", 2026-10-18), and not everything is about her
 s, m = persona.SYSTEM_PROMPT, persona.build_messages(["kaz0: pineapple pizza is good", "nori: no it isn't"], False)[1]["content"]
 assert "at most 2 sentences" not in m and "often just a few words" not in m and "only context" not in m
-assert "a question or a real discussion gets 2 to 4 sentences, never more" in m and "give your own opinion" in m
+assert "1 to 3 sentences, never more" in m and "give your own opinion" in m
 assert "actually answer it" in m and "Now and then, not every time, ask something back" in m
 assert "You are replying to the newest message, from nori:\nnori: no it isn't" in m
 assert "Not every message is for you or about you" in s and "casual and quick" not in s and "three max" not in s
