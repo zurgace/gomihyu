@@ -154,7 +154,8 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
            else "Don't ask anything back this time: just say your piece. ")
         + "Don't open by repeating their message back to them, don't repeat your own earlier lines, and "
         "don't keep coming back to the same pet topics. "
-        # Said outright, not left to her (user, 2026-10-26: Nemotron Bolt, left to choose, wrote 3 words every time).
+        # Said outright, not left to her (user, 2026-10-26: Nemotron Bolt, left to choose, wrote 3 words every time;
+        # kept for gemma, a bit wordy in live testing).
         + ("Match the moment, like a real Discord message: this one's a quick jab or comeback moment, so one "
            "short line. " if one_line else
            "Match the moment, like a real Discord message: 1 to 3 sentences, never more. ")

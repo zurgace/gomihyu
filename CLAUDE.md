@@ -17,7 +17,8 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first); training runs on Kaggle.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
 - Rejected: LFM2.5-2.6B (felt like "a response bot"; `archive/lfm2.5/`), Ternary Bonsai 2 27B (llama.cpp
-  fork, too big), anime-girl-1.5B.
+  fork, too big), anime-girl-1.5B, Nemotron 3.5 Bolt E4B (a few words a reply without thinking, ~11s a reply
+  with it, text only: not a good fit).
 
 ## Map
 - `bot.py` (1,300 lines: grep it, don't read it whole): Discord client, all runtime flow, every setting.
