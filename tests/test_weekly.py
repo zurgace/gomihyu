@@ -188,6 +188,8 @@ for n in range(600):
     cl.add(10 + n % 3, "#c", n, 6 if n % 2 else 5, "kaz0" if n % 2 else "rexmode", f"server message number {n} here",
            when=t0 + n)
 (repo / "earned_here.jsonl").write_text("".join(json.dumps({"id": n, "history": [["kaz0", "hi"]],
+                                                            "history_meta": [{"id": 1, "text": "hi", "addressed": False, "bot": False}],
+                                                            "answered_requests": [],
                                                             "reply": f"landed {n} yes", "real": True}) + "\n"
                                                 for n in range(10)))
 
@@ -196,7 +198,12 @@ def weekly(*args, **env_extra):
     env = {k: v for k, v in os.environ.items() if k not in ("CHAT_LOG_DIR", "EARNED_FILE", "DIARY_FILE", "MELD_ANCHOR")}
     env.update(PATH=f"{bin_dir}:{env['PATH']}", FAKE_DIR=str(fake))
     env.update(env_extra)
-    out = subprocess.run([sys.executable, str(repo / "finetuning" / "weekly.py"), *args], capture_output=True,
+    # weekly.kaggle prefers the CLI beside sys.executable over PATH. Point that lookup at our fake
+    # directory, even when the developer's actual venv has Kaggle installed.
+    runner = "import runpy, sys; sys.executable = sys.argv.pop(1); sys.argv.pop(0); runpy.run_path(sys.argv[0], run_name='__main__')"
+    fake_python = (work / "no_cli" if "PATH" in env_extra else bin_dir) / "python"
+    out = subprocess.run([sys.executable, "-c", runner, str(fake_python),
+                          str(repo / "finetuning" / "weekly.py"), *args], capture_output=True,
                          text=True, env=env, cwd=work, timeout=120)
     return out.returncode, out.stdout + out.stderr
 
@@ -302,6 +309,32 @@ assert code == 0 and "Back to: OLLAMA_MODEL=gemma4:e4b, FEW_SHOT_EXAMPLES=8, VIS
 assert env_now() == ENV_TEXT, env_now()                                          # exactly as it was
 code, out = weekly("rollback")
 assert code == 1 and "No switch to roll back" in out
+
+# --- old totals predate provenance filtering: don't claim a negative count or silently build
+state_path = repo / "finetuning" / "runs" / "runs.json"
+current_state = state_path.read_bytes()
+legacy = state()
+legacy["runs"][0].pop("count_policy", None)
+legacy["runs"][0].update(landed=1000, voice=10000)
+state_path.write_text(json.dumps(legacy))
+legacy_state = state_path.read_bytes()
+code, out = weekly("status")
+assert code == 0 and "new example count unknown" in out and "provenance" in out and "--force" in out, out
+code, out = weekly("build", "--min-new", "0")
+assert code == 0 and "new example count unknown" in out and "Review" in out and "--force" in out, out
+assert state_path.read_bytes() == legacy_state and "Built run" not in out
+code, out = weekly("build", "--force")
+assert code == 0 and "Built run 2" in out and "new example count unknown" in out, out
+migrated = state()
+assert migrated["runs"][-1]["count_policy"] == 1
+assert migrated["runs"][-1]["landed"] == 10
+migrated["runs"][-1].update(stage="installed", model="gomi-w2")
+state_path.write_text(json.dumps(migrated))
+code, out = weekly("status")
+assert code == 0 and "Next: run 3" in out and "0 new examples" in out, out
+code, out = weekly("build")
+assert code == 0 and "Only 0 new examples" in out and len(state()["runs"]) == 2, out
+state_path.write_bytes(current_state)
 
 # --- a week with nothing new: skipped; then new chat comes in
 code, out = weekly("build")

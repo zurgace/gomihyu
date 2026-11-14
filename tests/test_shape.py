@@ -57,9 +57,19 @@ assert not asked("look [link: \"What? A cat?\"]") and asked("wait what?")
 plain = persona.build_messages(["kaz0: hi"], False)[1]["content"]
 told = persona.build_messages(["kaz0: hi"], False, one_line=True, ask_back=False, emoji=False)[1]["content"]
 assert "Now and then, not every time, ask something back" in plain and "1 to 3 sentences, never more" in plain
-assert "Don't ask anything back" not in plain and "No emojis" not in plain and "comeback moment" not in plain
-assert "Don't ask anything back this time" in told and "so one short line" in told and "No emojis in this one." in told
+assert "Don't tack on a question" not in plain and "No emojis" not in plain and "comeback moment" not in plain
+assert "Don't tack on a question" in told and "so one short line" in told and "No emojis in this one." in told
 assert "Now and then, not every time, ask something back" not in told and "1 to 3 sentences" not in told
+for prompt in (plain, told):
+    assert "ask one short clarification" in prompt and "even if you asked a question recently" in prompt
+    assert "When the topic changes, follow the new topic" in prompt
+    assert "then add your take" not in prompt
+pending = persona.build_messages(["kaz0: gomi which game?", "rexmode: my pizza's here"], False,
+                                 addressed=["kaz0: gomi which game?"])[1]["content"]
+assert "messages still need your reply:\nkaz0: gomi which game?" in pending
+assert "using the latest follow-ups and corrections" in pending
+assert "The newest speaker isn't necessarily talking to you" in pending
+assert "Respond to that newest message, not an older one" not in pending
 
 import bot
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # every post gets a reply
@@ -78,16 +88,21 @@ R3 = (":catworry: A 'slop bot'? :AIEEEE: Such predictable, juvenile terminology.
 R1_POSTED = ("Oh, look at yuzuki. A meta-analysis of the masses. As if the limitations of 'boomers' are the grand "
              "mystery here.")
 
-# --- her replies that landed before the limits existed are held to them, as examples and as training data
+# --- saved real answers require provenance and cannot be clipped while retaining their answer targets
 import json
 from pathlib import Path
 sys.path.insert(0, REPO + "/finetuning")
 import build_dataset
 from chatlog import ChatLog
 old = {"history": [["yuzuki", "why do old people fall for every ai video"]], "reply": R1}
+valid = {**old, "reply": R1_POSTED, "real": True, "answered_requests": [],
+         "history_meta": [{"id": 1, "text": old["history"][0][1], "addressed": False, "bot": False}]}
 path = Path(TMP) / "earned_shape.jsonl"
 path.write_text(json.dumps(old) + "\nnot json\n" + json.dumps({"history": [], "reply": "hmph :kekpoint:"}) + "\n")
-assert [e["reply"] for e in bot.load_earned(path)] == [R1_POSTED, "hmph :kekpoint:"]
+assert bot.load_earned(path) == []  # Unknown targets and empty history are skipped, not repaired by clipping.
+path.write_text(path.read_text() + json.dumps(valid) + "\n" + json.dumps({**valid, "reply": R1}) + "\n")
+assert bot.load_earned(path) == [valid]  # A faithful, already-shaped real example survives unchanged.
+# Handwritten examples still exercise today's independent length/emoji conversion.
 rows, _ = build_dataset.meld_examples([{"history": [["kaz0", "hi"]], "reply": "hmph"}], 1, 0.5, 1,
                                       ChatLog(Path(TMP) / "no_chat"), [old], 0.3)
 assert sorted(row["reply"] for row in rows) == sorted(["hmph", R1_POSTED]) and old["reply"] == R1
@@ -119,22 +134,22 @@ async def main():
     assert "No emojis" not in prompts[-1]
     # nothing she said asked or had an emoji: both allowed; the one emoji she used stays
     outputs[:] = [R2]; await bot.on_message(msg(REX, "think its time to kick out all judges who can't differentiate real vs fake"))
-    assert "No emojis" not in prompts[-1] and "Don't ask anything back" not in prompts[-1]
+    assert "No emojis" not in prompts[-1] and "Don't tack on a question" not in prompts[-1]
     assert ch.sent[-1] == "Kick out the judges? Bold, rexmode. Who decides what's fake then, you? 😂", ch.sent[-1]
-    # a jab, right after she asked something and used an emoji: one short line, no question, no emoji
+    # a jab after a question and emoji: one short line, no filler question, no emoji
     outputs[:] = [R3]; await bot.on_message(msg(YUZU, "you are such a slop bot"))
     p = prompts[-1]
-    assert "so one short line" in p and "Don't ask anything back this time" in p and "No emojis in this one." in p
+    assert "so one short line" in p and "Don't tack on a question" in p and "No emojis in this one." in p
     assert ch.sent[-1] == "A 'slop bot'? Such predictable, juvenile terminology.", ch.sent[-1]
     # her log keeps what she posted, so the next reply doesn't copy the old template
     assert list(bot.history[ch.id])[-1] == "Gomihyu: A 'slop bot'? Such predictable, juvenile terminology."
     # two messages without an emoji or a question since R2: both allowed again after one more
     outputs[:] = ["Fine. Smash, and I'm picking the stage."]; await bot.on_message(msg(REX, "what are we playing tonight then"))
-    assert "Don't ask anything back" in prompts[-1] and "No emojis" in prompts[-1]   # R3 asked, R2 had an emoji
+    assert "Don't tack on a question" in prompts[-1] and "No emojis" in prompts[-1]   # R3 asked, R2 had an emoji
     outputs[:] = ["Mario. Obviously."]; await bot.on_message(msg(REX, "which character are you going to play then"))
-    assert "Don't ask anything back" in prompts[-1] and "No emojis" not in prompts[-1]
+    assert "Don't tack on a question" in prompts[-1] and "No emojis" not in prompts[-1]
     outputs[:] = ["Eight. I counted."]; await bot.on_message(msg(REX, "how many stocks are we running for this one"))
-    assert "Don't ask anything back" not in prompts[-1] and "No emojis" not in prompts[-1]
+    assert "Don't tack on a question" not in prompts[-1] and "No emojis" not in prompts[-1]
 
     # Melee posts: 3 to 5 sentences asked, 5 at most; one emoji; goodnight is one line
     long = "One two three. Four five six. Seven eight nine. Ten eleven twelve. A b c. D e f. :DoWar: G h i 😂"

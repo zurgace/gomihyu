@@ -74,7 +74,8 @@ async def main():
     turn = user_turn()
     assert turn.startswith("Right now it's Sunday, October 4, 2026, 11:59 PM.\n\nNicknames, call these people by them: rexmode is Rex, yuzuki is Yuzu\n\n"
                            'Your notes on yuzuki'), turn[:200]
-    assert "You are replying to the newest message, from yuzuki (Yuzu):\nyuzuki: hi gomi" in turn
+    assert "The newest message, from yuzuki (Yuzu):\nyuzuki: hi gomi" in turn
+    assert "These messages still need your reply:\nyuzuki: hi gomi\n" in turn
     assert 'When yuzuki says I, me or my, they mean themselves; "you" means you, Gomi.' in turn
     assert "I hate coffee" in turn and "I like coffee" not in turn
     # "Gomi:" stripped; @nicknames ping, except the person she's answering (Yuzuki), who just gets the name

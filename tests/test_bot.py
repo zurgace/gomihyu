@@ -56,13 +56,13 @@ async def main():
     await bot.on_message(msg(c1, NORI, "hey @kaz0 <@1>", [KAZ, ME]))
     assert c1.sent == ["first", "Silence, <@100>."], c1.sent
     assert requests[1]["messages"] == persona.build_messages(
-        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True, one_line=True, now=NOW), requests[1]["messages"]
+        ["kaz0: morning chat", "Gomihyu: first", "NoriMaki: hey @kaz0 @Gomihyu"], True, one_line=True, now=NOW, addressed=["NoriMaki: hey @kaz0 @Gomihyu"]), requests[1]["messages"]
     assert requests[1]["messages"][1]["content"].startswith("Right now it's Sunday, October 4, 2026, 1:31 PM.\n\n")
     assert len(requests) == 3 and requests[2]["options"]["temperature"] == bot.RETRY_TEMPERATURE
     assert "directly mentioned" not in requests[0]["messages"][1]["content"]
 
-    # 3. burst of 4 messages while generating -> first reply + ONE follow-up that sees all 4,
-    #    carrying the @mention from a message that arrived mid-reply
+    # 3. a burst replaces a stale unsolicited draft with ONE reply that sees all 4 messages,
+    #    keeping the actual earlier @mention separate from the latest speaker
     requests.clear(); c2 = Channel(20)
     canned = iter(["reply A", "gomihyu : reply B"])
     first = asyncio.create_task(bot.on_message(msg(c2, KAZ, "one")))
@@ -70,11 +70,11 @@ async def main():
     await bot.on_message(msg(c2, KAZ, "three <@1>", [ME]))
     await bot.on_message(msg(c2, NORI, "four"))
     await first
-    assert c2.sent == ["reply A", "reply B"], c2.sent
+    assert c2.sent == ["reply B"], c2.sent
     assert len(requests) == 2
     follow = requests[1]["messages"][1]["content"]
-    assert "kaz0: one\nGomihyu: reply A\nNoriMaki: two\nkaz0: three @Gomihyu\nNoriMaki: four" in follow, follow
-    assert "directly mentioned" in follow
+    assert "kaz0: one\nNoriMaki: two\nkaz0: three @Gomihyu\nNoriMaki: four" in follow, follow
+    assert "These messages still need your reply" in follow and "directly mentioned" not in follow
     assert not bot.pending_followup and not bot.reply_locks[20].locked()
 
     # 3b. more messages arrive mid-reply than HISTORY_LENGTH holds -> stale reply falls off the log
@@ -83,7 +83,7 @@ async def main():
     await asyncio.sleep(0.05)
     for i in range(bot.HISTORY_LENGTH + 2): await bot.on_message(msg(c6, NORI, f"spam {i}"))
     await first
-    assert c6.sent == ["stale", "fresh"] and len(bot.history[60]) == bot.HISTORY_LENGTH
+    assert c6.sent == ["fresh"] and len(bot.history[60]) == bot.HISTORY_LENGTH
     assert list(bot.history[60])[-2:] == [f"NoriMaki: spam {bot.HISTORY_LENGTH + 1}", "Gomihyu: fresh"], list(bot.history[60])
     assert not any("stale" in l for l in list(bot.history[60]))
     requests.clear()
@@ -95,9 +95,10 @@ async def main():
     await asyncio.gather(bot.on_message(msg(c3, KAZ, "a")), bot.on_message(msg(c4, NORI, "b")))
     assert asyncio.get_running_loop().time() - t0 < 0.5 and c3.sent and c4.sent
 
-    # 5. bots (including itself) are ignored; Ollama down -> no reply, no crash, lock released
+    # 5. other bots are context only; Ollama down -> no reply, no crash, lock released
     await bot.on_message(msg(c3, user(5, "otherbot", True), "beep"))
     assert len(requests) == 2
+    assert bot.history[c3.id][-1] == "otherbot (bot): beep"
     bot.OLLAMA_URL = "http://127.0.0.1:1/api/chat"
     c5 = Channel(50); await bot.on_message(msg(c5, KAZ, "hello?"))
     assert c5.sent == [] and not bot.reply_locks[50].locked()

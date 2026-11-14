@@ -82,11 +82,12 @@ def at_most(text: str, sentences: int) -> str:
     return text
 
 
-def this_time(newest: str, mine: list[str], max_words: int) -> dict:
+def this_time(newest: str, mine: list[str], max_words: int, pending_raw: list[str] = ()) -> dict:
     """build_messages' say for one reply: newest is the post she's answering, mine her own latest messages
-    in the chat, oldest first."""
+    in the chat, oldest first. pending_raw contains the author words of requests actually being
+    answered; unrelated newest chatter and displayed quotes cannot shorten their answer."""
     recent = mine[-RECENT:]
-    return {"one_line": quick(newest, max_words),
+    return {"one_line": len(pending_raw) <= 1 and quick(pending_raw[0] if pending_raw else newest, max_words),
             "ask_back": not any(asked(line) for line in recent),
             "emoji": not any(emojis_in(line) for line in recent)}
 

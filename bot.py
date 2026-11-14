@@ -36,20 +36,20 @@ import discord
 from dotenv import load_dotenv
 
 from censor import has_slur
-from chatlog import ChatLog, local_day
+from chatlog import ChatLog, local_day, raw_author_text
 from chime import Reading, parse_room, room_format, room_messages
 from commands import (ALL, FOREVER, delete_request, gg_request, goodnight_request, melee_here_request, melee_stop_request,
                       mute_request, quiet_request, unmute_request)
-from diary import Diary, chunks, diary_posts, digest_format, digest_messages, parse_digest
+from diary import Diary, chunks, diary_posts, digest_format, digest_messages, parse_digest, render_line
 from meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
 from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
 from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
                    session_ready, stale)
 from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import (BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line,
-                     made_up_names)
+                     made_up_names, example_targets)
 from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
-from shape import LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, at_most, one_emoji, this_time, tidy
+from shape import LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, at_most, one_emoji, this_time
 import vision
 from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
 
@@ -191,13 +191,17 @@ reply_locks = defaultdict(asyncio.Lock)
 # channel_id -> (whether anything that arrived mid-reply was for her: an @mention, a reply to her, her
 # name; whether anything must be answered: that, or sad news); present = one follow-up owed
 pending_followup = {}
+# Required replies keep their actual speaker/text through a burst; a boolean can't identify who asked.
+unanswered = defaultdict(list)
+# A newer turn must wait for descriptions already in progress before consuming picture questions.
+pending_vision = defaultdict(set)
 # lowercase Discord handle or display name -> user id, for real pings and for "Yuzuki's nickname is..."
 handles = {}
 # user id -> display name, for everyone seen
 display_names = {}
 # channel_id -> (user id, handle) of the latest message, whose remembered facts a reply gets
 last_author = {}
-# channel_id -> the latest post she followed there, which a read of the room is about
+# channel_id -> the latest observed line and its source, even after history eviction or her own reply
 latest_post = {}
 # channel_id -> the emojis she picked for her last reactions there, so she doesn't repeat them
 recent_reactions = defaultdict(lambda: deque(maxlen=2))
@@ -250,16 +254,18 @@ MADE_UP = made_up_pattern(seed_chats(SEED_FILE))
 
 
 def load_earned(path: Path) -> list[dict]:
-    """Her replies that landed (meld.py), kept one JSON per line; unreadable lines are skipped. Older ones
-    are held to today's length and emoji limits (shape.tidy), so they don't bring back an old habit."""
+    """Load earned rows only when raw addressing, source targets and reply shape remain representable.
+    Saved files stay intact; legacy or clipped examples cannot silently acquire a different target."""
     earned = []
     for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
         try:
             example = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(example, dict) and example.get("reply") and isinstance(example.get("history"), list):
-            earned.append(example | {"reply": tidy(str(example["reply"]))})
+        if isinstance(example, dict):
+            example = example | {"real": True}
+            if example_targets(example) is not None:
+                earned.append(example)
     return earned
 
 
@@ -280,7 +286,7 @@ HANDLE = re.compile(r"@([\w.]*\w)")
 OWN_NAME_PREFIX = re.compile(rf"^\s*[*_]*(?:{BOT_NAME}|{BOT_NICKNAME})[*_]*\s*:[*_]*\s*", re.IGNORECASE)
 
 
-def readable(message: discord.Message, seen: dict | None = None) -> str:
+def readable(message: discord.Message, seen: dict | None = None, include_media: bool = True) -> str:
     """message.content as the model sees it: <@id>/<@&id>/<#id> as @handle/@role/#channel,
     custom emojis as :name:, attachments/stickers as [image]/[gif]/[video]/[file]/[sticker: name] and
     link previews as [link: "title"]. seen: what she saw in its pictures (look_at), by (kind, index),
@@ -291,6 +297,8 @@ def readable(message: discord.Message, seen: dict | None = None) -> str:
     names.update({channel.id: f"#{channel.name}" for channel in message.channel_mentions})
     text = MENTION_TOKEN.sub(lambda m: names.get(int(m[2]), m[0]), message.content)
     text = CUSTOM_EMOJI_TOKEN.sub(r":\1:", text)
+    if not include_media:
+        return text.strip()
     media = []
     for i, attachment in enumerate(message.attachments):
         content_type = (attachment.content_type or "").split(";")[0].lower()
@@ -299,6 +307,43 @@ def readable(message: discord.Message, seen: dict | None = None) -> str:
     media += [label("sticker", seen.get(("sticker", i)), sticker.name) for i, sticker in enumerate(message.stickers)]
     media += [embed_label(embed, seen.get(("embed", i))) for i, embed in enumerate(getattr(message, "embeds", []))]
     return " ".join([text, *(m for m in media if m)]).strip()
+
+
+def conversation_text(message: discord.Message, text: str) -> str:
+    """Keep Discord's reply link visible, even when the quoted post has left recent history."""
+    reference = getattr(message, "reference", None)
+    if reference is None:
+        return text
+    replied = getattr(reference, "resolved", None)
+    author = getattr(replied, "author", None)
+    if author is None:
+        return f"[reply to an unavailable earlier message] {text}"
+    # No fetch or vision call for old posts; a bounded quote, with explicit missing-content fallback.
+    quote = readable(replied) if hasattr(replied, "content") else ""
+    quote = " ".join(quote.split())
+    if len(quote) > 300:
+        quote = quote[:300] + "…"
+    return f"[reply to {author.name}: {json.dumps(quote or '(content unavailable)', ensure_ascii=False)}] {text}"
+
+
+class ObservedLine(str):
+    """A display line with its Discord source; equal captions are still distinct observations."""
+    def __new__(cls, message: discord.Message, text: str):
+        author = message.author.name + (" (bot)" if message.author.bot else "")
+        line = super().__new__(cls, format_line(author, conversation_text(message, text)))
+        line.message = message
+        return line
+
+
+def observe(message: discord.Message, text: str) -> ObservedLine:
+    """Record a participant in arrival order; observing another bot never triggers a reply."""
+    channel_id = message.channel.id
+    line = ObservedLine(message, text)
+    history[channel_id].append(line)
+    logged[channel_id] += 1
+    last_author[channel_id] = (message.author.id, message.author.name + (" (bot)" if message.author.bot else ""))
+    latest_post[channel_id] = line
+    return line
 
 
 def muted(channel_id: int) -> bool:
@@ -408,7 +453,12 @@ async def ollama_chat(payload: dict) -> dict | None:
     except Exception:
         log.exception(f"Generation failed after {time.monotonic() - start:.1f}s (Ollama at {OLLAMA_URL})")
         return None
-    thought = data.get("message", {}).get("thinking")
+    if (not isinstance(data, dict) or not isinstance(data.get("message"), dict)
+            or not isinstance(data["message"].get("content", ""), str)
+            or data["message"].get("thinking") is not None and not isinstance(data["message"]["thinking"], str)):
+        log.warning("Ollama returned an unusable message; generation failed")
+        return None
+    thought = data["message"].get("thinking")
     if thought and thinking:
         thought = " ".join(thought.split())
         log.info(f"She thought ({len(thought.split())} words, {time.monotonic() - start:.1f}s for all): "
@@ -421,23 +471,54 @@ async def ollama_chat(payload: dict) -> dict | None:
     return data
 
 
-async def generate_reply(channel_id: int, for_her: bool, temperature: float | None = None) -> str | None:
-    # Only the person being replied to gets their facts in context, never everyone's.
+def prepare_reply(channel_id: int, for_her: bool, requests: list[tuple] = ()) -> tuple:
+    """Freeze the prompt and addressee once, so retries answer the same conversation snapshot."""
+    # The latest observed speaker gets their notes; pending speakers get separately labeled notes.
     author_id, author_handle = last_author[channel_id]
+    addressed = [line for _, line, _ in requests]
+    pending_raw = [readable(post, include_media=False) for _, _, post in requests]
     # Everyone in the log gets their nickname, though, so she can call them by it.
-    speakers = dict.fromkeys(line.split(": ", 1)[0] for line in history[channel_id])
+    speakers = dict.fromkeys(line.split(": ", 1)[0] for line in [*history[channel_id], *addressed])
     nicknames = {handle: nick for handle in speakers
                  if (user_id := handles.get(handle.lower())) and (nick := memory.nickname_for(user_id))}
     # How long, whether to ask back, whether an emoji fits: decided here, not left to the model (shape.py).
     newest = history[channel_id][-1].split(": ", 1)[-1] if history[channel_id] else ""
-    shape = this_time(newest, own_lines(channel_id), ONE_LINE_MAX_WORDS)
+    latest = latest_post.get(channel_id)
+    if latest is not None:
+        post = latest.message
+        author_id = post.author.id
+        author_handle = post.author.name + (" (bot)" if post.author.bot else "")
+        newest = readable(post, include_media=False)
+        # An earlier mention in a burst doesn't make the newest speaker's 'you' mean Gomi.
+        for_her = not post.author.bot and (client.user in post.mentions or replying_to_her(post) or names_her(newest))
+    shape = this_time(newest, own_lines(channel_id), ONE_LINE_MAX_WORDS, pending_raw)
+    addressed_notes = {}
+    for _, _, post in requests:
+        handle, user_id = post.author.name, post.author.id
+        if nick := memory.nickname_for(user_id):
+            nicknames[handle] = nick
+        else:
+            nicknames.pop(handle, None)
+        if user_id != author_id and handle not in addressed_notes:
+            notes = [f'Asked you to remember: "{fact}"' for fact in memory.facts_for(user_id)]
+            notes += [f"Past observation (may be out of date): {note}" for note in memory.learned_for(user_id)]
+            if notes:
+                addressed_notes[handle] = notes
+    messages = build_messages(list(history[channel_id]), for_her,
+                              author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
+                              memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
+                              diary.vibe(), avatar_description, **shape, now=local_now(), addressed=addressed,
+                              addressed_notes=addressed_notes, newest=str(latest) if latest is not None else None)
+    return messages, requests[-1][2].author.id if requests else author_id, shape | {"required": bool(requests)}
+
+
+async def generate_reply(channel_id: int, for_her: bool, temperature: float | None = None,
+                         prepared: tuple | None = None) -> str | None:
+    messages, author_id, shape = prepared if prepared is not None else prepare_reply(channel_id, for_her)
     options = cap(MAX_REPLY_TOKENS, OLLAMA_THINK)
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
-    payload = {"messages": build_messages(list(history[channel_id]), for_her,
-                                          author_handle, memory.facts_for(author_id), nicknames, shown_examples(),
-                                          memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
-                                          diary.vibe(), avatar_description, **shape, now=local_now()),
+    payload = {"messages": messages,
                "options": options, "think": OLLAMA_THINK}
 
     start = time.monotonic()
@@ -450,7 +531,8 @@ async def generate_reply(channel_id: int, for_her: bool, temperature: float | No
         data = await ollama_chat(payload)
     if data is None:
         return None
-    return clean_reply(data, author_id, start, LINE_SENTENCES if shape["one_line"] else MAX_SENTENCES, shape["emoji"])
+    return clean_reply(data, author_id, start, LINE_SENTENCES if shape["one_line"] else MAX_SENTENCES,
+                       shape["emoji"], require_complete=shape.get("required", False))
 
 
 def own_lines(channel_id: int) -> list[str]:
@@ -460,11 +542,15 @@ def own_lines(channel_id: int) -> list[str]:
 
 
 def clean_reply(data: dict, author_id: int | None, start: float, sentences: int = MAX_SENTENCES,
-                emoji: bool = True) -> str:
+                emoji: bool = True, require_complete: bool = False) -> str:
     """The model's answer as she'll post it; author_id is the person she's answering, if anyone. At most
     `sentences` sentences and one emoji (none unless emoji), whatever the model wrote (shape.py)."""
     # Small models often start with "Gomihyu:" anyway, copying the log format.
     reply = OWN_NAME_PREFIX.sub("", strip_thinking(data.get("message", {}).get("content", "")).strip())
+    if require_complete and (data.get("done_reason") == "length"
+                             or at_most(one_emoji(reply, emoji), sentences) != one_emoji(reply, emoji)):
+        log.warning("Required answer exceeded its length budget; not recording a clipped answer as completed")
+        return ""
     if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
         reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
     if author_id is not None:
@@ -486,16 +572,24 @@ def clean_reply(data: dict, author_id: int | None, start: float, sentences: int 
 
 
 async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: str, seen: int | None = None,
-                     about: str = "reply") -> None:
+                     about: str = "reply", replying_to: discord.Message | None = None,
+                     answered_requests: list[int] = ()) -> bool:
     """Post reply and keep it in her chat log. seen: how many messages had been logged when she started
     writing it, so it goes in right after those, ahead of any that arrived meanwhile. about: what kind
-    of post (reply, melee, goodnight); only replies can become examples (meld.py)."""
+    of post (reply, filtered, melee, goodnight); only replies can become examples (meld.py)."""
     text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
+    if answered_requests and len(text) > 2000:
+        log.warning("Required answer exceeds Discord's message limit; not sending a clipped answer")
+        return False
+    kwargs = {}
+    if replying_to is not None and hasattr(replying_to, "to_reference"):
+        kwargs = {"reference": replying_to.to_reference(fail_if_not_exists=False), "mention_author": False}
     try:
-        sent = await channel.send(text[:2000])  # Discord's hard message-length limit
-    except discord.HTTPException as e:  # e.g. no Send Messages permission there: she never said it
+        sent = await channel.send(text[:2000], **kwargs)  # Discord's hard message-length limit
+    except (discord.HTTPException, aiohttp.ClientError, OSError) as e:
+        # A timeout can follow remote acceptance. Treat it as terminal/unknown, never auto-resend.
         log.warning(f"Couldn't post in {channel_label(channel)}: {e}")
-        return
+        return False
     lines = history[channel_id]
     newer = [lines.pop() for _ in range(min(logged[channel_id] - seen, len(lines)))] if seen is not None else []
     line = format_line(BOT_NAME, reply)
@@ -506,32 +600,82 @@ async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: s
         if len(posted) > 1000:
             del posted[next(iter(posted))]
         if getattr(channel, "guild", None):
-            chat_log.add(channel_id, channel_label(channel), sent.id, client.user.id, BOT_NAME, reply, about=about)
+            try:
+                chat_log.add(channel_id, channel_label(channel), sent.id, client.user.id, BOT_NAME, reply, about=about,
+                             reply_to=getattr(replying_to, "id", None), answered_requests=list(answered_requests))
+            except OSError:
+                log.exception("Reply was delivered but could not be saved; it will not be resent")
+    return True
 
 
-async def reply_to(channel: discord.abc.Messageable, channel_id: int, for_her: bool) -> None:
+def retire_requests(channel: discord.abc.Messageable, channel_id: int, requests: list[tuple], reason: str | None) -> None:
+    """Finish pending requests once, including cancellation while their generation is in flight."""
+    numbers = {n for n, _, _ in requests}
+    pending = [request for request in unanswered[channel_id] if request[0] in numbers]
+    unanswered[channel_id] = [request for request in unanswered[channel_id] if request[0] not in numbers]
+    if not pending or not reason:
+        return
+    request_ids = [post.id for _, _, post in pending if getattr(post, "id", None) is not None]
+    log.warning(f"Required reply failed ({reason}); retiring request ids {request_ids}")
+    if getattr(channel, "guild", None):
+        try:
+            chat_log.add(channel_id, channel_label(channel), None, client.user.id, BOT_NAME, "",
+                         kind="reply_failure", reason=reason, request_ids=request_ids)
+        except OSError:
+            log.exception("Could not save the reply failure event; requests remain terminal")
+
+
+async def reply_to(channel: discord.abc.Messageable, channel_id: int, for_her: bool, must_answer: bool = False) -> None:
     seen = logged[channel_id]
+    # One normal reply has room for at most three requests. Remaining requests get another bounded
+    # batch rather than disappearing behind the global sentence limit.
+    requests = list(unanswered[channel_id][:MAX_SENTENCES])
+    latest = latest_post.get(channel_id)
+    target = requests[-1][2] if requests else latest.message if latest is not None else None
+    request_ids = [post.id for _, _, post in requests if getattr(post, "id", None) is not None]
+    prepared = prepare_reply(channel_id, for_her, requests)
+    filtered_required = False
     async with channel.typing():
-        reply = await generate_reply(channel_id, for_her)
+        reply = await generate_reply(channel_id, for_her, prepared=prepared)
         if reply and (names := strangers(channel_id, reply)):
             log.info(f"Reply names someone who isn't here ({', '.join(names)}); retrying at temperature {RETRY_TEMPERATURE}")
-            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE) or reply
+            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE, prepared=prepared) or reply
         elif reply and repeats_itself(channel_id, reply):
             log.info(f"Reply repeats one of Gomihyu's recent messages or example lines; retrying at temperature {RETRY_TEMPERATURE}")
             # If the retry fails outright, the repetitive reply beats no reply.
-            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE) or reply
+            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE, prepared=prepared) or reply
         if reply and (names := strangers(channel_id, reply)):
             # Still there after the retry: those sentences go. Nothing left means nothing to say.
-            reply = without_names(reply, names)
+            filtered = without_names(reply, names)
+            filtered_required = bool(requests and filtered != reply)
+            reply = filtered
             log.info(f"Reply still named {', '.join(names)}; without those sentences: {reply[:200]!r}")
 
+    if requests and {n for n, _, _ in requests}.isdisjoint(n for n, _, _ in unanswered[channel_id]):
+        return  # a mute cancelled this batch, even if she was unmuted before generation finished
     if reply and muted(channel_id):
         log.info("Muted while writing a reply; not sending it")
-        return
+        reply = None
+    reason = "generation"
     if reply:
+        moved = logged[channel_id] != seen
+        if moved and not requests and not must_answer:
+            log.info("Chat moved on while writing a chime-in; discarding the stale draft")
+            return
+        # Everyone in a required batch is already being answered, so none needs a ping.
+        for _, _, post in requests:
+            reply = without_ping(reply, post.author.id)
         # Log the reply right after the messages it answered, ahead of any that arrived while it
         # was being written, so a follow-up's last log line is still the newest unanswered message.
-        await send_reply(channel, channel_id, reply, seen)
+        censored = filtered_required or reply == f":{SLUR_STANDIN}:"
+        sent = await send_reply(channel, channel_id, reply, seen, replying_to=target if moved or requests else None,
+                                about="filtered" if censored else "reply",
+                                answered_requests=[] if censored else request_ids)
+        reason = ("filtered" if censored else None) if sent else "delivery"
+    if requests:
+        # Terminal failure: one generation attempt (plus existing content retry), one delivery attempt,
+        # no automatic resend after an ambiguous network failure. Record failure separately from a reply.
+        retire_requests(channel, channel_id, requests, reason)
 
 
 def looking(message: discord.Message) -> str | discord.Emoji | None:
@@ -547,6 +691,9 @@ async def read_room(message: discord.Message, text: str = "") -> tuple[Reading |
     name: none ("") unless one fits and the post gets a rise out of her (REACT_THRESHOLD). None for the
     read if the model didn't answer usably."""
     channel_id = message.channel.id
+    latest = latest_post.get(channel_id)
+    if latest is None or latest.message is not message:
+        return None, None, ""
     server = {e.name.lower(): e for e in message.guild.emojis} if message.guild else {}
     options = dict(UNICODE) | {name: use for name, (use, _) in CUSTOM.items() if name.lower() in server}
     theirs = posted_emoji(text)
@@ -667,12 +814,18 @@ def replying_to_her(message: discord.Message) -> bool:
 async def chimes_in(channel_id: int) -> bool:
     """Whether the newest post, not aimed at her, interests her enough to say something. Either way it gets
     a reaction if it got a rise out of her (REACT_THRESHOLD; REACT_WHEN_REPLYING, REACT_TO_CHAT)."""
+    if (latest := latest_post.get(channel_id)) is None:
+        return False
+    message = latest.message
+    if message.author.bot:
+        return False
     if CHIME_IN_THRESHOLD <= 0:
         return True
-    if (message := latest_post.get(channel_id)) is None:
-        return False
-    newest = history[channel_id][-1] if history[channel_id] else ""
+    newest = str(latest)
     reading, emoji, name = await read_room(message)
+    if latest_post.get(channel_id) is not latest:
+        log.info("Chat moved on while reading the room; reconsidering the latest post")
+        return False
     if reading is None or reading.interest is None:
         log.warning(f"Couldn't tell whether to chime in on {newest[:80]!r}, staying quiet")
         return False
@@ -805,17 +958,30 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 @client.event
 async def on_message(message: discord.Message):
-    if message.author.id == client.user.id or message.author.bot:
+    if message.author.id == client.user.id:
         return
 
     channel_id = message.channel.id
     text = readable(message)
+    if message.author.bot:
+        observe(message, text)
+        if message.guild:
+            try:
+                chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id,
+                             message.author.name + " (bot)", readable(message, include_media=False), bot=True,
+                             text_provenance="author", addressed=False,
+                             context=conversation_text(message, text),
+                             reply_to=getattr(getattr(message, "reference", None), "message_id", None))
+            except OSError:
+                log.exception("Could not save the observed bot post; keeping its in-memory context")
+        return  # visible context, never a command, a reply trigger, or a training target
     for user in (message.author, *message.mentions):
         handles[user.name.lower()] = user.id
         handles[user.display_name.lower()] = user.id
         display_names[user.id] = user.display_name
     mentioned = client.user in message.mentions
-    for_her = mentioned or replying_to_her(message) or names_her(text)
+    typed = readable(message, include_media=False)
+    for_her = mentioned or replying_to_her(message) or names_her(typed)
 
     # The owner's "gg" (to her, or in her Melee channel) while she holds matches: the session is over,
     # she posts about it now. With nothing held it's just chat.
@@ -859,32 +1025,55 @@ async def on_message(message: discord.Message):
             if (minutes := request(text, MUTE_MINUTES)) is not None:
                 until[channel_id] = time.monotonic() + minutes * 60
                 other.pop(channel_id, None)
+                if what == "Muted":
+                    retire_requests(message.channel, channel_id, unanswered[channel_id], "muted")
+                    pending_followup.pop(channel_id, None)
                 log.info(f"{what} in {where} " + ("until unmuted" if minutes == FOREVER else f"for {minutes:g} minutes")
                          + f", by {message.author.name}")
                 await react(message, emoji)
                 return
 
-    typed = text  # what they wrote, before any description of their pictures
-    latest_post[channel_id] = message
-    line = format_line(message.author.name, text)
-    history[channel_id].append(line)  # now, so posts arriving while she looks stay in order
-    logged[channel_id] += 1
-    last_author[channel_id] = (message.author.id, message.author.name)
+    line = observe(message, text)  # now, so posts arriving while she looks stay in order
+    number = logged[channel_id]
+    needs_reply = for_her or (sad_news(typed) and not quiet(channel_id))
+    if needs_reply and not muted(channel_id):
+        unanswered[channel_id].append((number, line, message))
+    if message.guild:  # save the arrival before vision yields; never DMs
+        try:
+            chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id, message.author.name,
+                         typed, context=conversation_text(message, text), text_provenance="author", addressed=for_her,
+                         reply_to=getattr(getattr(message, "reference", None), "message_id", None))
+        except OSError:
+            log.exception("Could not save the observed post; continuing with its in-memory context")
     sees = False
     if VISION and (sources(message) or URL.search(message.content)):
-        message, seen = await look_at(message)
-        sees = bool(seen)
-        if (described := readable(message, seen)) != text:
-            text = described
+        ready = asyncio.get_running_loop().create_future()
+        pending_vision[channel_id].add(ready)
+        try:
+            message, seen = await look_at(message)
+            sees = bool(seen)
+            described = readable(message, seen)
+            enriched = ObservedLine(message, described)
             lines = history[channel_id]
-            for i in range(len(lines) - 1, -1, -1):
-                if lines[i] == line:
-                    lines[i] = format_line(message.author.name, text)
-                    break
-    if message.guild:  # never DMs
-        chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id, message.author.name, text,
-                     reply_to=getattr(getattr(message, "reference", None), "message_id", None))
-
+            for i, old in enumerate(lines):
+                if old is line:
+                    lines[i] = enriched
+                    break  # evicted observations stay evicted; their pending request still gets its context
+            latest = latest_post.get(channel_id)
+            if latest is line:
+                latest_post[channel_id] = enriched
+            unanswered[channel_id] = [(n, enriched, message) if n == number else (n, old, post)
+                                      for n, old, post in unanswered.get(channel_id, [])]
+            if described != text and message.guild:
+                try:
+                    chat_log.enrich(channel_id, message.id, conversation_text(message, described))
+                except OSError:
+                    log.exception("Could not save the picture description; continuing with its in-memory context")
+            text = described
+        finally:
+            pending_vision[channel_id].discard(ready)
+            if not ready.done():
+                ready.set_result(None)
     await take_notes(message, typed, mentioned)  # not what's written in a picture
 
     # Muted here: she keeps following the chat but says nothing and reacts to nothing, except a 🤐
@@ -901,7 +1090,7 @@ async def on_message(message: discord.Message):
 
     # Posts that don't need words (images, emoji-only, "lol") get a reaction as her whole response.
     # A reaction isn't a message, so it stays out of the chat history.
-    if not mentioned and reacts_instead(text, REACT_ONLY_MAX_WORDS):
+    if not for_her and reacts_instead(text, REACT_ONLY_MAX_WORDS):
         if media_only(text) and not sees:  # she couldn't see it, so she doesn't pretend to judge it
             if emoji := looking(message):
                 await react(message, emoji)
@@ -913,9 +1102,11 @@ async def on_message(message: discord.Message):
 
     # Aimed at her: always answered. Anything else only if it interests her (chimes_in), and never in
     # quiet mode, not even sad news (the sad cat above still says she saw it).
-    addressed = for_her or (sad_news(text) and not quiet(channel_id))
+    addressed = for_her or (sad_news(typed) and not quiet(channel_id))
     if quiet(channel_id) and not addressed:
         return
+    if needs_reply and not any(n == number for n, _, _ in unanswered.get(channel_id, [])):
+        return  # another reply already covered this request while its pictures were being described
 
     lock = reply_locks[channel_id]
     if lock.locked():
@@ -934,10 +1125,28 @@ async def on_message(message: discord.Message):
 async def converse(channel: discord.abc.Messageable, channel_id: int, for_her: bool, addressed: bool) -> None:
     """Reply if she should, then once more for whatever arrived meanwhile. Holds the channel's lock."""
     while not muted(channel_id):
-        if addressed or (not quiet(channel_id) and await chimes_in(channel_id)):
+        if addressed and not unanswered[channel_id]:
+            break  # the required turn was cancelled during an await, possibly followed by an unmute
+        if waiting := list(pending_vision[channel_id]):
+            await asyncio.gather(*(asyncio.shield(ready) for ready in waiting))
+            continue  # recheck mute and any descriptions that began while waiting
+        revision = logged[channel_id]
+        should_reply = bool(unanswered[channel_id]) or addressed or (not quiet(channel_id) and await chimes_in(channel_id))
+        # chimes_in can await both a room read and a Discord reaction. Revalidate after *all* of it,
+        # immediately before reply_to freezes the prompt; no requests have been consumed yet.
+        if pending_vision[channel_id] or logged[channel_id] != revision:
+            if pending_vision[channel_id] or unanswered[channel_id] or channel_id in pending_followup:
+                for_her, addressed = pending_followup.pop(channel_id, (False, False))
+                addressed = bool(unanswered[channel_id])
+                continue
+            break  # a reaction-only correction invalidated the read without scheduling another reply
+        if should_reply:
             # What arrived while she was deciding is already in the log, so this reply covers it.
-            was_for_her, _ = pending_followup.pop(channel_id, (False, False))
-            await reply_to(channel, channel_id, for_her or was_for_her)
+            was_for_her, was_addressed = pending_followup.pop(channel_id, (False, False))
+            await reply_to(channel, channel_id, for_her or was_for_her, addressed or was_addressed)
+        if unanswered[channel_id]:
+            addressed = True
+            continue
         if channel_id not in pending_followup:
             break
         for_her, addressed = pending_followup.pop(channel_id)
@@ -1111,12 +1320,16 @@ async def write_diary(why: str, before: float | None = None) -> None:
         before = time.time() if before is None else before
         said = []  # what people said, for the vibe note
         for channel_id in sorted(chat_log.channels()):
+            # An already saved picture must finish enriching before a diary cursor can pass it.
+            # The cutoff remains the arrival snapshot; later arrivals stay unread for the next pass.
+            if waiting := list(pending_vision[channel_id]):
+                await asyncio.gather(*(asyncio.shield(ready) for ready in waiting))
             since = diary.read_up_to(channel_id)
             entries = chat_log.read(channel_id, after=since, before=before)
             if not entries:
                 continue
             keep_landed(chat_log.read(channel_id, after=since, before=before, reactions=True))
-            said += [e for e in entries if e["author"] != BOT_NAME]
+            said += [e for e in entries if e["author"] != BOT_NAME and not e.get("bot")]
             parts = chunks(entries, DIARY_PART_CHARS)
             where = entries[-1].get("channel") or f"channel {channel_id}"
             log.info(f"Writing her diary ({why}): {where}, {len(entries)} messages"
@@ -1147,12 +1360,17 @@ async def update_vibe(said: list[dict]) -> None:
     """Update her note on how the server talks from what people said since the last one (meld.py)."""
     lines, size = [], 0
     for e in reversed(said):  # the newest VIBE_CHARS of it: that's what's new
-        line = format_line(e["author"], e["text"])
+        raw = raw_author_text(e)
+        if raw is None or not raw.strip():
+            continue
+        line = format_line(e["author"], raw)
         size += len(line) + 1
         if lines and size > VIBE_CHARS:
             break
         lines.append(line)
     lines.reverse()
+    if not lines:
+        return
     data = await ollama_chat({"model": TASK_MODEL, "messages": vibe_messages(diary.vibe(), lines),
                               "format": VIBE_FORMAT,
                               "options": {"temperature": 0.3} | cap(400)})
@@ -1169,16 +1387,17 @@ async def update_vibe(said: list[dict]) -> None:
 
 async def diary_entry(channel_id: int, part: list[dict]) -> bool:
     """One diary call for part of a channel's log; False if the model didn't answer."""
-    ids = {entry["author"]: entry.get("author_id") for entry in part if entry["author"] != BOT_NAME}
+    ids = {entry["author"]: entry.get("author_id") for entry in part
+           if entry["author"] != BOT_NAME and not entry.get("bot")}
     day, where = local_day(part[0]["time"]), part[-1].get("channel") or f"channel {channel_id}"
     if sum(entry["author"] != BOT_NAME for entry in part) >= 2:
         options = {"temperature": 0.3} | cap(700)
-        lines = [format_line(e["author"], e["text"]) for e in part]
+        lines = [render_line(e) for e in part]
         data = await ollama_chat({"model": TASK_MODEL, "messages": digest_messages(where, day, lines),
                                   "format": digest_format(sorted(ids)), "options": options})
         if data is None:
             return False
-        digest = parse_digest(data.get("message", {}).get("content", ""), sorted(ids), [e["text"] for e in part])
+        digest = parse_digest(data.get("message", {}).get("content", ""), sorted(ids), part)
         if digest is None:
             log.warning(f"Her diary for {where} came back unreadable; skipping that part. "
                         f"Raw: {json.dumps(data)[:300]}")
@@ -1255,11 +1474,11 @@ def reload_history() -> None:
     for channel_id in chat_log.channels():
         everything = chat_log.read(channel_id)
         for entry in reversed(everything):  # newest first: a handle is whoever had it last
-            if entry["author"] != BOT_NAME and entry.get("author_id"):
+            if entry["author"] != BOT_NAME and not entry.get("bot") and entry.get("author_id"):
                 handles.setdefault(entry["author"].lower(), entry["author_id"])
         entries = [entry for entry in everything if entry["time"] > since][-HISTORY_LENGTH:]
         for entry in entries:
-            history[channel_id].append(format_line(entry["author"], entry["text"]))
+            history[channel_id].append(format_line(entry["author"], entry.get("context", entry["text"])))
         if entries:
             log.info(f"Picked up {len(entries)} messages of chat in {entries[-1].get('channel') or channel_id}")
 

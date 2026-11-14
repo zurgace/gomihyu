@@ -95,7 +95,7 @@ async def main():
     assert len(ch.sent) == n + 1 and judged() == []
     bot.CHIME_IN_THRESHOLD = 6
 
-    # while she's deciding, more posts arrive. If she chimes in, one reply covers them all (no second reply).
+    # While she's deciding, more posts arrive. The old reading is discarded and the latest post is read.
     ch = Channel(2); judge.update(answer='{"interest": 8}', delay=0.3); calls.clear()
     first = asyncio.create_task(bot.on_message(msg(ch, KAZ, "who's up for mario kart later")))
     await asyncio.sleep(0.1)
@@ -103,7 +103,7 @@ async def main():
     await asyncio.sleep(0)
     await bot.on_message(msg(ch, REX, "i'm in, 9pm works for me"))
     await first; await me
-    assert len(ch.sent) == 1 and len(judged()) == 2, (ch.sent, len(judged()))
+    assert len(ch.sent) == 1 and len(judged()) == 3, (ch.sent, len(judged()))
     assert list(bot.history[2])[-2:] == ["rexmode: i'm in, 9pm works for me", f"Gomihyu: {ch.sent[0]}"], list(bot.history[2])
 
     # if she stays quiet, the post that arrived while she decided gets its own look: an @mention is just answered
@@ -122,13 +122,13 @@ async def main():
     assert ch.sent == [] and len(judged()) == 2
     assert judged()[1]["messages"][1]["content"].split("\n\nThe last message is from")[0].endswith("rexmode: cool see you at 9 then")
 
-    # posts arriving while she writes a chime-in reply get one follow-up, which is rated first
+    # Posts arriving while she writes replace the stale chime-in with a freshly rated reply.
     ch = Channel(5); judge.update(answer='{"interest": 7}', delay=0); reply_delay["v"] = 0.3; calls.clear()
     first = asyncio.create_task(bot.on_message(msg(ch, KAZ, "elden ring dlc is mid honestly")))
     await asyncio.sleep(0.1)
     await bot.on_message(msg(ch, REX, "nah it's peak"))
     await bot.on_message(msg(ch, KAZ, "the final boss is so bad though"))
     await first
-    assert len(ch.sent) == 2 and len(judged()) == 2 and len(replied()) == 2
+    assert len(ch.sent) == 1 and len(judged()) == 2 and len(replied()) == 2
     await r.cleanup(); print("CHIME TESTS PASSED")
 asyncio.run(main())

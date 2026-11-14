@@ -149,18 +149,28 @@ async def main():
     assert list(bot.history[c.id])[-1] == "Gomihyu: " + reply_text["v"]  # the log keeps :name:
     c2 = Channel(3, guild=None); await bot.on_message(Msg(c2, "no guild here at all")); assert c2.sent == [reply_text["v"]]
 
-    # a reaction-only post arriving mid-reply doesn't cause a follow-up reply
+    # A reaction-only post doesn't cause a follow-up. Required answers still deliver, while an
+    # unsolicited draft is invalidated by every new observation, independent of scheduling.
+    started, release = asyncio.Event(), asyncio.Event()
     async def slow(request):
         body = await request.json(); calls.append(body)
-        if "format" not in body: await asyncio.sleep(0.3)
+        if "format" not in body:
+            started.set(); await release.wait()
         return web.json_response({"message": {"content": '{"emoji": "200", "react": 9}' if "format" in body else "done"}})
     app2 = web.Application(); app2.router.add_post("/api/chat", slow)
     r2 = web.AppRunner(app2); await r2.setup(); await web.TCPSite(r2, "127.0.0.1", 8772).start()
     bot.OLLAMA_URL = "http://127.0.0.1:8772/api/chat"; calls.clear()
-    c = Channel(4); first = asyncio.create_task(bot.on_message(Msg(c, "tell me something good")))
-    await asyncio.sleep(0.05); lol = Msg(c, "lmao"); await bot.on_message(lol); await first
+    c = Channel(4); first = asyncio.create_task(bot.on_message(Msg(c, "gomi tell me something good")))
+    await asyncio.wait_for(started.wait(), 3)
+    lol = Msg(c, "lmao"); await bot.on_message(lol); release.set(); await first
     assert c.sent == ["done"] and lol.reactions == [E["200"]] and sum("format" not in x for x in calls) == 1
-    assert list(bot.history[4]) == ["kaz0: tell me something good", "Gomihyu: done", "kaz0: lmao"]
+    assert list(bot.history[4]) == ["kaz0: gomi tell me something good", "Gomihyu: done", "kaz0: lmao"]
+    calls.clear(); started.clear(); release.clear()
+    c = Channel(404); first = asyncio.create_task(bot.on_message(Msg(c, "tell me something good")))
+    await asyncio.wait_for(started.wait(), 3)
+    lol = Msg(c, "lmao"); await bot.on_message(lol); release.set(); await first
+    assert not c.sent and lol.reactions == [E["200"]] and sum("format" not in x for x in calls) == 1
+    assert list(bot.history[404]) == ["kaz0: tell me something good", "kaz0: lmao"]
 
     # Ollama down: no reaction, no crash
     bot.OLLAMA_URL = "http://127.0.0.1:1/api/chat"; m, c = await send("oogaga"); assert m.reactions == [] and c.sent == []

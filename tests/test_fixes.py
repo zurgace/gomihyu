@@ -50,7 +50,7 @@ assert [p.name for p, _ in got] == ["b.json"] and (OUT / "a.bad").exists()
 for p in OUT.iterdir(): p.unlink()
 
 # --- the diary's quote check: whole words only
-said = ["I started guitar lessons last week"]
+said = [{"author": "kaz0", "text": "I started guitar lessons last week", "text_provenance": "author"}]
 answer = lambda quote: json.dumps({"recap": "x", "notes": [{"who": "kaz0", "note": "kaz0 plays guitar.", "quote": quote}]})
 assert parse_digest(answer("guitar lessons"), ["kaz0"], said)[1] == [("kaz0", "kaz0 plays guitar.")]
 assert parse_digest(answer("tar lessons"), ["kaz0"], said)[1] == []                 # part of a word

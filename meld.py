@@ -3,8 +3,8 @@ Melding: her Satania persona slowly shaped by the server (user, 2026-09-29: "I'd
 personality to get influenced by the discord server"; the members agreed to their chat being used).
 
 Two sources, both read from the chat log (chatlog.py):
-  - her replies that landed: someone reacted to it, answered it with a Discord reply, laughed right
-    after, or answered her by name. Decided here in code, not by the model. They're kept
+  - her replies that landed: a human gave a positive reaction or laughed at it, without a correction
+    or complaint. A reply or mention alone isn't approval. Decided here in code, not by the model. They're kept
     ("earned" examples) and, each night, join the example chats in her prompt, replacing Satania ones
     bit by bit, but never below the anchor share (MELD_ANCHOR).
   - the server's voice: people's own messages, as examples of how this server talks. Summed up
@@ -19,14 +19,24 @@ import random
 import re
 
 from censor import has_slur
-from persona import BOT_NAME, BOT_NICKNAME
+from chatlog import raw_author_text
+from persona import BOT_NAME, BOT_NICKNAME, fewshot_eligible
 from reactions import LAUGHING, MEDIA, names_her
 
 LANDED_WITHIN_SECONDS = 180  # a laugh or an answer this soon after her reply counts
 CONTEXT_LINES = 6  # chat before an example's reply, at most
 CONTEXT_SECONDS = 30 * 60  # and no older than this before it
-# "stfu gomi" right after: that one didn't land, whatever else happened
-PUT_DOWN = re.compile(r"\b(?:stfu|shut\s+up|nobody\s+asked|cringe|go\s+away|be\s+quiet|so\s+annoying)\b", re.IGNORECASE)
+# Complaints were being learned as praise just because the person said "Gomi" or replied to her.
+PUT_DOWN = re.compile(
+    r"\b(?:stfu|shut\s+up|nobody\s+asked|cringe|go\s+away|be\s+quiet|so\s+annoying|"
+    r"(?:types?|typing|talks?|talking|writes?|writing|explains?|explaining)\s+(?:way\s+)?too\s+much|"
+    r"too\s+(?:wordy|verbose|many\s+words)|"
+    r"tl;?dr|regurgitat\w*|hallucinat\w*|makes?\s+(?:zero|no)\s+sense|"
+    r"(?:you(?:'re|\s+are)|that(?:'s|\s+is))\s+wrong|you\s+misunderstood|"
+    r"not\s+what\s+i\s+(?:meant|asked)|repeat(?:ing)?\s+yourself)\b", re.IGNORECASE)
+# Conservative on purpose: :kekpoint: means laughing at a fail, and angry/staring reactions aren't praise.
+# Custom meanings come from emojis.py; Discord stores them as <:name:id> or <a:name:id>.
+POSITIVE_REACTIONS = {"😂", "🤣", "💀", "🔥", "👑", "👍", "❤", "200"}
 # Persona share of a training run's data: FIRST_SHARE for run 1, down in even steps to the anchor at run
 # MELD_RUNS, which stays from then on. With weekly runs (finetuning/weekly.py), 11 runs is about 2.5 months.
 FIRST_SHARE = 0.7
@@ -38,43 +48,79 @@ MAX_VIBE_LINE_LENGTH = 150
 def _history(entries: list[dict], i: int) -> list[list[str]]:
     """Up to CONTEXT_LINES messages before entries[i], none older than CONTEXT_SECONDS."""
     start = entries[i]["time"] - CONTEXT_SECONDS
-    return [[e["author"], e["text"]] for e in entries[max(0, i - CONTEXT_LINES):i] if e["time"] >= start]
+    return [[e["author"], e.get("context", e["text"])]
+            for e in entries[max(0, i - CONTEXT_LINES):i] if e["time"] >= start]
+
+
+def _provenance(entries: list[dict], i: int) -> dict | None:
+    """Keep raw addressing and the actual answer targets alongside display-only history."""
+    post = entries[i]
+    before = [e for e in entries[max(0, i - CONTEXT_LINES):i]
+              if e["time"] >= post["time"] - CONTEXT_SECONDS]
+    known = {e.get("id"): e for e in entries[:i] if e.get("id") is not None}
+    meta = []
+    for entry in before:
+        raw = raw_author_text(entry)
+        target = known.get(entry.get("reply_to"), {})
+        addressed = entry.get("addressed", bool(raw and names_her(raw)) or target.get("author") == BOT_NAME)
+        meta.append({"id": entry.get("id"), "text": raw, "addressed": bool(addressed),
+                     "bot": bool(entry.get("bot") or entry["author"] == BOT_NAME)})
+    targets = post.get("answered_requests")
+    if targets is None:
+        if post["author"] == BOT_NAME and post.get("reply_to") is None:
+            return None  # Old unlinked replies don't identify which request actually produced them.
+        targets = [post["reply_to"]] if post.get("reply_to") is not None else []
+    if not isinstance(targets, list) or any(not isinstance(target, int) for target in targets):
+        return None
+    if len(set(targets)) != len(targets):
+        return None
+    by_id = {e["id"]: e for e in meta if e["id"] is not None}
+    if any(target not in by_id or by_id[target]["text"] is None for target in targets):
+        return None  # The request fell out of the bounded history; don't invent its target.
+    if not meta or (not targets and meta[-1]["text"] is None):
+        return None
+    return {"history_meta": meta, "answered_requests": targets}
 
 
 def landed_replies(entries: list[dict]) -> list[dict]:
     """Her chat replies in a channel's log (reactions included) that landed, as example chats:
     {"id", "day", "history": [[handle, text], ...], "reply", "signal", "real": True}."""
     messages = [e for e in entries if e.get("kind", "message") == "message"]
-    reacted = {e.get("to"): e["text"] for e in entries if e.get("kind") == "reaction" and e.get("author") != BOT_NAME}
+    reacted = {e.get("to"): e["text"] for e in entries
+               if e.get("kind") == "reaction" and e.get("author") != BOT_NAME and not e.get("bot")
+               and re.sub(r"<a?:(\w+):\d+>", r"\1", e["text"]).strip(":\ufe0f") in POSITIVE_REACTIONS}
     found = []
     for i, post in enumerate(messages):
         if post["author"] != BOT_NAME or post.get("about", "reply") != "reply":
             continue
         reply = post["text"].strip()
         history = _history(messages, i)
+        provenance = _provenance(messages, i)
         if (len(reply.split()) < 2 or has_slur(reply) or re.fullmatch(r":\w+:", reply)
-                or not any(author != BOT_NAME for author, _ in history)):
+                or not any(author != BOT_NAME for author, _ in history) or provenance is None):
             continue
         after = []  # what people said next, up to her next post
         for e in messages[i + 1:]:
             if e["author"] == BOT_NAME or e["time"] - post["time"] > LANDED_WITHIN_SECONDS or len(after) == 3:
                 break
-            after.append(e)
-        if any(PUT_DOWN.search(e["text"]) for e in after):
+            if not e.get("bot") and (raw := raw_author_text(e)) is not None and raw.strip():
+                after.append(e)
+        replied = [e for e in messages[i + 1:] if post.get("id") and e.get("reply_to") == post["id"]
+                   and e["author"] != BOT_NAME and not e.get("bot")
+                   and (raw := raw_author_text(e)) is not None and raw.strip()]
+        if any(PUT_DOWN.search(e["text"]) for e in [*after, *replied] if not e.get("bot")):
             continue
         signal = None
         if post.get("id") in reacted:
             signal = f"reaction {reacted[post['id']]}"
-        elif post.get("id") and any(e.get("reply_to") == post["id"] and e["author"] != BOT_NAME
-                                    for e in messages[i + 1:]):
-            signal = "reply"
-        elif after and LAUGHING.search(after[0]["text"]):
+        elif any(LAUGHING.search(e["text"]) for e in replied):
             signal = "laugh"
-        elif any(names_her(e["text"]) for e in after):
-            signal = "named"
+        elif (after and not after[0].get("bot") and after[0].get("reply_to") in (None, post.get("id"))
+              and LAUGHING.search(after[0]["text"])):
+            signal = "laugh"
         if signal:
             found.append({"id": post.get("id"), "time": post["time"], "history": history, "reply": reply,
-                          "signal": signal, "real": True})
+                          "signal": signal, "real": True, **provenance})
     return found
 
 
@@ -84,14 +130,19 @@ def voice_examples(entries: list[dict]) -> list[dict]:
     entries = [e for e in entries if e.get("kind", "message") == "message"]
     found = []
     for i, message in enumerate(entries):
-        if i == 0 or message["author"] == BOT_NAME:
+        if i == 0 or message["author"] == BOT_NAME or message.get("bot"):
             continue
-        previous, text = entries[i - 1], message["text"].strip()
+        raw = raw_author_text(message)
+        provenance = _provenance(entries, i)
+        if raw is None or provenance is None:
+            continue
+        previous, text = entries[i - 1], raw.strip()
         words = re.findall(r"\w+", MEDIA.sub(" ", text))
         if (previous["author"] == message["author"] or message["time"] - previous["time"] > 600
                 or len(words) < 3 or names_her(text) or has_slur(text) or text.startswith("!")):
             continue
-        found.append({"id": message.get("id"), "history": _history(entries, i), "reply": text})
+        found.append({"id": message.get("id"), "history": _history(entries, i), "reply": text,
+                      "real": True, "source": "voice", **provenance})
     return found
 
 
@@ -102,6 +153,7 @@ def pick_examples(seed: list[dict], earned: list[dict], n: int, anchor: float, f
     prompt, bot.SEED_EXAMPLES): her landed replies only, as many as there are up to n."""
     if n <= 0:
         return []
+    earned = [example for example in earned if fewshot_eligible(example)]
     if not seed:
         return rng.sample(earned, min(n, len(earned)))
     persona_share = max(anchor, 1 - len(earned) / full_at) if full_at > 0 else anchor

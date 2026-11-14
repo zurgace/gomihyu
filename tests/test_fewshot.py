@@ -43,7 +43,9 @@ async def main():
     await bot.on_message(msg("what games should we play this saturday"))
     assert calls[0]["messages"][0]["content"] == persona.SYSTEM_PROMPT
     # her landed replies are her examples: up to 8, a fresh pick each reply, the chat log and instruction untouched
-    bot.earned[:] = [{"history": [["kaz0", f"question {n}"]], "reply": f"landed line number {n}", "real": True}
+    bot.earned[:] = [{"history": [["kaz0", f"question {n}"]], "reply": f"landed line number {n}", "real": True,
+                     "history_meta": [{"id": 1, "text": f"question {n}", "addressed": False, "bot": False}],
+                     "answered_requests": []}
                      for n in range(12)]
     calls.clear(); await bot.on_message(msg("ok but which character are you going to play then"))
     first = shown(calls[0])
@@ -72,7 +74,8 @@ async def main():
     assert names == ["norimaki", "mintchoco", "kaz0", "sleepyfox", "jake.b", "Kaz", "Nori", "Mint"], names
     assert ") is in this server: never mention or @ them." in calls[0]["messages"][0]["content"]
     assert "Nobody in the made-up ones (x) is" in persona.format_examples([{"history": [["x", "hi"]], "reply": "yo"},
-                                                                           {"history": [["rexmode", "hi"]], "reply": "yo", "real": True}])
+        {"history": [["rexmode", "hi"]], "reply": "yo", "real": True, "answered_requests": [],
+         "history_meta": [{"id": 1, "text": "hi", "addressed": False, "bot": False}]}])
     calls.clear(); answers[:] = ["Go bother @kaz0 about it.", "fine, I'll judge it myself."]
     await bot.on_message(msg("gomi who should i ask"))
     assert len(calls) == 2 and ch.sent[-1] == "fine, I'll judge it myself.", (len(calls), ch.sent[-1])

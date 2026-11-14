@@ -119,7 +119,9 @@ async def main():
     # a picture on its own: described once, in her log and chat log; the reaction picker sees the description
     calls.clear()
     post = await say(attachments=[att("image/png", f"{U}/red.png")])
-    assert last_line() == "kaz0: [image: A red meme that says HELLO]" and logged_text() == "[image: A red meme that says HELLO]"
+    assert last_line() == "kaz0: [image: A red meme that says HELLO]" and logged_text() == ""
+    stored = [e for e in bot.chat_log.read(10) if e["author"] == "kaz0"][-1]
+    assert stored["context"] == "[image: A red meme that says HELLO]" and stored["text_provenance"] == "author"
     v = vision_calls()[0]
     assert v["model"] == "moondream" and v["think"] is False and v["options"] == {"num_ctx": 8192, "temperature": 0.2, "num_predict": 80}
     assert "picture" in v["messages"][-1]["content"] and "Never guess who a real person" in v["messages"][0]["content"]
@@ -129,6 +131,7 @@ async def main():
     calls.clear(); await say("gomi rate my car", attachments=[att("image/jpeg", f"{U}/blue.png")])
     reply = [c for c in calls if not c["messages"][-1].get("images") and "format" not in c][-1]
     assert "kaz0: gomi rate my car [image: A blue car]" in reply["messages"][1]["content"] and ch.sent[-1] == "reply here"
+    assert logged_text() == "gomi rate my car"
 
     # a GIF, a sticker (transparent -> white), and a Lottie sticker she can't look at
     await say(attachments=[att("image/gif", f"{U}/anim.gif")]); assert last_line() == "kaz0: [gif: A red meme that says HELLO]"

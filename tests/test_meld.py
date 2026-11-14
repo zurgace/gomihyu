@@ -17,7 +17,8 @@ assert bot.EARNED_FILE == T / "earned.jsonl" and bot.MELD_ANCHOR == 0.3 and bot.
 t0 = 1_800_000_000.0; clock = itertools.count()
 def msg(author, text, dt=30, **kw):
     return {"id": next(ids_), "time": t0 + next(clock) * 0 + dt_acc(dt), "channel": "#general", "author": author,
-            "author_id": 1 if author == "Gomihyu" else 6, "text": text, **kw}
+            "author_id": 1 if author == "Gomihyu" else 6, "text": text,
+            **({"answered_requests": []} if author == "Gomihyu" else {}), **kw}
 _t = [t0]
 def dt_acc(dt): _t[0] += dt; return _t[0] - t0
 ids_ = itertools.count(1)
@@ -29,7 +30,7 @@ A = add("Gomihyu", "me, obviously. prepare to lose.")
 log.append({"id": None, "time": _t[0] + 5, "kind": "reaction", "to": A["id"], "author": "kaz0", "text": "😂", "channel": "#general"})
 add("rexmode", "i'm down after 9")
 B = add("Gomihyu", "9 it is. bring snacks.")
-add("kaz0", "you don't even eat", reply_to=B["id"], dt=400)            # a Discord reply, even 6+ min later
+add("kaz0", "you don't even eat lmao", reply_to=B["id"], dt=400)       # a laugh in a reply, even 6+ min later
 C = add("Gomihyu", "i eat souls, which is way more filling.")
 add("rexmode", "LMAO")
 D = add("Gomihyu", "anyway smash is a game of pure intellect.")
@@ -47,11 +48,43 @@ log.append({"id": None, "time": _t[0] + 5, "kind": "reaction", "to": I["id"], "a
 J = add("Gomihyu", "pretty quiet here tonight", dt=4000)
 log.append({"id": None, "time": _t[0] + 5, "kind": "reaction", "to": J["id"], "author": "Gomihyu", "text": "😈", "channel": "#general"})
 got = {e["id"]: e["signal"] for e in meld.landed_replies(log)}
-assert got == {A["id"]: "reaction 😂", B["id"]: "reply", C["id"]: "laugh", D["id"]: "named"}, got
+assert got == {A["id"]: "reaction 😂", B["id"]: "laugh", C["id"]: "laugh"}, got
 first = meld.landed_replies(log)[0]
 assert first["history"] == [["kaz0", "who wants to play smash tonight"]] and first["reply"] == A["text"] and first["real"]
 long = [msg("kaz0", f"line {n}", 60) for n in range(10)] + [msg("Gomihyu", "a reply to all that", 30), msg("kaz0", "lmao", 10)]
 assert [h[1] for h in meld.landed_replies(long)[0]["history"]] == [f"line {n}" for n in range(4, 10)]   # last 6 lines
+
+# Engagement isn't approval. In particular, complaints about verbosity must not become training targets.
+for feedback in ["gomi you type way too much to get your point across", "gomi you're typing too much",
+                 "you are talking too much", "look at gomi regurgitating words",
+                 "can't get rid of the tl;dr part of Gomi", "lol that makes no sense", "that's wrong lmao",
+                 "lmao not what I asked", "you are repeating yourself lol"]:
+    entries = [msg("kaz0", "what do you think"), msg("Gomihyu", "an unnecessary speech goes here")]
+    reply = entries[-1]
+    entries += [msg("rexmode", feedback, reply_to=reply["id"]),
+                msg("kaz0", "😂", kind="reaction", to=reply["id"])]
+    assert not meld.landed_replies(entries), feedback
+for feedback, linked, is_bot in [("gomi really", False, False), ("what do you mean", True, False),
+                                 ("LMAO", False, True), ("LMAO", True, True)]:
+    entries = [msg("kaz0", "what do you think"), msg("Gomihyu", "a reply to the question")]
+    entries.append(msg("someone", feedback, bot=is_bot, reply_to=entries[-1]["id"] if linked else None))
+    assert not meld.landed_replies(entries), (feedback, linked, is_bot)
+for reaction, is_bot, accepted in [("💢", False, False), ("<:goonerstare:123>", False, False),
+                                    ("<:kekpoint:123>", False, False), ("<:200:123>", False, True),
+                                    ("<a:200:123>", False, True), ("😂", True, False), ("❤️", False, True)]:
+    entries = [msg("kaz0", "what do you think"), msg("Gomihyu", "a reply to the question")]
+    entries.append(msg("someone", reaction, bot=is_bot, kind="reaction", to=entries[-1]["id"]))
+    assert bool(meld.landed_replies(entries)) == accepted, reaction
+# A laugh replying to another human doesn't endorse Gomi's intervening message.
+entries = [msg("kaz0", "a funny story"), msg("Gomihyu", "a pointless interruption")]
+entries.append(msg("rexmode", "lmao", reply_to=entries[0]["id"]))
+assert not meld.landed_replies(entries)
+# A quote isn't feedback, and it isn't the reply author's training target.
+entries = [msg("kaz0", "a funny story"), msg("Gomihyu", "lol I made that up")]
+entries.append(msg("rexmode", "what is that supposed to mean", reply_to=entries[-1]["id"],
+                   context='[reply to Gomihyu: "lol I made that up"] what is that supposed to mean'))
+assert not meld.landed_replies(entries)
+assert meld.voice_examples(entries)[-1]["reply"] == "what is that supposed to mean"
 
 # --- voice_examples
 v = [msg("kaz0", "who's up for smash tonight", 30), msg("rexmode", "i am down after nine", 30),
@@ -64,17 +97,25 @@ v = [msg("kaz0", "who's up for smash tonight", 30), msg("rexmode", "i am down af
      msg("rexmode", "that's what you said last week", 3000)]             # too long after
 assert [e["reply"] for e in meld.voice_examples(v)] == ["i am down after nine", "can't wait to beat you both"]
 assert meld.voice_examples(v)[1]["history"][-1] == ["Gomihyu", "I shall grace you with my presence"]
+v = [msg("kaz0", "who's up for smash tonight"), msg("Doumi", "I am up for that", bot=True),
+     msg("rexmode", "bring your controller then")]
+assert [e["reply"] for e in meld.voice_examples(v)] == ["bring your controller then"]
+assert meld.voice_examples(v)[0]["history"][-1] == ["Doumi", "I am up for that"]
 
 # --- the example mix and the training schedule
 seed = [{"history": [["x", "y"]], "reply": f"seed {n}"} for n in range(58)]
+def real_chat(history, reply):
+    return {"history": history, "reply": reply, "real": True, "answered_requests": [],
+            "history_meta": [{"id": i, "text": text, "addressed": False, "bot": False}
+                             for i, (_, text) in enumerate(history)]}
 def mix(n_earned):
-    earned = [{"history": [["x", "y"]], "reply": f"earned {n}", "real": True} for n in range(n_earned)]
+    earned = [real_chat([["x", "y"]], f"earned {n}") for n in range(n_earned)]
     picked = meld.pick_examples(seed, earned, 8, 0.3, 200, random.Random(1))
     return len(picked), sum(bool(e.get("real")) for e in picked)
 assert [mix(n) for n in (0, 20, 25, 100, 200, 500)] == [(8, 0), (8, 0), (8, 1), (8, 4), (8, 5), (8, 5)], [mix(n) for n in (0, 20, 25, 100, 200, 500)]
 assert meld.pick_examples(seed, [], 0, 0.3, 200) == []
 # no seed in her prompt (bot.SEED_EXAMPLES off): her landed replies only, up to n
-landed = [{"history": [["x", "y"]], "reply": f"earned {n}", "real": True} for n in range(12)]
+landed = [real_chat([["x", "y"]], f"earned {n}") for n in range(12)]
 assert len(meld.pick_examples([], landed, 8, 0.3, 200)) == 8 and len(meld.pick_examples([], landed[:3], 8, 0.3, 200)) == 3
 assert meld.pick_examples([], [], 8, 0.3, 200) == []
 assert [meld.persona_share(r, 0.3) for r in (1, 2, 3, 6, 10, 11, 20)] == [0.7, 0.66, 0.62, 0.5, 0.34, 0.3, 0.3]
@@ -88,7 +129,7 @@ assert pv(json.dumps({"notes": ["- lowercase, short bursts", "• lots of 'lmao'
 assert pv("nope") is None and pv('{"notes": []}') is None and pv('{"notes": "x"}') is None
 
 # --- prompts
-real = [{"history": [["kaz0", "hi"]], "reply": "greetings, mortal", "real": True}]
+real = [real_chat([["kaz0", "hi"]], "greetings, mortal")]
 assert persona.format_examples(real).startswith("Some real chats from this server") and "made-up" not in persona.format_examples(real)
 assert "made-up ones, and real ones from this server" in persona.format_examples(real + seed[:1])
 assert "made-up chats" in persona.format_examples(seed[:1])
@@ -142,7 +183,7 @@ async def main():
     await bot.on_raw_reaction_add(reaction(hers[0], ME, "😈"))           # her own: not
     await bot.on_raw_reaction_add(reaction(gen.posts[0], REX, "👍", author_id=6))   # on someone else's post: not
     await bot.on_raw_reaction_add(reaction(hers[1], types.SimpleNamespace(id=77, name="dyno"), "⭐", is_bot=True))  # a bot: not
-    await say(KAZ, "you are unhinged tonight", reply_to=hers[2])         # a Discord reply to her
+    await say(KAZ, "you are unhinged tonight lmao", reply_to=hers[2])    # a positive Discord reply to her
     entries = bot.chat_log.read(10, reactions=True)
     rx = [e for e in entries if e.get("kind") == "reaction"]
     assert len(rx) == 1 and rx[0]["to"] == hers[0].id and rx[0]["text"] == "😂" and rx[0]["author"] == "kaz0"
@@ -159,7 +200,7 @@ async def main():
     await bot.write_diary("test")
     saved = [json.loads(l) for l in bot.EARNED_FILE.read_text().splitlines()]
     assert {e["id"] for e in saved} == {hers[0].id, hers[2].id} and len(bot.earned) == 2
-    assert {e["id"]: e["signal"] for e in saved} == {hers[0].id: "reaction 😂", hers[2].id: "reply"}
+    assert {e["id"]: e["signal"] for e in saved} == {hers[0].id: "reaction 😂", hers[2].id: "laugh"}
     assert saved[0]["channel"] == "#general" and saved[0]["day"] and saved[0]["real"] is True
     assert bot.diary.vibe() == ["everyone lives for smash nights", "short lowercase messages"]
     # she comes back with the vibe in her prompt; a restart reloads the earned pool
@@ -176,7 +217,7 @@ async def main():
     assert bot.diary.vibe() == ["everyone lives for smash nights", "short lowercase messages"]
 
     # her landed replies are all her examples (no seed in her prompt); copying one is caught
-    bot.earned[:] = [{"history": [["kaz0", f"q {n}"]], "reply": f"earned line number {n} is here", "real": True} for n in range(300)]
+    bot.earned[:] = [real_chat([["kaz0", f"q {n}"]], f"earned line number {n} is here") for n in range(300)]
     shown = bot.shown_examples()
     assert len(shown) == 8 and all(e.get("real") for e in shown)
     # with the seed mixed in (SEED_EXAMPLES), real chats fill most of the examples, down to the anchor
@@ -196,7 +237,9 @@ shutil.copy(REPO / "finetuning" / "gomihyu_seed.jsonl", repo / "finetuning" / "g
 cl = ChatLog(repo / "logs_here"); tt = time.time() - 3600
 for n in range(800):
     cl.add(10 + n % 3, "#c", n, 6 if n % 2 else 5, "kaz0" if n % 2 else "rexmode", f"server message number {n} here", when=tt + n)
-(repo / "earned_here.jsonl").write_text("".join(json.dumps({"id": n, "history": [["kaz0", "hi"]], "reply": f"landed {n} yes", "real": True}) + "\n" for n in range(10)))
+(repo / "earned_here.jsonl").write_text("".join(json.dumps({"id": n, "history": [["kaz0", "hi"]],
+    "history_meta": [{"id": 1, "text": "hi", "addressed": False, "bot": False}], "answered_requests": [],
+    "reply": f"landed {n} yes", "real": True}) + "\n" for n in range(10)))
 def build(*args):
     env = {k: v for k, v in os.environ.items() if k not in ("CHAT_LOG_DIR", "EARNED_FILE", "MELD_ANCHOR", "DIARY_FILE")}
     out = subprocess.run([sys.executable, str(repo / "finetuning" / "build_dataset.py"), *args], capture_output=True, text=True,

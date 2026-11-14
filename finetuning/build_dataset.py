@@ -4,9 +4,12 @@ Render training data in the same prompt format bot.py sends.
     python3 finetuning/build_dataset.py                  # the Satania seed only -> train.jsonl
     python3 finetuning/build_dataset.py --meld --run 2   # the seed plus the server, for training run 2
 
-Each example is {"history": [[handle, text], ...], "reply": "..."}. The last history line is the
-message being replied to; it counts as an @mention if it contains "@Gomihyu". Earlier lines are chat
-context, and Gomihyu's own earlier messages use the speaker "Gomihyu". An optional "facts": [...] is
+Each example is {"history": [[handle, context], ...], "reply": "..."}. Harvested examples also carry
+history_meta (raw author text, addressing, ids and bot flags) and answered_requests (source ids).
+Human voice samples carry source="voice" so a preceding Gomi post remains the newest message.
+Only raw addressing labels a message as aimed at her; quoted names do not. Delayed requests stay
+explicit prompt targets. Real examples without this provenance are skipped, leaving saved files
+untouched. Handwritten seed histories are raw by definition. An optional "facts": [...] is
 what that last speaker has asked her to remember (memory.py), and an optional "nicknames":
 {handle: nickname} what she calls people in the log.
 
@@ -37,7 +40,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 from chatlog import ChatLog  # noqa: E402
 from meld import MELD_RUNS, persona_share, voice_examples  # noqa: E402
-from persona import build_messages, format_line  # noqa: E402
+from persona import BOT_NAME, build_messages, example_targets, format_line  # noqa: E402
 from reactions import names_her  # noqa: E402
 from shape import tidy  # noqa: E402
 
@@ -45,23 +48,50 @@ SEED = HERE / "gomihyu_seed.jsonl"
 OUT = HERE / "train.jsonl"
 
 
-def render(example: dict) -> dict:
-    transcript = [format_line(speaker, text) for speaker, text in example["history"]]
+def render(example: dict) -> dict | None:
+    """A faithful training turn, or None when real history has lost its target provenance."""
+    targets = example_targets(example)
+    if targets is None:
+        return None
+    meta = example.get("history_meta")
+    transcript = [format_line(speaker + (" (bot)" if meta and meta[i].get("bot")
+                                         and speaker != BOT_NAME and not speaker.endswith(" (bot)") else ""), text)
+                  for i, (speaker, text) in enumerate(example["history"])]
     speaker, last_text = example["history"][-1]
-    mentioned = names_her(last_text)  # aimed at her, as bot.py sees it (minus Discord replies: not in the data)
-    messages = build_messages(transcript, mentioned, speaker, example.get("facts", []), example.get("nicknames"))
+    addressed = []
+    newest = None
+    if meta is None:
+        mentioned = names_her(last_text)  # Handwritten examples contain author words, not display context.
+    else:
+        # Runtime observes participants separately from her own inserted replies. A later batch can
+        # follow one of her answers, but that answer is never its newest observed source. Human voice
+        # samples can answer Gomi herself, including with a Discord reply link, and keep the true tail.
+        latest = len(meta) - 1
+        if targets and example.get("source") != "voice":
+            latest = next((i for i in range(latest, -1, -1)
+                           if example["history"][i][0] != BOT_NAME), latest)
+        speaker = example["history"][latest][0]
+        if meta[latest].get("bot") and speaker != BOT_NAME and not speaker.endswith(" (bot)"):
+            speaker += " (bot)"
+        mentioned = bool(meta[latest].get("addressed")) and not meta[latest].get("bot")
+        newest = transcript[latest]
+        addressed = [transcript[i] for i in targets]
+    messages = build_messages(transcript, mentioned, speaker, example.get("facts", []), example.get("nicknames"),
+                              addressed=addressed, newest=newest)
     messages.append({"role": "assistant", "content": example["reply"]})
     return {"messages": messages}
 
 
-def read_jsonl(path: Path) -> list[dict]:
+def read_jsonl(path: Path, real: bool = False) -> list[dict]:
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines() if path.exists() else []:
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(row, dict) and row.get("reply") and row.get("history"):
+        if isinstance(row, dict) and real:
+            row = row | {"real": True}  # Earned-file origin is authoritative, even on unmarked legacy rows.
+        if isinstance(row, dict) and row.get("reply") and row.get("history") and render(row) is not None:
             rows.append(row)
     return rows
 
@@ -69,7 +99,7 @@ def read_jsonl(path: Path) -> list[dict]:
 def voice_pool(chat_log: ChatLog) -> list[dict]:
     """Every message in the chat logs that can stand for the server's voice (meld.voice_examples)."""
     return [example for channel_id in sorted(chat_log.channels())
-            for example in voice_examples(chat_log.read(channel_id))]
+            for example in voice_examples(chat_log.read(channel_id)) if render(example) is not None]
 
 
 def meld_examples(seed: list[dict], run: int, share: float | None, seed_repeat: int, chat_log: ChatLog,
@@ -79,7 +109,8 @@ def meld_examples(seed: list[dict], run: int, share: float | None, seed_repeat: 
     persona = seed * seed_repeat
     server_n = round(len(persona) * (1 - share) / share)
     rng = random.Random(run)
-    landed = earned if len(earned) <= server_n else rng.sample(earned, server_n)
+    eligible = [example for example in earned if render(example) is not None]
+    landed = eligible if len(eligible) <= server_n else rng.sample(eligible, server_n)
     landed = [example | {"reply": tidy(example["reply"])} for example in landed]  # today's limits (shape.py)
     pool = voice_pool(chat_log)
     voice = rng.sample(pool, min(len(pool), server_n - len(landed)))
@@ -106,13 +137,14 @@ def main():
     else:
         load_dotenv(ROOT / ".env")
         chat_log = ChatLog(ROOT / os.environ.get("CHAT_LOG_DIR", "chatlogs"))
-        earned = read_jsonl(ROOT / os.environ.get("EARNED_FILE", "earned_examples.jsonl"))
+        earned = read_jsonl(ROOT / os.environ.get("EARNED_FILE", "earned_examples.jsonl"), real=True)
         anchor = float(os.environ.get("MELD_ANCHOR", "0.3"))
         runs = int(os.environ.get("MELD_RUNS", str(MELD_RUNS)))
         rows, summary = meld_examples(seed, args.run, args.persona_share, args.seed_repeat, chat_log, earned, anchor,
                                       runs)
-    OUT.write_text("".join(json.dumps(render(row), ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
-    print(f"Wrote {len(rows)} examples to {OUT} ({summary})")
+    rendered = [turn for row in rows if (turn := render(row)) is not None]
+    OUT.write_text("".join(json.dumps(turn, ensure_ascii=False) + "\n" for turn in rendered), encoding="utf-8")
+    print(f"Wrote {len(rendered)} examples to {OUT} ({summary})")
 
 
 if __name__ == "__main__":

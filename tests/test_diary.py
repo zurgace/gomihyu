@@ -11,7 +11,7 @@ sys.path.insert(0, REPO)
 import discord
 import bot, persona
 from chatlog import ChatLog, local_day
-from diary import Diary, chunks, day_label, diary_posts, parse_digest, digest_format
+from diary import Diary, chunks, day_label, diary_posts, parse_digest, digest_format, render_line
 from memory import PeopleMemory
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 0; bot.REACT_ONLY_MAX_WORDS = 0
@@ -30,7 +30,10 @@ assert [e["text"] for e in log.read(1, after=now - 200, before=now - 60)] == ["h
 log.forget(1, {12, 14}); assert [e["text"] for e in log.read(1)] == ["hi"]
 
 # --- diary.py: checks
-people, said = ["kaz0", "norimaki"], ["I started guitar lessons last week!!", "pineapple on pizza is a crime", "lol"]
+people = ["kaz0", "norimaki"]
+said = [{"author": who, "text": text, "text_provenance": "author"} for who, text in [
+    ("kaz0", "I started guitar lessons last week!!"), ("norimaki", "pineapple on pizza is a crime"),
+    ("kaz0", "lol")]]
 answer = json.dumps({"recap": "Kaz talked about guitar; Nori hated on pineapple pizza.", "notes": [
     {"who": "kaz0", "note": "kaz0 is taking guitar lessons.", "quote": "i started guitar lessons"},     # case/punct ok
     {"who": "norimaki", "note": "norimaki thinks pineapple pizza is a crime.", "quote": "pineapple on pizza is a crime"},
@@ -49,6 +52,41 @@ assert parse_digest('{"recap": "you faggot", "notes": []}', people, said) == (No
 assert digest_format(people)["properties"]["notes"]["items"]["properties"]["who"]["enum"] == people
 parts = chunks([{"author": "a", "text": "x" * 96}] * 10, 250)      # 100 chars a line
 assert [len(p) for p in parts] == [2, 2, 2, 2, 2]
+
+# Notes need their subject's own words. Other speakers, quotes, generated media and pooled legacy
+# strings cannot validate them, even if those words are visible somewhere in the prompt.
+note = lambda who, quote: json.dumps({"recap": "Friends talked.", "notes": [
+    {"who": who, "note": f"{who} takes guitar lessons.", "quote": quote}]})
+evidence = [{"author": "Mira", "text": "I take guitar lessons", "text_provenance": "author"},
+            {"author": "Sol", "text": "that sounds fun", "text_provenance": "author",
+             "context": '[reply to Mira: "I take guitar lessons"] that sounds fun'}]
+assert parse_digest(note("Sol", "I take guitar lessons"), ["Mira", "Sol"], evidence)[1] == []
+assert parse_digest(note("Mira", "I take guitar lessons"), ["Mira", "Sol"], evidence)[1] == [
+    ("Mira", "Mira takes guitar lessons.")]
+media = {"author": "Sol", "text": "look at this", "text_provenance": "author",
+         "context": "look at this [image: I take guitar lessons]"}
+assert parse_digest(note("Sol", "I take guitar lessons"), ["Sol"], [media])[1] == []
+legacy_media = {"author": "Sol", "text": "[image: I take guitar lessons]"}
+assert parse_digest(note("Sol", "I take guitar lessons"), ["Sol"], [legacy_media])[1] == []
+assert parse_digest(note("Sol", "I take guitar lessons"), ["Sol"], ["I take guitar lessons"])[1] == []
+for source in ("generated", "unknown"):
+    entry = {"author": "Sol", "text": "I take guitar lessons", "text_provenance": source}
+    assert parse_digest(note("Sol", "I take guitar lessons"), ["Sol"], [entry])[1] == []
+assert parse_digest(note("Sol", "I take guitar lessons"), ["Sol"], [
+    {"author": "Sol", "text": "I take guitar lessons", "bot": True}])[1] == []
+
+# The same quote-expanded representation is measured and sent, including exact newline costs.
+expanded = [{"author": "Mira", "text": "a" * 20, "context": "q" * 820, "time": n} for n in range(40)]
+parts = chunks(expanded, 1000)
+assert len(parts) == 40 and all(len("\n".join(map(render_line, part))) <= 1000 for part in parts)
+assert sum(len(render_line(entry)) for part in parts for entry in part) > 32000
+boundary = [{"author": "a", "text": "123"}] * 3
+assert [len(part) for part in chunks(boundary, 13)] == [2, 1]  # 6 + newline + 6 fits exactly
+oversized = evidence[0] | {"time": 123, "context": "q" * 2000}
+capped = chunks([oversized], 100)[0][0]
+assert len(render_line(capped)) == 100 and render_line(capped).endswith(" [truncated]")
+assert capped["time"] == 123 and capped["text"] == oversized["text"] and len(oversized["context"]) == 2000
+assert parse_digest(note("Mira", "I take guitar lessons"), ["Mira"], [capped])[1] == []
 
 # --- diary.json and people.json learned notes
 d = Diary(T / "unit_diary.json"); assert d.read_up_to(1) == 0
@@ -141,7 +179,9 @@ async def main():
         assert body["options"] == {"num_ctx": 8192, "temperature": 0.3, "num_predict": 700}
         return json.dumps({"recap": "Kaz started guitar and Rex asked about songs.", "notes": [
             {"who": "kaz0", "note": "kaz0 is taking guitar lessons.", "quote": "I started guitar lessons last week"},
-            {"who": "rexmode", "note": "rexmode is secretly a spy.", "quote": "i am a spy"}]})
+            {"who": "rexmode", "note": "rexmode is secretly a spy.", "quote": "i am a spy"},
+            {"who": "rexmode", "note": "rexmode is taking guitar lessons.",
+             "quote": "I started guitar lessons last week"}]})
     mode["digest"] = digest; calls.clear()
     await bot.write_diary("test")
     assert len(digests()) == 1                                          # #memes: one human message, no call
@@ -172,6 +212,27 @@ async def main():
         bot.chat_log.add(40, "#spam", 5000 + n, 6 if n % 2 else 5, "kaz0" if n % 2 else "rexmode", f"message {n} " + "x" * 3000)
     mode["digest"] = lambda body: json.dumps({"recap": "Lots of x.", "notes": []}); calls.clear()
     await bot.write_diary("long"); assert len(digests()) == 4 and len(bot.diary.recaps_for(40, 1)) == 4
+
+    # Diary delivery uses exactly the representation chunks budgeted, and generated/quoted context
+    # cannot create a memory for a different speaker even when the model tries to file one.
+    quoted = [{"author": "Mira" if n % 2 == 0 else "Sol", "author_id": 900 + n % 2,
+               "text": "I take guitar lessons" if n % 2 == 0 else "sounds fun",
+               "text_provenance": "author", "time": time.time() + n, "channel": "#evidence",
+               "context": '[reply to Mira: "I take guitar lessons"] [image: I breed rare orchids] ' + "q" * 700}
+              for n in range(4)]
+    quoted_parts = chunks(quoted, 1700)
+    assert [len(part) for part in quoted_parts] == [2, 2]
+    def quoted_digest(body):
+        user = body["messages"][1]["content"]
+        transcript = user.split("per line:\n", 1)[1].split("\n\n1. recap:", 1)[0]
+        assert len(transcript) <= 1700
+        return json.dumps({"recap": "", "notes": [
+            {"who": "Sol", "note": "Sol takes guitar lessons.", "quote": "I take guitar lessons"},
+            {"who": "Sol", "note": "Sol breeds rare orchids.", "quote": "I breed rare orchids"}]})
+    mode["digest"] = quoted_digest; calls.clear()
+    for part in quoted_parts:
+        assert await bot.diary_entry(90, part)
+    assert len(digests()) == 2 and bot.memory.learned_for(901) == []
 
     # after a restart she picks the chat back up from the log (recent only), and knows who's who
     bot.history.clear(); bot.handles.clear()

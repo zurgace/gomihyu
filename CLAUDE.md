@@ -12,7 +12,7 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
 
 ## Environment
 - CachyOS (Arch), fish shell; run things as `venv/bin/python ...`. After any change run `tests/run_all.sh`
-  (29 suites, everything faked, on a temp copy of the repo; `tests/run_all.sh test_x.py` for one).
+  (everything faked, on a temp copy of the repo; `tests/run_all.sh test_x.py` for one).
 - `gemma4:e4b`: 3.2GB, 100% GPU at 8192 context. Every call sends the same `OLLAMA_NUM_CTX`, or Ollama
   reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first); training runs on Kaggle.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
@@ -20,7 +20,7 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   fork, too big), anime-girl-1.5B.
 
 ## Map
-- `bot.py` (1,300 lines: grep it, don't read it whole): Discord client, all runtime flow, every setting.
+- `bot.py` (grep the relevant flow): Discord client, all runtime flow, every setting.
   `persona.py`: the system prompt and every prompt builder; the training data is built with them too,
   so the prompt format changes only there.
 - `chime.py` reads the room · `shape.py` each reply's shape · `reactions.py` + `emojis.py` · `vision.py` ·
@@ -43,6 +43,15 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   most one calm odd line, none for someone sad. Not everything is about her: a chime-in adds to the talk.
 - Small models confabulate: what must be true lives in code (memory, slur filter, emoji picks,
   quote-checked diary notes, no names from the seed's made-up chats).
+- Discord reply quotes and other bots' posts are context. Other bots never trigger replies or become
+  training targets. Raw human words stay in `text`; `context` adds a bounded quote, never feedback or
+  a training target. Required questions keep their actual speakers through bursts; retries freeze the
+  prompt. Necessary clarifications are exempt from the optional follow-up question frequency rule.
+  New records attest `text_provenance=author` and raw `addressed`; successful answers retain
+  `answered_requests`. Missing/ambiguous legacy provenance is skipped when an accurate example cannot
+  be rendered. Shape follows actual requests (batches of three), not unrelated newest chatter.
+  Requests retire only after delivery or an explicit terminal `reply_failure`; never auto-resend an
+  uncertain delivery. Every observation invalidates an unsolicited draft, independent of scheduling.
 - A reply with a `slurs.txt` word (it includes "bitch(es)") becomes `:goonerstare:`. Other swearing stays:
   the server doesn't want her more PG.
 - Inspired by Satania, written fresh: a dozen-ish show quotes as style reference at most, never bulk
@@ -53,9 +62,15 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   user's Discord export (`Messages/`, `*.zip`).
 
 ## Open / to watch
-- The weekly fine-tune has never run for real. Unknowns: Kaggle honoring `NvidiaTeslaT4`,
-  Unsloth/transformers pins, Kaggle disk for the merge, llama.cpp converting Gemma 4, Ollama 0.34.2
-  running that GGUF with the stock template, VRAM with gomi-wN and stock loaded together.
+- The first weekly fine-tune completed locally (461 examples, Gemma 4 E4B); the saved setup uses
+  `gomi-w1`, thinking on, history 30, no few-shot examples. Old harvested examples included complaints
+  because mentions and any reaction counted as approval. New harvesting requires positive feedback;
+  it does not clean existing files or undo learned habits. Review old examples before training again.
+  Old run totals cannot measure new eligible examples after the provenance changes; review the pool
+  before the one-time `weekly.py build --force` rebuild. Filtered required answers never count as landed replies.
+- Compare conversation quality with `tools/chat_check.py` before switching models. Both thinking modes
+  need judging for relevance, uncertainty and latency, not just reply length. Actual resident memory
+  and full GPU fit must be checked with `ollama ps`; artifact size is not the same measurement.
 - Open: whether training also mixes in the parked Discord-export pipeline (the user's lowercase bursts,
   DMs excluded); likely 1–3k examples before a first run, which the user checks first.
 - Live tuning: the `Read ... react n/10` / `Interest n/10` log lines → the thresholds, then `chime.py`'s

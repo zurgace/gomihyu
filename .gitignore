@@ -1,5 +1,6 @@
 # Secrets — holds DISCORD_BOT_TOKEN
 .env
+.githubkey
 
 # Python
 venv/

@@ -50,7 +50,6 @@ sys.path[:0] = [str(ROOT), str(HERE), str(ROOT / "tools")]
 from dotenv import load_dotenv  # noqa: E402
 
 import build_dataset  # noqa: E402  (finetuning/build_dataset.py)
-import vision_check  # noqa: E402  (tools/vision_check.py)
 from chatlog import ChatLog, local_day  # noqa: E402
 from chime import parse_room, room_format, room_messages  # noqa: E402
 from diary import Diary, digest_format, digest_messages, parse_digest  # noqa: E402
@@ -71,6 +70,7 @@ STOCK = "gemma4:e4b"  # the stock model in Ollama; gomi-wN takes its chat templa
 BASE = "unsloth/gemma-4-E4B-it"  # the same model on Hugging Face, which Kaggle trains from
 ACCELERATOR = "NvidiaTeslaT4"  # Unsloth doesn't run on Kaggle's other free GPU, the P100
 STAGES = ["built", "training", "fetched", "installed", "checked"]
+COUNT_POLICY = 1  # Only examples with trustworthy raw-text and answer provenance count.
 SWITCHED_KEYS = ["OLLAMA_MODEL", "FEW_SHOT_EXAMPLES", "VISION_MODEL", "TASK_MODEL"]
 THINK = re.compile(r"<think>.*?(</think>|$)", re.DOTALL)
 
@@ -83,8 +83,8 @@ def setting(key: str, default: str) -> str:
     return os.environ.get(key, "").strip() or default
 
 
-def ollama_url(path: str) -> str:
-    return setting("OLLAMA_URL", "http://localhost:11434/api/chat").rsplit("/api/", 1)[0] + path
+def ollama_url(path: str, url: str | None = None) -> str:
+    return (url if url is not None else setting("OLLAMA_URL", "http://localhost:11434/api/chat")).rsplit("/api/", 1)[0] + path
 
 
 # --- state: finetuning/runs/runs.json
@@ -115,6 +115,13 @@ def pick_run(state: dict, stage: str, number: int | None = None) -> dict:
 
 def folder(run: dict) -> Path:
     return RUNS / f"w{run['run']}"
+
+
+def new_examples(before: dict, landed: int, voice: int) -> int | None:
+    """Old pool totals cannot be compared with today's provenance-filtered counts."""
+    if "run" in before and before.get("count_policy") != COUNT_POLICY:
+        return None
+    return landed - before["landed"] + voice - before["voice"]
 
 
 # --- .env
@@ -168,8 +175,8 @@ def kaggle_user() -> str:
     return user
 
 
-def api(path: str, body: dict | None = None, timeout: float = 300) -> dict:
-    request = urllib.request.Request(ollama_url(path), json.dumps(body).encode() if body is not None else None,
+def api(path: str, body: dict | None = None, timeout: float = 300, *, url: str | None = None) -> dict:
+    request = urllib.request.Request(ollama_url(path, url), json.dumps(body).encode() if body is not None else None,
                                      {"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.load(response)
@@ -213,11 +220,18 @@ def cmd_build(args) -> bool:
     before = next((r for r in reversed(done) if r["run"] < number), {"landed": 0, "voice": 0})
 
     chat_log = ChatLog(ROOT / setting("CHAT_LOG_DIR", "chatlogs"))
-    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"))
+    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
     voice = len(build_dataset.voice_pool(chat_log))
-    new = len(earned) - before["landed"] + voice - before["voice"]
+    new = new_examples(before, len(earned), voice)
     since = f"run {before['run']}" if "run" in before else "the start"
-    if new < args.min_new and not args.force:
+    if new is None:
+        print(f"Since {since}: new example count unknown; earlier totals use different provenance rules. "
+              f"Currently eligible: {len(earned)} landed replies, {voice} messages.")
+        if not args.force:
+            print("Review the eligible examples, then use build --force once to establish a comparable baseline. "
+                  "Skipping this week.")
+            return False
+    elif new < args.min_new and not args.force:
         print(f"Only {new} new examples from the server since {since} ({len(earned) - before['landed']} landed "
               f"replies, {voice - before['voice']} messages); a run wants {args.min_new} (--min-new). Skipping this "
               "week: the meld just pauses. --force builds anyway.")
@@ -235,11 +249,13 @@ def cmd_build(args) -> bool:
               "max_len": args.max_len, "quant": args.quant}
     (upload / "run.json").write_text(json.dumps(config, indent=2) + "\n")
     record = {"run": number, "built": local_day(time.time()), "stage": "built", "examples": len(rows),
-              "landed": len(earned), "voice": voice, "share": persona_share(number, anchor, runs),
+              "landed": len(earned), "voice": voice, "count_policy": COUNT_POLICY,
+              "share": persona_share(number, anchor, runs),
               "summary": summary, "config": config}
     state["runs"] = [r for r in state["runs"] if r["run"] != number] + [record]
     save_state(state)
-    print(f"Built run {number} ({new} new from the server since {since}): {summary}")
+    growth = f"{new} new from the server" if new is not None else "new example count unknown"
+    print(f"Built run {number} ({growth} since {since}): {summary}")
     return True
 
 
@@ -420,13 +436,17 @@ def diary_read(model: str, history: list[list[str]]) -> tuple[bool, str]:
     people = sorted({h for h, _ in history})
     content = chat(model, digest_messages("#general", local_day(time.time()), [format_line(h, t) for h, t in history]),
                    digest_format(people), {"temperature": 0.3, "num_predict": 700})
-    digest = parse_digest(content, people, [t for _, t in history]) if content else None
+    digest = parse_digest(content, people, [{"author": h, "text": t, "text_provenance": "author"}
+                                            for h, t in history]) if content else None
     if not digest or not digest[0]:
         return False, f"unusable: {(content or '')[:80]!r}"
     return True, f"{digest[0][:90]!r}, {len(digest[1])} note(s) that check out"
 
 
 def sees(model: str) -> bool:
+    # The CLI loads .env; importing its colour helpers must not configure text-only callers.
+    import vision_check
+
     for name, rgb in (("red", (230, 20, 20)), ("blue", (20, 40, 230))):
         try:
             if name not in vision_check.ask(vision_check.png(rgb), model).lower():
@@ -469,7 +489,7 @@ def cmd_check(args) -> bool:
     # her prompt's seed chats, if the bot shows them (SEED_EXAMPLES): it only trains her by default
     shows_seed = setting("SEED_EXAMPLES", "false").lower() in ("1", "true", "yes", "on")
     seed = build_dataset.read_jsonl(build_dataset.SEED) if shows_seed else []
-    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"))
+    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
     anchor, full_at = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_FULL_AT", "200"))
     think = thinks()
     cap = {} if think else {"num_predict": int(setting("MAX_REPLY_TOKENS", "200"))}  # thinking counts against it
@@ -577,11 +597,14 @@ def cmd_status(args) -> bool:
     number = done[-1]["run"] + 1 if done else 1
     anchor, runs = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_RUNS", str(MELD_RUNS)))
     before = done[-1] if done else {"landed": 0, "voice": 0}
-    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"))
+    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
     voice = len(build_dataset.voice_pool(ChatLog(ROOT / setting("CHAT_LOG_DIR", "chatlogs"))))
-    new = len(earned) - before["landed"] + voice - before["voice"]
-    print(f"Next: run {number}, {persona_share(number, anchor, runs):.0%} Satania; {new} new examples from the "
-          f"server so far, a run wants {args.min_new}.")
+    new = new_examples(before, len(earned), voice)
+    growth = (f"{new} new examples from the server so far, a run wants {args.min_new}." if new is not None else
+              f"new example count unknown: run {before['run']} used different provenance rules. "
+              f"Currently eligible: {len(earned)} landed replies, {voice} messages. "
+              "Review the eligible examples, then use build --force once.")
+    print(f"Next: run {number}, {persona_share(number, anchor, runs):.0%} Satania; {growth}")
     return True
 
 

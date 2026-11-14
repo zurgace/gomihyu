@@ -21,8 +21,8 @@ import time
 from pathlib import Path
 
 from censor import has_slur
-from chatlog import local_day
-from persona import BOT_NAME, BOT_NICKNAME
+from chatlog import local_day, raw_author_text
+from persona import BOT_NAME, BOT_NICKNAME, format_line
 
 MAX_NOTE_LENGTH = 200
 MAX_RECAP_LENGTH = 500
@@ -47,14 +47,30 @@ def diary_posts(recaps: list[dict]) -> list[str]:
     return posts + [post]
 
 
+def render_line(entry: dict) -> str:
+    """The displayed diary line, including quoted and generated context."""
+    return format_line(entry["author"], entry.get("context", entry["text"]))
+
+
 def chunks(entries: list[dict], max_chars: int) -> list[list[dict]]:
-    """The log in parts that fit one prompt, each at most max_chars of 'handle: message' lines."""
+    """Budget the rendered transcript, including newlines. Cap an oversized display line without
+    changing the saved log; a truncated line cannot supply evidence for a learned note."""
     parts, part, size = [], [], 0
     for entry in entries:
-        length = len(entry["author"]) + len(entry["text"]) + 3
+        line = render_line(entry)
+        if len(line) > max_chars:
+            prefix = len(format_line(entry["author"], ""))
+            marker = " [truncated]"
+            if max_chars < prefix + len(marker):
+                raise ValueError("Diary budget is too small for a speaker and truncation marker")
+            entry = entry | {"context": line[prefix:max_chars - len(marker)] + marker,
+                             "diary_truncated": True}
+            line = render_line(entry)
+        length = len(line) + bool(part)
         if part and size + length > max_chars:
             parts.append(part)
             part, size = [], 0
+            length = len(line)
         part.append(entry)
         size += length
     return parts + [part] if part else parts
@@ -76,6 +92,8 @@ def digest_messages(channel: str, day: str, lines: list[str]) -> list[dict]:
                                     "trip, a game they're into), plans, running jokes about them. Not one-off chatter "
                                     "or passing moods. Each note is one short sentence about one person, with "
                                     "\"quote\": the exact words from the message it comes from, copied as written. "
+                                    "Evidence must be that person's own words, not someone else's message, a "
+                                    "reply quote, or a generated media description. "
                                     "No notes is fine.\n\n"
                                     'Answer as JSON: {"recap": "...", "notes": [{"who": "<handle>", "note": "...", '
                                     '"quote": "..."}]}'},
@@ -95,9 +113,10 @@ def _plain(text: str) -> str:
     return " ".join(re.findall(r"[\w']+", text.casefold()))
 
 
-def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str | None, list[tuple[str, str]]] | None:
+def parse_digest(content: str, people: list[str], said: list[dict]) -> tuple[str | None, list[tuple[str, str]]] | None:
     """(recap, [(who, note)]) from the model's answer, keeping only what checks out against the
-    log (said: the messages' texts). None if the answer isn't the JSON asked for."""
+    named person's own words. said retains author and text provenance; legacy pooled text cannot
+    validate a personal note. None if the answer isn't the JSON asked for."""
     try:
         data = json.loads(content)
         recap, notes = data["recap"], data["notes"]
@@ -107,7 +126,14 @@ def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str 
     if not recap or has_slur(recap):
         recap = None
     handles = {person.casefold(): person for person in people}
-    log_words = [f" {_plain(text)} " for text in said]
+    log_words = {}
+    for entry in said:
+        if (not isinstance(entry, dict) or entry.get("author") == BOT_NAME or entry.get("bot")
+                or entry.get("diary_truncated")):
+            continue
+        text = raw_author_text(entry)
+        if text is not None:
+            log_words.setdefault(str(entry.get("author", "")).casefold(), []).append(f" {_plain(text)} ")
     kept, seen = [], set()
     for item in notes if isinstance(notes, list) else []:
         if not isinstance(item, dict):
@@ -116,7 +142,8 @@ def parse_digest(content: str, people: list[str], said: list[str]) -> tuple[str 
         note = " ".join(str(item.get("note", "")).split())
         quote = _plain(str(item.get("quote", "")))
         if (not who or not note or len(note) > MAX_NOTE_LENGTH or has_slur(note) or note.casefold() in seen
-                or len(quote.split()) < 2 or not any(f" {quote} " in words for words in log_words)):
+                or len(quote.split()) < 2
+                or not any(f" {quote} " in words for words in log_words.get(who.casefold(), []))):
             continue
         seen.add(note.casefold())
         kept.append((who, note))
