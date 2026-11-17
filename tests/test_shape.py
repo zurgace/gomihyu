@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from aiohttp import web
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8776/api/chat", PEOPLE_FILE=f"{TMP}/people_shape.json")
 sys.path.insert(0, REPO)
-from shape import asked, at_most, emojis_in, one_emoji, quick, this_time
+from shape import asked, at_most, emojis_in, needs_room, one_emoji, quick, sentences_for, this_time, tidy, whole
 import persona
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
@@ -48,10 +48,40 @@ for text, n, want in [
     assert at_most(text, n) == want, (text, at_most(text, n))
 
 # --- this reply's shape, from her own latest messages
-assert this_time("why do old people fall for every ai video", [], 6) == {"one_line": False, "ask_back": True, "emoji": True}
-assert this_time("slopot", ["what? :kekpoint:", "fine."], 6) == {"one_line": True, "ask_back": False, "emoji": False}
-assert this_time("slopot", ["what? :kekpoint:", "fine.", "ok then."], 6) == {"one_line": True, "ask_back": True, "emoji": True}
+assert this_time("why do old people fall for every ai video", [], 6) == {"one_line": False, "room": False, "ask_back": True, "emoji": True}
+assert this_time("slopot", ["what? :kekpoint:", "fine."], 6) == {"one_line": True, "room": False, "ask_back": False, "emoji": False}
+assert this_time("slopot", ["what? :kekpoint:", "fine.", "ok then."], 6) == {"one_line": True, "room": False, "ask_back": True, "emoji": True}
 assert not asked("look [link: \"What? A cat?\"]") and asked("wait what?")
+
+# --- room: asked for a build, a list, steps, an explanation (user, 2026-11-15: "ok gomi make me a build" went quiet)
+for text in ["ok gomi make me a build", "gomi explain wavedashing", "how do I beat fox gomi", "gomi any tips?",
+             "walk me through it gomi", "@Gomihyu list the best tops", "step by step pls gomi", "build us a team gomi"]:
+    assert needs_room(text), text
+for text in ["your build is trash", "what build should I run", "gomi how do you feel", "listen gomi", "gomi hi",
+             "look [link: \"A guide to wavedashing\"]", "@Gomihyu respond", "wtf gomi stopped typing"]:
+    assert not needs_room(text), text
+build = this_time("ok gomi make me a build", [], 6, ["ok gomi make me a build"])
+assert build["room"] and not build["one_line"] and sentences_for(build) == 6   # short to type, but not a jab
+assert not this_time("ok gomi make me a build", [], 6)["room"]                 # a chime-in never takes room
+assert this_time("x", [], 6, ["gomi what's 2+2?", "gomi explain combos"])["room"]   # one in the batch is enough
+assert sentences_for(this_time("slopot", [], 6)) == 2 and sentences_for(this_time("why tho", [], 6)) == 3
+
+# --- cut back to whole sentences or list lines: the token cap, Discord's 2000 characters
+for text, chars, want in [
+    ("Smash, obviously. I have a rematch to win! Also Overcooked is fun because you all pani", None,
+     "Smash, obviously. I have a rematch to win!"),
+    ("Here's the build:\n- RF Juggernaut\n- Purity of Fi", None, "Here's the build:\n- RF Juggernaut"),
+    ("v1.2 is out... ok that's", None, "v1.2 is out..."),
+    ("no sentence end at all", None, "no sentence end at all"),          # nothing whole: as it is
+    ("One two three. Four five six.", 20, "One two three."),
+    ("abcdefghij", 4, "abcd"),
+]:
+    assert whole(text, chars) == want, (text, whole(text, chars))
+
+# --- old replies held to today's limits: 3 sentences, or 6 for what asked for room
+seven = " ".join(f"This is sentence {n}." for n in "one two three four five six seven".split())
+assert tidy(seven) == at_most(seven, 3) and tidy(seven, room=True) == at_most(seven, 6) != seven
+assert tidy("Fine :kekpoint: :catlet:") == "Fine :catlet:"
 
 # --- the prompt says it; the defaults (and so the training data) don't
 plain = persona.build_messages(["kaz0: hi"], False)[1]["content"]
@@ -60,7 +90,11 @@ assert "Now and then, not every time, ask something back" in plain and "1 to 3 s
 assert "Don't tack on a question" not in plain and "No emojis" not in plain and "comeback moment" not in plain
 assert "Don't tack on a question" in told and "so one short line" in told and "No emojis in this one." in told
 assert "Now and then, not every time, ask something back" not in told and "1 to 3 sentences" not in told
-for prompt in (plain, told):
+roomy = persona.build_messages(["kaz0: gomi make me a build"], True, room=True)[1]["content"]
+assert "they asked for something that takes room, so give the whole answer, as tight as you can: " \
+       "up to 6 sentences or a short list." in roomy
+assert "1 to 3 sentences" not in roomy and "so one short line" not in roomy and "takes room" not in plain + told
+for prompt in (plain, told, roomy):
     assert "ask one short clarification" in prompt and "even if you asked a question recently" in prompt
     assert "When the topic changes, follow the new topic" in prompt
     assert "then add your take" not in prompt
@@ -107,9 +141,9 @@ rows, _ = build_dataset.meld_examples([{"history": [["kaz0", "hi"]], "reply": "h
                                       ChatLog(Path(TMP) / "no_chat"), [old], 0.3)
 assert sorted(row["reply"] for row in rows) == sorted(["hmph", R1_POSTED]) and old["reply"] == R1
 
-outputs, prompts = [], []
+outputs, prompts, options = [], [], []
 async def fake(request):
-    body = await request.json(); prompts.append(body["messages"][1]["content"])
+    body = await request.json(); prompts.append(body["messages"][1]["content"]); options.append(body["options"])
     return web.json_response({"message": {"content": outputs.pop(0)}, "done_reason": "stop"})
 ME = types.SimpleNamespace(id=1, name="Gomihyu", display_name="Gomihyu", bot=True); bot.client._connection.user = ME
 YUZU = types.SimpleNamespace(id=8, name="yuzuki", display_name="Yuzuki", bot=False)
@@ -150,6 +184,17 @@ async def main():
     assert "Don't tack on a question" in prompts[-1] and "No emojis" not in prompts[-1]
     outputs[:] = ["Eight. I counted."]; await bot.on_message(msg(REX, "how many stocks are we running for this one"))
     assert "Don't tack on a question" not in prompts[-1] and "No emojis" not in prompts[-1]
+
+    # asked for a build: told it has room, a bigger token cap, cut after the 6th sentence and posted
+    build_answer = " ".join(f"Step {n} of the build here." for n in "one two three four five six seven".split())
+    outputs[:] = [build_answer]; await bot.on_message(msg(REX, "ok gomi make me a build"))
+    assert "up to 6 sentences or a short list" in prompts[-1] and options[-1]["num_predict"] == 400
+    assert ch.sent[-1] == at_most(build_answer, 6) and ch.sent[-1].endswith("Step six of the build here."), ch.sent[-1]
+    # and a jab right after still gets one short line, cut and posted, with the usual cap
+    outputs[:] = ["As if. I was never gone. You simply failed to notice me. Typical mortal behavior, honestly."]
+    await bot.on_message(msg(REX, "@Gomihyu you're back"))
+    assert "so one short line" in prompts[-1] and options[-1]["num_predict"] == 200
+    assert ch.sent[-1] == "As if. I was never gone. You simply failed to notice me.", ch.sent[-1]
 
     # Melee posts: 3 to 5 sentences asked, 5 at most; one emoji; goodnight is one line
     long = "One two three. Four five six. Seven eight nine. Ten eleven twelve. A b c. D e f. :DoWar: G h i 😂"

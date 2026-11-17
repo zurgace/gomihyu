@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 from finetuning.weekly import THINK, api  # noqa: E402
 from persona import BOT_NAME, build_messages, format_line  # noqa: E402
-from shape import LINE_SENTENCES, MAX_SENTENCES, at_most, one_emoji, this_time  # noqa: E402
+from shape import at_most, one_emoji, sentences_for, this_time  # noqa: E402
 
 MODELS = ["gomi-w1", "gemma4:e4b", "gomi-bolt"]
 SEEDS = [17, 29, 43]
@@ -214,8 +214,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "elapsed_seconds": time.monotonic() - start})
                         output.flush()
                         continue
-                    preview = at_most(one_emoji(details["reply"], shape["emoji"]),
-                                      LINE_SENTENCES if shape["one_line"] else MAX_SENTENCES)
+                    preview = at_most(one_emoji(details["reply"], shape["emoji"]), sentences_for(shape))
                     record = {"requested_model": model, "returned_model": data.get("model"),
                               "installed_digest": (identities[model] or {}).get("digest"), "seed": seed,
                               "think_requested": args.think, **details, "shaped_preview": preview,

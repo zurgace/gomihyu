@@ -8,7 +8,7 @@ fine-tuning data matches what the bot sends at runtime.
 from datetime import datetime
 
 from emojis import CUSTOM
-from shape import tidy
+from shape import ROOM_SENTENCES, needs_room, tidy
 
 BOT_NAME = "Gomihyu"  # her Discord username, and her label in the chat log
 BOT_NICKNAME = "Gomi"  # what she goes by
@@ -94,8 +94,7 @@ def example_targets(example: dict) -> list[int] | None:
             or any(not isinstance(entry, dict) or not isinstance(entry.get("addressed"), bool)
                    or not isinstance(entry.get("bot"), bool)
                    or entry.get("id") is not None and not isinstance(entry["id"], int)
-                   or entry.get("text") is not None and not isinstance(entry["text"], str) for entry in meta)
-            or tidy(reply) != reply):
+                   or entry.get("text") is not None and not isinstance(entry["text"], str) for entry in meta)):
         return None
     targets = example.get("answered_requests")
     if not isinstance(targets, list) or any(not isinstance(target, int) for target in targets):
@@ -109,7 +108,14 @@ def example_targets(example: dict) -> list[int] | None:
     if (any(target not in by_id or not isinstance(meta[by_id[target]].get("text"), str) for target in targets)
             or not targets and not isinstance(meta[-1].get("text"), str)):
         return None
-    return [by_id[target] for target in targets]
+    indexes = [by_id[target] for target in targets]
+    return indexes if tidy(reply, asked_room(example, indexes)) == reply else None
+
+
+def asked_room(example: dict, targets: list[int]) -> bool:
+    """Whether the requests a saved reply answered (example_targets' indexes) asked for room (shape.py): the
+    size she was given for it, which tidy holds it to and its training prompt says."""
+    return any(needs_room(example["history_meta"][i]["text"]) for i in targets)
 
 
 def fewshot_eligible(example: dict) -> bool:
@@ -171,7 +177,7 @@ def clock(now: datetime) -> str:
 def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", facts: list[str] = (),
                    nicknames: dict[str, str] | None = None, examples: list[dict] = (), learned: list[str] = (),
                    recaps: list[str] = (), vibe: list[str] = (), avatar: str = "", one_line: bool = False,
-                   ask_back: bool = True, emoji: bool = True, now: datetime | None = None,
+                   room: bool = False, ask_back: bool = True, emoji: bool = True, now: datetime | None = None,
                    addressed: list[str] = (), addressed_notes: dict[str, list[str]] | None = None,
                    newest: str | None = None) -> list[dict]:
     """Chat messages for the model: the persona, then the recent log plus what to do with it.
@@ -180,12 +186,14 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
     chiming in. facts are what speaker (the author of the latest line) has asked Gomihyu to remember, learned
     what she noted about them in her diary (diary.py), recaps her diary's recent days in this
     channel; nicknames maps handles in the log to what she should call those people. examples (see
-    format_examples), vibe and avatar (see system_content) are for the system prompt. one_line,
+    format_examples), vibe and avatar (see system_content) are for the system prompt. one_line, room,
     ask_back and emoji are this reply's shape, decided in code (shape.py); now is the local date and
     time, so "what's today's date?" gets an answer. Training data leaves all of these out, like the
-    diary's notes and recaps. addressed contains the selected messages that still need an answer;
-    their speakers stay distinct from whoever posted the newest line while she was busy. addressed_notes
-    supplies their memory by speaker, with explicit facts and past observations labeled by the caller.
+    diary's notes and recaps, except room: a build's answer is trained under the prompt that asked for one
+    (finetuning/build_dataset.py), not under "never more". addressed contains the selected messages that
+    still need an answer; their speakers stay distinct from whoever posted the newest line while she was
+    busy. addressed_notes supplies their memory by speaker, with explicit facts and past observations
+    labeled by the caller.
     newest is the latest observed source line; runtime may have inserted one of her own answers after it
     in the transcript. It stays distinct from the selected answer sources in addressed.
     """
@@ -223,8 +231,12 @@ def build_messages(transcript: list[str], mentioned: bool, speaker: str = "", fa
         + "Don't open by repeating their message back to them, don't repeat your own earlier lines, and "
         "don't keep coming back to the same pet topics. "
         # Said outright, not left to her (user, 2026-10-26: Nemotron Bolt, left to choose, wrote 3 words every time).
+        # A request for a build, a list or steps gets room to finish (user, 2026-11-15: held to 3 sentences, her
+        # build ran long and was thrown away, so she went quiet); code picks it and cuts what runs over (shape.py).
         + ("Match the moment, like a real Discord message: this one's a quick jab or comeback moment, so one "
            "short line. " if one_line else
+           "Match the moment, like a real Discord message: they asked for something that takes room, so give "
+           f"the whole answer, as tight as you can: up to {ROOM_SENTENCES} sentences or a short list. " if room else
            "Match the moment, like a real Discord message: 1 to 3 sentences, never more. ")
         + ("" if emoji else "No emojis in this one. ")
         + "Do not prefix your reply with your own name."
