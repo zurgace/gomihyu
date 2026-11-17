@@ -12,9 +12,11 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
 
 ## Environment
 - CachyOS (Arch), fish shell; run things as `venv/bin/python ...`. After any change run `tests/run_all.sh`
-  (everything faked, on a temp copy of the repo; `tests/run_all.sh test_x.py` for one).
+  (all faked, on a temp copy of the repo, fixed ports: one run at a time; `tests/run_all.sh test_x.py` for one).
 - `gemma4:e4b`: 3.2GB, 100% GPU at 8192 context. Every call sends the same `OLLAMA_NUM_CTX`, or Ollama
-  reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first); training runs on Kaggle.
+  reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first, then check `ollama ps`:
+  file size isn't memory); training runs on Kaggle.
+- Her saved setup (Nov 14): `gomi-w1` (first fine-tune, 461 examples), thinking on, history 30, no few-shot.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
 - Rejected: LFM2.5-2.6B (felt like "a response bot"; `archive/lfm2.5/`), Ternary Bonsai 2 27B (llama.cpp
   fork, too big), anime-girl-1.5B.
@@ -43,15 +45,13 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   most one calm odd line, none for someone sad. Not everything is about her: a chime-in adds to the talk.
 - Small models confabulate: what must be true lives in code (memory, slur filter, emoji picks,
   quote-checked diary notes, no names from the seed's made-up chats).
-- Discord reply quotes and other bots' posts are context. Other bots never trigger replies or become
-  training targets. Raw human words stay in `text`; `context` adds a bounded quote, never feedback or
-  a training target. Required questions keep their actual speakers through bursts; retries freeze the
-  prompt. Necessary clarifications are exempt from the optional follow-up question frequency rule.
-  New records attest `text_provenance=author` and raw `addressed`; successful answers retain
-  `answered_requests`. Missing/ambiguous legacy provenance is skipped when an accurate example cannot
-  be rendered. Shape follows actual requests (batches of three), not unrelated newest chatter.
-  Requests retire only after delivery or an explicit terminal `reply_failure`; never auto-resend an
-  uncertain delivery. Every observation invalidates an unsolicited draft, independent of scheduling.
+- Discord reply quotes, other bots' posts and picture descriptions are context: never a trigger, praise or
+  training target. People's own words stay apart in `text` (`chatlog.py`); old lines that mix them in are
+  skipped, not guessed apart.
+- In a burst each question is answered, to its asker (three per reply at most, shaped by them, not newer
+  chatter); a retry reuses its prompt. A question is done only once the reply is sent or logged as failed:
+  never resend an uncertain send. Any new message drops an unposted chime-in. A needed clarifying question
+  is exempt from the ask-back limit.
 - A reply with a `slurs.txt` word (it includes "bitch(es)") becomes `:goonerstare:`. Other swearing stays:
   the server doesn't want her more PG.
 - Inspired by Satania, written fresh: a dozen-ish show quotes as style reference at most, never bulk
@@ -62,20 +62,19 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   user's Discord export (`Messages/`, `*.zip`).
 
 ## Open / to watch
-- The first weekly fine-tune completed locally (461 examples, Gemma 4 E4B); the saved setup uses
-  `gomi-w1`, thinking on, history 30, no few-shot examples. Old harvested examples included complaints
-  because mentions and any reaction counted as approval. New harvesting requires positive feedback;
-  it does not clean existing files or undo learned habits. Review old examples before training again.
-  Old run totals cannot measure new eligible examples after the provenance changes; review the pool
-  before the one-time `weekly.py build --force` rebuild. Filtered required answers never count as landed replies.
-- Compare conversation quality with `tools/chat_check.py` before switching models. Both thinking modes
-  need judging for relevance, uncertainty and latency, not just reply length. Actual resident memory
-  and full GPU fit must be checked with `ollama ps`; artifact size is not the same measurement.
+- Before training again or switching, compare stock `gemma4:e4b` and `gomi-bolt` (`Modelfile.bolt`) with
+  `gomi-w1` in `tools/chat_check.py`, thinking on and off: relevance, clarifying, uncertainty, latency, not
+  length. Earlier, W1 invented facts and returned no thinking text (`git show cf3d154:CONVERSATION_REVIEW.md`).
+- Earned examples saved before Nov 14 counted any mention or reaction as approval (of 80, 62 only because
+  someone named her after, 11 for an angry reaction; 60 trained W1). Review them before the next build
+  (`weekly.py build --force`), and add good examples of topic changes, not knowing, follow-ups, plain answers.
+- Not fixed: pre-Nov 14 logs can hold a picture post saved after later ones, and the diary resumes after a
+  timestamp, so posts sharing one across a part break, or after the clock goes back, can be skipped.
 - Open: whether training also mixes in the parked Discord-export pipeline (the user's lowercase bursts,
-  DMs excluded); likely 1–3k examples before a first run, which the user checks first.
+  DMs excluded); likely 1–3k examples, which the user checks first.
 - Live tuning: the `Read ... react n/10` / `Interest n/10` log lines → the thresholds, then `chime.py`'s
   anchors.
 - Not judged live yet: reply shapes (jabs one line? emoji / asking back at most 1 in 3?), then
   `OLLAMA_THINK=true` on stock gemma4:e4b (a fine-tune trained without it may not think well), the
   friend-first persona, the date, melon-bread frequency, nicknames and "who am I?", vision, the slur
-  filter, and (once a fine-tune serves her) the shouted corrections staying rare.
+  filter, and the shouted corrections staying rare.
