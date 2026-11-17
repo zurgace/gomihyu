@@ -16,7 +16,7 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
 - `gemma4:e4b`: 3.2GB, 100% GPU at 8192 context. Every call sends the same `OLLAMA_NUM_CTX`, or Ollama
   reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first, then check `ollama ps`:
   file size isn't memory); training runs on Kaggle.
-- Her saved setup (Nov 14): `gomi-w1` (first fine-tune, 461 examples), thinking on, history 30, no few-shot.
+- Her saved setup (Nov 17): `gomi-w1` (first fine-tune, 461 examples), thinking off, history 30, no few-shot.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
 - Rejected: LFM2.5-2.6B (felt like "a response bot"; `archive/lfm2.5/`), Ternary Bonsai 2 27B (llama.cpp
   fork, too big), anime-girl-1.5B.
