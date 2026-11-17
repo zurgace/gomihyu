@@ -49,7 +49,8 @@ from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
 from persona import (BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line,
                      made_up_names, example_targets)
 from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
-from shape import LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, at_most, one_emoji, this_time
+from shape import (LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, WHOLE, at_most, one_emoji, sentences_for, this_time,
+                   whole)
 import vision
 from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
 
@@ -78,15 +79,17 @@ HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages 
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
 REPEAT_WORDS = int(os.environ.get("REPEAT_WORDS", "5"))
 RETRY_TEMPERATURE = float(os.environ.get("RETRY_TEMPERATURE", "1.0"))
-# Ceiling on a reply's length; one that hits it is cut back to its last full sentence.
+# Ceiling on a reply's length; one that hits it is cut back to its last full sentence and posted. One that
+# asks for room (a build, a list, steps: shape.py) gets at least ROOM_REPLY_TOKENS.
 MAX_REPLY_TOKENS = int(os.environ.get("MAX_REPLY_TOKENS", "200"))
+ROOM_REPLY_TOKENS = 400  # 6 sentences or a short list: ~1,600 characters, under Discord's 2000
 # Context window, in tokens, for every call. Ollama's default of 4096 can be outgrown by the prompt
 # (system prompt, example chats, 12 messages of chat) when people post long messages, and Ollama then
 # silently cuts the prompt. Every call sends the same value, or Ollama reloads the model between them.
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 # Let her think before she writes: her replies, Melee posts and goodnight, never reading the room, her
 # diary or pictures. Off by default: it adds seconds to every reply. On, her replies aren't capped at
-# MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds them to 3 sentences. The
+# MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds them to their size. The
 # console shows the start of each thought.
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 # Whether the model thinks even when told not to (some do), seen in a response. Nothing is capped then.
@@ -509,13 +512,14 @@ def prepare_reply(channel_id: int, for_her: bool, requests: list[tuple] = ()) ->
                               memory.learned_for(author_id), diary.recaps_for(channel_id, RECAP_DAYS),
                               diary.vibe(), avatar_description, **shape, now=local_now(), addressed=addressed,
                               addressed_notes=addressed_notes, newest=str(latest) if latest is not None else None)
-    return messages, requests[-1][2].author.id if requests else author_id, shape | {"required": bool(requests)}
+    return messages, requests[-1][2].author.id if requests else author_id, shape
 
 
 async def generate_reply(channel_id: int, for_her: bool, temperature: float | None = None,
                          prepared: tuple | None = None) -> str | None:
     messages, author_id, shape = prepared if prepared is not None else prepare_reply(channel_id, for_her)
-    options = cap(MAX_REPLY_TOKENS, OLLAMA_THINK)
+    tokens = max(MAX_REPLY_TOKENS, ROOM_REPLY_TOKENS) if shape["room"] else MAX_REPLY_TOKENS
+    options = cap(tokens, OLLAMA_THINK)
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
     payload = {"messages": messages,
@@ -523,16 +527,18 @@ async def generate_reply(channel_id: int, for_her: bool, temperature: float | No
 
     start = time.monotonic()
     data = await ollama_chat(payload)
-    if data and "num_predict" in options and data.get("done_reason") == "length" and data.get("message", {}).get("thinking"):
-        # Thinking used up the cap before the answer was done (the first reply from a model that turns
-        # out to think). Let it finish rather than go quiet or send half a sentence.
-        log.warning(f"Thinking used up the {MAX_REPLY_TOKENS}-token cap before the answer was done; retrying without it")
+    said = data.get("message", {}) if data else {}
+    if (data and "num_predict" in options and data.get("done_reason") == "length"
+            and (said.get("thinking") or not WHOLE.search(said.get("content", "")))):
+        # The cap stopped her before the answer was done: thinking used it up (the first reply from a model
+        # that turns out to think), or not one whole sentence was written ("The answer is forty" of "forty-two").
+        # Let it finish rather than go quiet or send half a sentence.
+        log.warning(f"The {tokens}-token cap stopped the answer before it was done; retrying without it")
         del options["num_predict"]
         data = await ollama_chat(payload)
     if data is None:
         return None
-    return clean_reply(data, author_id, start, LINE_SENTENCES if shape["one_line"] else MAX_SENTENCES,
-                       shape["emoji"], require_complete=shape.get("required", False))
+    return clean_reply(data, author_id, start, sentences_for(shape), shape["emoji"])
 
 
 def own_lines(channel_id: int) -> list[str]:
@@ -542,17 +548,14 @@ def own_lines(channel_id: int) -> list[str]:
 
 
 def clean_reply(data: dict, author_id: int | None, start: float, sentences: int = MAX_SENTENCES,
-                emoji: bool = True, require_complete: bool = False) -> str:
+                emoji: bool = True) -> str:
     """The model's answer as she'll post it; author_id is the person she's answering, if anyone. At most
-    `sentences` sentences and one emoji (none unless emoji), whatever the model wrote (shape.py)."""
+    `sentences` sentences and one emoji (none unless emoji), whatever the model wrote (shape.py): one that
+    ran long is cut, never dropped."""
     # Small models often start with "Gomihyu:" anyway, copying the log format.
     reply = OWN_NAME_PREFIX.sub("", strip_thinking(data.get("message", {}).get("content", "")).strip())
-    if require_complete and (data.get("done_reason") == "length"
-                             or at_most(one_emoji(reply, emoji), sentences) != one_emoji(reply, emoji)):
-        log.warning("Required answer exceeded its length budget; not recording a clipped answer as completed")
-        return ""
-    if data.get("done_reason") == "length" and (ends := list(SENTENCE_END.finditer(reply))):
-        reply = reply[:ends[-1].end()]  # ran into MAX_REPLY_TOKENS: drop the half-finished sentence
+    if data.get("done_reason") == "length":
+        reply = whole(reply)  # ran into the token cap: drop the half-finished sentence or list item
     if author_id is not None:
         reply = without_ping(reply, author_id)
     if (shaped := at_most(one_emoji(reply, emoji), sentences)) != reply:
@@ -577,10 +580,12 @@ async def send_reply(channel: discord.abc.Messageable, channel_id: int, reply: s
     """Post reply and keep it in her chat log. seen: how many messages had been logged when she started
     writing it, so it goes in right after those, ahead of any that arrived meanwhile. about: what kind
     of post (reply, filtered, melee, goodnight); only replies can become examples (meld.py)."""
-    text = to_server_emojis(to_pings(reply), getattr(channel, "guild", None))
-    if answered_requests and len(text) > 2000:
-        log.warning("Required answer exceeds Discord's message limit; not sending a clipped answer")
-        return False
+    guild = getattr(channel, "guild", None)
+    text = to_server_emojis(to_pings(reply), guild)
+    if len(text) > 2000:  # Discord's limit: back to the whole sentences that fit, pings and emojis included
+        log.info(f"Cut to fit Discord's 2000 characters, from {len(text)}")
+        reply = whole(reply, 2000 - (len(text) - len(reply)))
+        text = to_server_emojis(to_pings(reply), guild)
     kwargs = {}
     if replying_to is not None and hasattr(replying_to, "to_reference"):
         kwargs = {"reference": replying_to.to_reference(fail_if_not_exists=False), "mention_author": False}

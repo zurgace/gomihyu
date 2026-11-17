@@ -199,6 +199,43 @@ async def failure(answer, delivery=False):
     assert failures[0]['reason'] == ('delivery' if delivery else 'generation')
 
 
+async def long_answer(answers, want, ask='gomi what is six times seven?'):
+    # A required answer that runs long is cut to whole sentences and posted, never dropped (user, 2026-11-15).
+    ch = Channel()
+    calls, _, release = model(answers); release.set()
+    question = Post(ch, MIRA, ask)
+    await bot.on_message(question)
+    assert ch.sent == [want], ch.sent
+    entries = bot.chat_log.read(ch.id, reactions=True)
+    assert not [e for e in entries if e.get('kind') == 'reply_failure']
+    assert [e['answered_requests'] for e in entries if e['author'] == 'Gomihyu'] == [[question.id]]
+    assert bot.history[ch.id][-1] == f'Gomihyu: {want}' and not bot.unanswered[ch.id]
+    return calls
+
+
+async def token_cap():
+    # Stopped before one whole sentence: "forty" may be half of "forty-two", so it's written again uncapped.
+    calls = await long_answer([{'message': {'content': 'The answer is forty'}, 'done_reason': 'length'},
+                               'The answer is forty-two.'], 'The answer is forty-two.')
+    assert calls[0]['options']['num_predict'] == 200 and 'num_predict' not in calls[1]['options']
+    # Stopped after one: the whole part is posted, nothing generated twice.
+    calls = await long_answer([{'message': {'content': 'Six times seven is 42. Easy one, Mi'}, 'done_reason': 'length'}],
+                              'Six times seven is 42.')
+    assert len(calls) == 1
+
+
+async def room_to_finish():
+    # A build gets room: told so, a bigger cap, cut after its 6th sentence. A list too long for Discord is
+    # cut back to the whole lines that fit in 2000 characters, not refused.
+    steps = ' '.join(f'Step {n} of the build.' for n in 'one two three four five six seven'.split())
+    calls = await long_answer([steps], steps.rsplit(' Step', 1)[0], 'gomi make me a build')
+    assert calls[0]['options']['num_predict'] == 400
+    assert 'up to 6 sentences or a short list' in calls[0]['messages'][1]['content']
+    listing = '\n'.join(f'- character number {n} and a few words about them' for n in range(60))
+    calls = await long_answer([listing], listing[:listing.rindex('\n', 0, 2000)], 'gomi list every character')
+    assert len(listing) > 2000
+
+
 async def bounded_batches():
     ch = Channel()
     answer = 'First result is four. Second result is six. Third result is eight.'
@@ -411,8 +448,10 @@ async def main():
                       ('slow image', slow_image), ('pending shape', pending_shape), ('pending pings', pending_pings),
                       ('failed generation', lambda: failure(None)), ('empty generation', lambda: failure('')),
                       ('failed delivery', lambda: failure('Forty two is the answer.', True)),
-                      ('clipped answer', lambda: failure('First full answer. Second full answer. Third full answer. Fourth full answer.')),
-                      ('token cap', lambda: failure({'message': {'content': 'The answer is forty'}, 'done_reason': 'length'})),
+                      ('long answer', lambda: long_answer(['First full answer. Second full answer. Third full answer. '
+                                                           'Fourth full answer.'],
+                                                          'First full answer. Second full answer. Third full answer.')),
+                      ('token cap', token_cap), ('room to finish', room_to_finish),
                       ('ambiguous delivery', ambiguous_delivery), ('filtered answer', filtered_answer),
                       ('bounded batches', bounded_batches), ('pending speakers after eviction', pending_speakers_after_eviction),
                       ('failure during burst', failure_during_burst),

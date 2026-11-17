@@ -171,9 +171,19 @@ assert rows == [seed] and legacy["reply"] == "An old answer."
 assert "directly mentioned/addressed" in render(seed)["messages"][1]["content"]
 malformed = {**example, "answered_requests": [999]}
 assert render(malformed) is None
-long_answer = {**example, "reply": "The first answer is here. The second answer is here. "
-                                  "The third answer is here. The fourth answer is here."}
+long_answer = {**example, "reply": " ".join(f"The {n} answer is here." for n in
+                                           "first second third fourth fifth sixth seventh".split())}
 assert render(long_answer) is None
+# A build she was asked for keeps its room: held to 6 sentences rather than 3, and trained under the prompt
+# that gave it; the same length for an ordinary question still can't be represented.
+five = " ".join(f"Step {n} of the build." for n in "one two three four five".split())
+built, = landed_replies(approved([post(1, "Mira", "gomi make me a build", addressed=True),
+                                  post(2, "Gomihyu", five, reply_to=1, answered_requests=[1])]))
+assert "up to 6 sentences or a short list" in render(built)["messages"][1]["content"]
+assert render({**example, "reply": five}) is None
+assert "up to 6 sentences" not in render(example)["messages"][1]["content"]
+rows, _ = meld_examples([seed], 1, .5, 1, ChatLog(Path(os.environ["GOMI_TMP"]) / "none"), [built], .3)
+assert five in [row["reply"] for row in rows]  # not cut to 3 on its way into training
 folder = Path(os.environ["GOMI_TMP"]) / "long_voice"
 cl = ChatLog(folder)
 cl.add(1, "#synthetic", 1, 1, "Mira", "What happened?", when=1001, text_provenance="author")
