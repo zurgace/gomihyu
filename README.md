@@ -50,19 +50,20 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   people by nickname, pings someone only to pull them in (never the person she's answering), and never
   brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
 - **Reply shape is decided in code** (`shape.py`), since a small model copies its own last few messages:
-  a post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question gets one short line, anything
-  else 1–3 sentences (cut if longer: `Trimmed to ...` in the console). She asks back, or uses an emoji
-  (one at most), only if her last two messages didn't. A needed clarification is always allowed: she
-  can ask what someone means instead of inventing an answer.
-  Pending requests determine length even when newer short chatter arrives. At most three requests
-  enter one reply; additional requests stay queued. A required answer that exceeds its sentence/token
-  budget is withheld and recorded as failed, so clipped-away answers aren't marked completed.
+  a post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question gets one short line; a post
+  aimed at her that asks for room ("make me a build", "explain ...", "list ...", "how do I ...", "walk me
+  through", tips, a guide, a recipe) gets the whole answer, up to 6 sentences or a short list; anything
+  else gets 1–3 sentences. A reply that runs longer is cut back to whole sentences and still posted
+  (`Trimmed to ...` in the console), and so is one over Discord's 2000 characters. She asks back, or uses
+  an emoji (one at most), only if her last two messages didn't. A needed clarification is always allowed:
+  she can ask what someone means instead of inventing an answer. Pending requests determine length even
+  when newer short chatter arrives. At most three requests enter one reply; additional requests stay queued.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up, and drops a chime-in
   she hasn't posted yet. Questions to her still get answered, each asker their own, as a Discord reply if
   the chat moved on. A reply that fails, or may not have gone through, isn't resent: ask again.
 - **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
-  goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still 3 sentences at most. The
+  goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still held to her reply's size. The
   console shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
 
 ## Memory and diary

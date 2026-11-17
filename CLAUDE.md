@@ -37,9 +37,11 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   reacts at `REACT_THRESHOLD` (8), never at random. Its interest anchors are the user's (6–7 background
   she leaves alone, 8–9 demands a response, 10 a question to the room): chiming in a lot made her
   annoying. No cooldown.
-- Reply length and shape are code's job (`shape.py`). Don't bring back "at most 2 sentences" or "don't
-  reuse topics" (they made her a one-liner machine; "don't repeat your own lines" + the `REPEAT_WORDS`
-  retry handle repetition), or "three max" / "stay quiet" (the read decides).
+- Reply length and shape are code's job (`shape.py`): one short line for a jab, up to 6 sentences or a
+  short list when a post aimed at her asks for room (a build, steps, an explanation), 1–3 sentences
+  otherwise. A reply that runs long is cut to whole sentences and posted, never dropped. Don't bring back
+  "at most 2 sentences" or "don't reuse topics" (they made her a one-liner machine; "don't repeat your own
+  lines" + the `REPEAT_WORDS` retry handle repetition), or "three max" / "stay quiet" (the read decides).
 - Persona: a friend first; the Archdemon act is a quick line, never a speech. She answers plainly first and
   never lectures or talks down; insulted, she fires back rudely in character. A deadpan chaotic streak: at
   most one calm odd line, none for someone sad. Not everything is about her: a chime-in adds to the talk.
@@ -62,9 +64,10 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   user's Discord export (`Messages/`, `*.zip`).
 
 ## Open / to watch
-- Before training again or switching, compare stock `gemma4:e4b` and `gomi-bolt` (`Modelfile.bolt`) with
-  `gomi-w1` in `tools/chat_check.py`, thinking on and off: relevance, clarifying, uncertainty, latency, not
-  length. Earlier, W1 invented facts and returned no thinking text (`git show cf3d154:CONVERSATION_REVIEW.md`).
+- Models compared Nov 17 (`tools/chat_check.py`, made-up chats, one judge): `gomi-bolt` (`Modelfile.bolt`)
+  thinking on did best, stock `gemma4:e4b` thinking on next with the best voice, `gomi-w1` thinking off
+  last (invents opinions, takes others' praise, talks down). Both thinking setups take ~10s a reply; Bolt
+  can't see pictures. Not tried live; the user picks.
 - Earned examples saved before Nov 14 counted any mention or reaction as approval (of 80, 62 only because
   someone named her after, 11 for an angry reaction; 60 trained W1). Review them before the next build
   (`weekly.py build --force`), and add good examples of topic changes, not knowing, follow-ups, plain answers.
@@ -74,7 +77,7 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   DMs excluded); likely 1–3k examples, which the user checks first.
 - Live tuning: the `Read ... react n/10` / `Interest n/10` log lines → the thresholds, then `chime.py`'s
   anchors.
-- Not judged live yet: reply shapes (jabs one line? emoji / asking back at most 1 in 3?), then
-  `OLLAMA_THINK=true` on stock gemma4:e4b (a fine-tune trained without it may not think well), the
-  friend-first persona, the date, melon-bread frequency, nicknames and "who am I?", vision, the slur
-  filter, and the shouted corrections staying rare.
+- Not judged live yet: reply shapes (jabs one line? does the room phrase list catch real requests, and is
+  6 sentences right? emoji / asking back at most 1 in 3?), then `OLLAMA_THINK=true` on stock gemma4:e4b
+  (a fine-tune trained without it may not think well), the friend-first persona, the date, melon-bread
+  frequency, nicknames and "who am I?", vision, the slur filter, and the shouted corrections staying rare.
