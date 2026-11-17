@@ -58,12 +58,9 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   enter one reply; additional requests stay queued. A required answer that exceeds its sentence/token
   budget is withheld and recorded as failed, so clipped-away answers aren't marked completed.
 - **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
-- **One reply at a time per channel**; new conversation replaces an outdated unsolicited draft. Direct
-  questions still get answered, with a Discord reply link if the chat moved on. Messages arriving
-  meanwhile get one follow-up decision, keeping the actual askers and their notes separate.
-  Even reaction-only corrections and posts awaiting vision invalidate unsolicited drafts. Requests
-  stay pending until delivery or an explicit failure record. Failed/empty generation and failed or
-  uncertain delivery have no automatic resend; ask again after a failure.
+- **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up, and drops a chime-in
+  she hasn't posted yet. Questions to her still get answered, each asker their own, as a Discord reply if
+  the chat moved on. A reply that fails, or may not have gone through, isn't resent: ask again.
 - **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
   goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still 3 sentences at most. The
   console shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
@@ -73,27 +70,17 @@ Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design
   "gomi call me Rex" / "gomi Yuzuki's nickname is Yuzu" sets nicknames. Kept in `people.json`.
 - She logs the server's chat (`chatlogs/`, never DMs). At shutdown she writes her **diary**: a recap per
   channel (`diary.json`; her last 3 days go in her prompt) and notes on people (kept only if the words
-  they're based on are in that person's own raw messages). Quoted or generated context cannot validate
-  a personal note. Diary batching measures the rendered transcript, including quotes; an oversized
-  display line is capped for that call and excluded from note evidence. A crash is caught up on restart.
+  they're based on are that person's own, not a quote). A crash is caught up on at the next start.
 - Each new recap is also **posted** in its channel (📔): right away on "gomi goodnight", at the next start
   after a Ctrl+C. Never her notes on people, and she ignores the post. `POST_DIARY=false` turns it off.
-- Each night her replies that **landed** (a positive human reaction or laugh, without a detected complaint) become examples of her
-  voice (`earned_examples.jsonl`, up to `FEW_SHOT_EXAMPLES` 8 per reply's prompt), and she updates a
-  short note on how the server talks. Mentions, reply links and angry reactions alone aren't praise.
-  Previously saved examples and trained models are not automatically cleaned; review them before retraining.
-  Rows with unknown raw/answer provenance are skipped when loading or rendering; optional few-shot
-  examples label delayed targets, or skip them if the compact example would lose the source.
-  Required replies changed by the name/slur filters cannot become successful training examples, even with praise.
+- Each night her replies that **landed** (a person's positive reaction or laugh, with no complaint; a mention
+  or a reply alone isn't praise) become examples of her voice (`earned_examples.jsonl`, up to
+  `FEW_SHOT_EXAMPLES` 8 per reply's prompt), and she updates a short note on how the server talks.
 - Stop the bot before editing any of these files. All of them are gitignored and stay on your PC.
 
 ## What she sees
-Discord replies include a short quote of the referenced message, even outside recent history; missing
-quotes are labeled unavailable. Other bots' posts are visible as context, but never trigger replies,
-commands or training targets. Quoted words remain separate from the replying person's own words.
-The same separation applies to generated media descriptions: they are display context, never human
-feedback or human voice targets. Legacy quote/media records without reliable provenance are skipped
-for those uses rather than guessed apart.
+A Discord reply shows her a short quote of the post it answers, even an old one. She sees other bots'
+posts too, but they never set her off, give her commands or train her.
 
 Images, GIFs, stickers and link previews are described once, and the description is what she "sees"
 from then on (`kaz0: rate my setup [image: a desk with three monitors]`). She never opens links or plays
@@ -114,9 +101,8 @@ so she can't argue. Anyone else saying them just gets a normal reply.
 | `gomi post melee here` / `gomi stop posting melee` | where her Melee posts go (🎮 / 🔕) |
 | `gg` (to her, or in the Melee channel) | ends a Melee session now |
 
-Mute and quiet mode last `MUTE_MINUTES` (30) by default, and a restart clears them.
-Mute cancels queued questions, including drafts and pictures still being processed, so unmuting
-doesn't resume those old requests. A message already being sent to Discord cannot be recalled.
+Mute and quiet mode last `MUTE_MINUTES` (30) by default, and a restart clears them. Muting also drops
+the questions she hasn't answered yet: unmuting doesn't bring them back.
 
 ## Melee
 [AI-Melee](https://github.com/zurgace/aimelee) has her play Mario or Fox against you. She posts **once per
@@ -141,10 +127,8 @@ venv/bin/python finetuning/weekly.py switch   # if the check reads right; then r
 - `all` skips a week with fewer than 50 new examples from the server, and never switches by itself.
   `check` puts her current model and the new one side by side (report in
   `finetuning/runs/wN/check.md`); `rollback` undoes a switch; `--help` lists the single steps.
-- Runs built before the provenance checks have incompatible example totals. `status` reports the
-  new-example count as unknown, and `build` pauses. Review the eligible training data, then use
-  `build --force` once and continue the usual training steps. Normal counting resumes after that run
-  is installed; building alone does not clean old data or retrain.
+- Older runs counted examples differently, so `build` stops until a `build --force` run is installed:
+  review the examples first (those saved before Nov 14 counted any mention or reaction as praise).
 - Each run stays in Ollama as `gomi-wN`. The data is deleted from Kaggle once the model is downloaded;
   everything local stays in `finetuning/runs/` (gitignored).
 - The new model can't see pictures, so `switch` points `VISION_MODEL` (and `TASK_MODEL` for reading
@@ -165,26 +149,16 @@ Ollama, Discord, Kaggle and Unsloth are faked, and the suites run on a temporary
 your `.env` and data are never touched.
 
 ## Comparing conversation models
-The [conversation review](CONVERSATION_REVIEW.md) explains the context fixes, training-data issue,
-and the local Gemma/Bolt comparison.
-
-Replay six made-up chats across seeds 17, 29 and 43, with the same persona and explicit settings for
-`gomi-w1`, `gemma4:e4b` and `gomi-bolt` (54 generations). The models must already be installed. No
-Discord connection or private conversations are used:
+`tools/chat_check.py` gives `gomi-w1`, `gemma4:e4b` and `gomi-bolt` (made from `Modelfile.bolt`) the same
+six made-up chats at seeds 17, 29 and 43, and writes every prompt, setting and reply to a new report.
+Nothing private is read, not even `.env`; the models must be installed already:
 ```bash
 venv/bin/python tools/chat_check.py --url http://localhost:11434/api/chat --think --output /tmp/gomi-comparison-thinking.md
 venv/bin/python tools/chat_check.py --url http://localhost:11434/api/chat --no-think --output /tmp/gomi-comparison-no-thinking.md
 ```
-Choose new report paths; existing reports are never overwritten. Each report retains model names and
-installed digests, prompts/settings, raw replies/thinking, observed thinking counts, sentence/emoji
-previews and request elapsed time (available server load/total timings separately). These are not full
-runtime end-to-end latency. Endpoint selection is `--url`, then process `OLLAMA_URL`, then localhost;
-repository `.env` is never loaded. The selected URL/source is recorded, and URLs with credentials,
-query parameters or fragments are rejected without echoing them. The review documents every setting
-and an explicit future command.
-Judge topic, useful clarification, uncertainty and substance: brevity alone isn't success. The checker
-does not test Discord scheduling, room-reading decisions, delivery, retries or full runtime cleanup, establish
-a general ranking, download models or change `.env`.
+Give each run a new `--output`: it never overwrites one. Judge whether she stays on topic, asks what's
+unclear and admits what she doesn't know, and how long she takes, not how short she is. It checks the
+replies only, not the room read or Discord.
 
 ## Known limitations
 - A small model makes things up. Anything that must be right (memory, the slur filter, diary notes) is
