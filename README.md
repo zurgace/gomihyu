@@ -1,7 +1,18 @@
 # Gomihyu — Discord conversationalist (Gemma 4 E4B)
 
-"Gomi", a bratty self-proclaimed Archdemon for a small Discord server, on a local model via Ollama.
-Every setting is in `.env.example`, with its default; `CLAUDE.md` has the design decisions.
+"Gomi" is a persona chat bot for a small Discord server: a bratty self-proclaimed Archdemon who talks
+like one of the friends. She answers whatever is aimed at her, reads the room to decide when to chime in
+or react with an emoji, sees pictures, remembers facts and nicknames, keeps a diary, and posts about the
+Melee games she plays in [AI-Melee](https://github.com/zurgace/aimelee).
+
+**She runs locally.** Every model call goes to [Ollama](https://ollama.com) on your own PC (an 8 GB GPU
+is enough); there's no cloud AI API. Only the optional weekly fine-tune runs elsewhere, on Kaggle's free
+GPU, with the server's chat (the members agreed).
+
+**Built with [Claude Code](https://claude.com/claude-code).** `CLAUDE.md` holds the design decisions it
+works from, and most commits are Claude's.
+
+Every setting is in `.env.example`, with its default.
 
 ## Setup
 1. **Ollama and the model**
@@ -136,9 +147,7 @@ venv/bin/python finetuning/weekly.py switch   # if the check reads right; then r
   the room and her diary, if both fit on the GPU) at the stock `gemma4:e4b`.
 
 The made-up seed chats (`finetuning/gomihyu_seed.jsonl`) only train her (`SEED_EXAMPLES=true` puts them
-back in her prompt); `finetuning/persona_guide.md` is the guide for writing more. Voice clips behind
-some of them: `finetuning/vocals_1_clean.wav` (Neuro-sama) and `vocals_clean.wav` (Pippa, 160 MB) on
-[Dropbox](removed).
+back in her prompt); `finetuning/persona_guide.md` is the guide for writing more.
 `archive/discord-pipeline/` (parked) turns your own Discord export into training data, never DMs.
 
 ## Tests
