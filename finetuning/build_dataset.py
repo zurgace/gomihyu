@@ -73,7 +73,7 @@ def render(example: dict) -> dict | None:
         speaker = example["history"][latest][0]
         if meta[latest].get("bot") and speaker != BOT_NAME and not speaker.endswith(" (bot)"):
             speaker += " (bot)"
-        mentioned = bool(meta[latest].get("addressed")) and not meta[latest].get("bot")
+        mentioned = bool(meta[latest].get("addressed")) and speaker != BOT_NAME  # another bot may talk to her
         newest = transcript[latest]
         addressed = [transcript[i] for i in targets]
     # A build or a list she was asked for is trained under the prompt that gave it room, as at runtime (shape.py).

@@ -50,8 +50,8 @@ class ChatLog:
             when: float | None = None, **extra) -> None:
         """One line: a message, or with kind="reaction" a reaction (text: the emoji, to: the message id).
         extra: reply_to (the message a Discord reply answers), context (text with a bounded reply quote),
-        bot (another bot, context only), about (what kind of post of hers). text stays the author's own
-        words, so quoted context cannot become feedback or a training target."""
+        bot (another bot: context, or a post to her she answers), about (what kind of post of hers). text stays
+        the author's own words, so quoted context cannot become feedback or a training target."""
         when = time.time() if when is None else when
         entry = {"id": message_id, "time": when, "channel": channel, "author_id": author_id, "author": author,
                  "text": text} | {key: value for key, value in extra.items() if value is not None}

@@ -93,7 +93,9 @@ Every setting is in `.env.example`, with its default.
 
 ## What she sees
 A Discord reply shows her a short quote of the post it answers, even an old one. She sees other bots'
-posts too, but they never set her off, give her commands or train her.
+posts too, but they never give her commands or train her, and only set her off when they talk to her (an
+@mention, a reply to her, her name): she answers `BOT_REPLIES` (2) of a bot's posts in a row at most, until
+a person posts.
 
 Images, GIFs, stickers and link previews are described once, and the description is what she "sees"
 from then on (`kaz0: rate my setup [image: a desk with three monitors]`). She never opens links or plays

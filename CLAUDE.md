@@ -49,9 +49,11 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   most one calm odd line, none for someone sad. Not everything is about her: a chime-in adds to the talk.
 - Small models confabulate: what must be true lives in code (memory, slur filter, emoji picks,
   quote-checked diary notes, no names from the seed's made-up chats).
-- Discord reply quotes, other bots' posts and picture descriptions are context: never a trigger, praise or
-  training target. People's own words stay apart in `text` (`chatlog.py`); old lines that mix them in are
-  skipped, not guessed apart.
+- Discord reply quotes, other bots' posts and picture descriptions are context: never a command, praise or
+  training target, and never a trigger, except a bot talking to her (an @mention, a reply to her, her name):
+  answered, `BOT_REPLIES` (2) of its posts in a row at most until a person posts (the user, Nov 22, for a
+  debate night with Doumi). People's own words stay apart in `text` (`chatlog.py`); old lines that mix them
+  in are skipped, not guessed apart.
 - In a burst each question is answered, to its asker (three per reply at most, shaped by them, not newer
   chatter); a retry reuses its prompt. A question is done only once the reply is sent or logged as failed:
   never resend an uncertain send. Any new message drops an unposted chime-in. A needed clarifying question
@@ -72,6 +74,8 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   can't see pictures. The user switched her to Bolt; not judged live yet (curt replies? the wait?).
 - Chime-ins don't think since Nov 22 (the user's pick): thinking ones took 13-20s and Doumi's answers (5-9s)
   dropped 3 of 5. Watch whether they go flat (Nov 17: thinking off had the flattest voice).
+- Answering Doumi (Nov 22) is untried live: does Doumi's room read answer her back, and are 2 turns each a
+  round enough for a debate? Doumi's side is entertainerllm's (its firm rule 1: point there, confirm first).
 - Earned examples saved before Nov 14 counted any mention or reaction as approval (of 80, 62 only because
   someone named her after, 11 for an angry reaction; 60 trained W1). Review them before the next build
   (`weekly.py build --force`), and add good examples of topic changes, not knowing, follow-ups, plain answers.

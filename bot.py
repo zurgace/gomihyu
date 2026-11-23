@@ -74,6 +74,10 @@ REACT_ONLY_MAX_WORDS = int(os.environ.get("REACT_ONLY_MAX_WORDS", "2"))
 # A post she answers of at most this many words, not a question (a jab, "gomi hi"), gets one short line
 # back; anything else 1 to 3 sentences (shape.py).
 ONE_LINE_MAX_WORDS = int(os.environ.get("ONE_LINE_MAX_WORDS", "6"))
+# Another bot talking to her (an @mention, a reply to her, her name) gets an answer: at most BOT_REPLIES of
+# its posts in a row until a person posts, so two bots can't keep each other going (the user, 2026-11-22, for
+# a debate night with Doumi, whose own cap is 2). 0: never. A bot's post is never a command, a note or praise.
+BOT_REPLIES = int(os.environ.get("BOT_REPLIES", "2"))
 HISTORY_LENGTH = int(os.environ.get("HISTORY_LENGTH", "12"))  # recent messages kept per channel for context
 # A reply that copies REPEAT_WORDS words in a row from one of the bot's recent messages is
 # regenerated once at RETRY_TEMPERATURE (small models love copying their own earlier lines).
@@ -196,6 +200,8 @@ reply_locks = defaultdict(asyncio.Lock)
 pending_followup = {}
 # Required replies keep their actual speaker/text through a burst; a boolean can't identify who asked.
 unanswered = defaultdict(list)
+# channel_id -> other bots' posts she's taken up there since a person last posted (BOT_REPLIES)
+bot_turns = defaultdict(int)
 # A newer turn must wait for descriptions already in progress before consuming picture questions.
 pending_vision = defaultdict(set)
 # lowercase Discord handle or display name -> user id, for real pings and for "Yuzuki's nickname is..."
@@ -339,7 +345,7 @@ class ObservedLine(str):
 
 
 def observe(message: discord.Message, text: str) -> ObservedLine:
-    """Record a participant in arrival order; observing another bot never triggers a reply."""
+    """Record a participant in arrival order; observing never triggers a reply (on_message decides that)."""
     channel_id = message.channel.id
     line = ObservedLine(message, text)
     history[channel_id].append(line)
@@ -493,7 +499,7 @@ def prepare_reply(channel_id: int, for_her: bool, requests: list[tuple] = ()) ->
         author_handle = post.author.name + (" (bot)" if post.author.bot else "")
         newest = readable(post, include_media=False)
         # An earlier mention in a burst doesn't make the newest speaker's 'you' mean Gomi.
-        for_her = not post.author.bot and (client.user in post.mentions or replying_to_her(post) or names_her(newest))
+        for_her = client.user in post.mentions or replying_to_her(post) or names_her(newest)
     shape = this_time(newest, own_lines(channel_id), ONE_LINE_MAX_WORDS, pending_raw)
     addressed_notes = {}
     for _, _, post in requests:
@@ -976,17 +982,30 @@ async def on_message(message: discord.Message):
     channel_id = message.channel.id
     text = readable(message)
     if message.author.bot:
-        observe(message, text)
+        line = observe(message, text)
+        typed = readable(message, include_media=False)
+        to_her = client.user in message.mentions or replying_to_her(message) or names_her(typed)
         if message.guild:
             try:
                 chat_log.add(channel_id, channel_label(message.channel), message.id, message.author.id,
-                             message.author.name + " (bot)", readable(message, include_media=False), bot=True,
-                             text_provenance="author", addressed=False,
+                             message.author.name + " (bot)", typed, bot=True,
+                             text_provenance="author", addressed=to_her,
                              context=conversation_text(message, text),
                              reply_to=getattr(getattr(message, "reference", None), "message_id", None))
             except OSError:
                 log.exception("Could not save the observed bot post; keeping its in-memory context")
-        return  # visible context, never a command, a reply trigger, or a training target
+        if to_her and bot_turns[channel_id] >= BOT_REPLIES:
+            log.info(f"{message.author.name} (bot) is talking to her, but she's taken up {BOT_REPLIES} bot posts "
+                     "in a row: waiting for a person")
+        if not to_her or bot_turns[channel_id] >= BOT_REPLIES or muted(channel_id):
+            return  # visible context, never a command, a note or a training target
+        bot_turns[channel_id] += 1
+        log.info(f"{message.author.name} (bot) is talking to her: answering ({bot_turns[channel_id]} of "
+                 f"{BOT_REPLIES} in a row)")
+        unanswered[channel_id].append((logged[channel_id], line, message))
+        await take_turn(message.channel, channel_id, True, True)
+        return
+    bot_turns.pop(channel_id, None)  # a person posted: bots may get answers again
     for user in (message.author, *message.mentions):
         handles[user.name.lower()] = user.id
         handles[user.display_name.lower()] = user.id
@@ -1120,6 +1139,11 @@ async def on_message(message: discord.Message):
     if needs_reply and not any(n == number for n, _, _ in unanswered.get(channel_id, [])):
         return  # another reply already covered this request while its pictures were being described
 
+    await take_turn(message.channel, channel_id, for_her, addressed)
+
+
+async def take_turn(channel: discord.abc.Messageable, channel_id: int, for_her: bool, addressed: bool) -> None:
+    """Reply here now, or, while she's already deciding or writing one, owe one follow-up for what arrived."""
     lock = reply_locks[channel_id]
     if lock.locked():
         # Already deciding or writing a reply here; everything that arrives meanwhile gets one follow-up.
@@ -1129,7 +1153,7 @@ async def on_message(message: discord.Message):
 
     async with lock:
         try:
-            await converse(message.channel, channel_id, for_her, addressed)
+            await converse(channel, channel_id, for_her, addressed)
         finally:
             pending_followup.pop(channel_id, None)
 

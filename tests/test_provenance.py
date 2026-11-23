@@ -38,6 +38,14 @@ assert '[reply to Sol: "Gomi chose chess"] what about this' in prompt
 assert '"you" means you, Gomi.' not in prompt and "directly mentioned/addressed" not in prompt
 entries[0].update(text="yes please", addressed=True, context='[reply to Gomihyu: "Want advice?"] yes please')
 assert "directly mentioned/addressed" in render(landed_replies(entries)[0])["messages"][1]["content"]
+# Another bot talking to her gets an answer (bot.BOT_REPLIES), trained under the prompt she answered it with.
+entries = approved([post(1, "Doumi (bot)", "gomi my castle is bigger", bot=True, addressed=True),
+                    post(2, "Gomihyu", "Bigger isn't better.", answered_requests=[1])])
+debate = render(landed_replies(entries)[0])["messages"][1]["content"]
+assert "These messages still need your reply:\nDoumi (bot): gomi my castle is bigger" in debate
+assert "directly mentioned/addressed" in debate
+entries[0]["addressed"] = False  # how every bot post was logged before 11-22: context only
+assert "directly mentioned/addressed" not in render(landed_replies(entries)[0])["messages"][1]["content"]
 assert 'These messages still need your reply' not in prompt  # Empty answered_requests is unsolicited.
 
 # A delayed answer addresses Mira's arithmetic, with Sol's pizza remaining recent context.
