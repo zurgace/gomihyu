@@ -16,8 +16,9 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
 - `gemma4:e4b`: 3.2GB, 100% GPU at 8192 context. Every call sends the same `OLLAMA_NUM_CTX`, or Ollama
   reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first, then check `ollama ps`:
   file size isn't memory); training runs on Kaggle.
-- Her saved setup (Nov 17): `gomi-bolt` (`Modelfile.bolt`), thinking on, history 30, no few-shot; pictures
-  on `gemma4:e4b`; `TASK_MODEL` is empty, so room reads and the diary run on Bolt too.
+- Her saved setup (Nov 17): `gomi-bolt` (`Modelfile.bolt`), thinking on (not chime-ins, Nov 22), history
+  30, no few-shot; pictures on `gemma4:e4b`; `TASK_MODEL` is empty, so room reads and the diary run on
+  Bolt too.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
 - Rejected: LFM2.5-2.6B (felt like "a response bot"; `archive/lfm2.5/`), Ternary Bonsai 2 27B (llama.cpp
   fork, too big), anime-girl-1.5B.
@@ -69,6 +70,8 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   thinking on did best, stock `gemma4:e4b` thinking on next with the best voice, `gomi-w1` thinking off
   last (invents opinions, takes others' praise, talks down). Both thinking setups take ~10s a reply; Bolt
   can't see pictures. The user switched her to Bolt; not judged live yet (curt replies? the wait?).
+- Chime-ins don't think since Nov 22 (the user's pick): thinking ones took 13-20s and Doumi's answers (5-9s)
+  dropped 3 of 5. Watch whether they go flat (Nov 17: thinking off had the flattest voice).
 - Earned examples saved before Nov 14 counted any mention or reaction as approval (of 80, 62 only because
   someone named her after, 11 for an angry reaction; 60 trained W1). Review them before the next build
   (`weekly.py build --force`), and add good examples of topic changes, not knowing, follow-ups, plain answers.

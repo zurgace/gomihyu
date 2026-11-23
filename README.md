@@ -73,9 +73,10 @@ Every setting is in `.env.example`, with its default.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up, and drops a chime-in
   she hasn't posted yet. Questions to her still get answered, each asker their own, as a Discord reply if
   the chat moved on. A reply that fails, or may not have gone through, isn't resent: ask again.
-- **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each reply, Melee post and
-  goodnight; several seconds slower, not capped at `MAX_REPLY_TOKENS`, still held to her reply's size. The
-  console shows each thought's start: `She thought (212 words, 9.4s for all): '...'`.
+- **Thinking** (`OLLAMA_THINK=true` in `.env`, then restart): she thinks before each answer, Melee post and
+  goodnight, never before a chime-in (a post while she writes drops it); several seconds slower, not
+  capped at `MAX_REPLY_TOKENS`, still held to her reply's size. The console shows each thought's start:
+  `She thought (212 words, 9.4s for all): '...'`.
 
 ## Memory and diary
 - "**gomi remember that** I hate cilantro" (or @mention her) stores it word for word (📝).

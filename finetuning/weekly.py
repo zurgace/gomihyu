@@ -183,7 +183,7 @@ def api(path: str, body: dict | None = None, timeout: float = 300, *, url: str |
 
 
 def thinks() -> bool:
-    """Whether her replies think first (OLLAMA_THINK); reading the room and the diary never do."""
+    """Whether her answers think first (OLLAMA_THINK); chime-ins, reading the room and the diary never do."""
     return setting("OLLAMA_THINK", "false").lower() in ("1", "true", "yes", "on")
 
 
@@ -492,7 +492,7 @@ def cmd_check(args) -> bool:
     earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
     anchor, full_at = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_FULL_AT", "200"))
     think = thinks()
-    cap = {} if think else {"num_predict": int(setting("MAX_REPLY_TOKENS", "200"))}  # thinking counts against it
+    cap = {"num_predict": int(setting("MAX_REPLY_TOKENS", "200"))}  # none when thinking: it counts against it
     chats = check_chats()
     print(f"Checking {new} against {now} (what she runs on now): {len(chats)} test chats, a minute or two")
 
@@ -501,11 +501,14 @@ def cmd_check(args) -> bool:
         transcript = [format_line(h, t) for h, t in test["history"]]
         speaker, last = test["history"][-1]
         mentioned = names_her(last)  # aimed at her, as in build_dataset.py
+        thinking = think and mentioned  # a chime-in never thinks (bot.py's reply_to)
+        options = {} if thinking else cap
         examples = pick_examples(seed, earned, few, anchor, full_at, rng=random.Random(i)) if few > 0 else []
         context = {"vibe": vibe, "avatar": setting("AVATAR_DESCRIPTION", "")}
         replies.append((test, chat(now, build_messages(transcript, mentioned, speaker, examples=examples, **context),
-                                   options=cap, think=think),
-                        chat(new, build_messages(transcript, mentioned, speaker, **context), options=cap, think=think)))
+                                   options=options, think=thinking),
+                        chat(new, build_messages(transcript, mentioned, speaker, **context), options=options,
+                             think=thinking)))
     room = next(c["history"] for c in chats if c.get("use") == "room")
     diary_log = next(c["history"] for c in chats if c.get("use") == "diary")
     tasks = {model: (room_read(model, room, vibe), diary_read(model, diary_log)) for model in (now, new)}

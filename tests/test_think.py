@@ -94,6 +94,11 @@ async def main():
     bot.CHIME_IN_THRESHOLD = 6; calls.clear()
     await bot.on_message(msg("anyone up"))
     assert len(calls) == 1 and "format" in calls[0] and calls[0]["think"] is False
+    # Nor does a chime-in, capped as usual: any post while she writes drops it (thinking lost it to Doumi, 11-22)
+    bot.CHIME_IN_THRESHOLD = 0; calls.clear(); n = len(ch.sent)
+    await bot.on_message(msg("anyone up for smash"))
+    assert len(ch.sent) == n + 1 and len(calls) == 1
+    assert calls[0]["think"] is False and calls[0]["options"] == {"num_ctx": 8192, "num_predict": 200}
     await r.cleanup(); print("THINK TESTS PASSED")
 asyncio.run(main())
 

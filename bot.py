@@ -87,10 +87,10 @@ ROOM_REPLY_TOKENS = 400  # 6 sentences or a short list: ~1,600 characters, under
 # (system prompt, example chats, 12 messages of chat) when people post long messages, and Ollama then
 # silently cuts the prompt. Every call sends the same value, or Ollama reloads the model between them.
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
-# Let her think before she writes: her replies, Melee posts and goodnight, never reading the room, her
-# diary or pictures. Off by default: it adds seconds to every reply. On, her replies aren't capped at
-# MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds them to their size. The
-# console shows the start of each thought.
+# Let her think before she writes: her answers, Melee posts and goodnight, never a chime-in (reply_to),
+# reading the room, her diary or pictures. Off by default: it adds seconds to every reply. On, her
+# replies aren't capped at MAX_REPLY_TOKENS (the thinking counts against it), but shape.py still holds
+# them to their size. The console shows the start of each thought.
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 # Whether the model thinks even when told not to (some do), seen in a response. Nothing is capped then.
 model_thinks = False
@@ -516,14 +516,16 @@ def prepare_reply(channel_id: int, for_her: bool, requests: list[tuple] = ()) ->
 
 
 async def generate_reply(channel_id: int, for_her: bool, temperature: float | None = None,
-                         prepared: tuple | None = None) -> str | None:
+                         prepared: tuple | None = None, think: bool = True) -> str | None:
+    """think=False: this reply doesn't think, even with OLLAMA_THINK on (a chime-in, reply_to)."""
     messages, author_id, shape = prepared if prepared is not None else prepare_reply(channel_id, for_her)
     tokens = max(MAX_REPLY_TOKENS, ROOM_REPLY_TOKENS) if shape["room"] else MAX_REPLY_TOKENS
-    options = cap(tokens, OLLAMA_THINK)
+    thinking = OLLAMA_THINK and think
+    options = cap(tokens, thinking)
     if temperature is not None:
         options["temperature"] = temperature  # otherwise the model's own (Modelfile) setting
     payload = {"messages": messages,
-               "options": options, "think": OLLAMA_THINK}
+               "options": options, "think": thinking}
 
     start = time.monotonic()
     data = await ollama_chat(payload)
@@ -639,16 +641,21 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, for_her: b
     target = requests[-1][2] if requests else latest.message if latest is not None else None
     request_ids = [post.id for _, _, post in requests if getattr(post, "id", None) is not None]
     prepared = prepare_reply(channel_id, for_her, requests)
+    # A chime-in is dropped if anyone posts while she writes, so it doesn't think (the user, 2026-11-22: "too
+    # slow"; thinking took 7-14s, and Doumi's answers, 5-9s after a post, dropped 3 of her 5). Answers still do.
+    chiming = not requests and not must_answer
     filtered_required = False
     async with channel.typing():
-        reply = await generate_reply(channel_id, for_her, prepared=prepared)
+        reply = await generate_reply(channel_id, for_her, prepared=prepared, think=not chiming)
         if reply and (names := strangers(channel_id, reply)):
             log.info(f"Reply names someone who isn't here ({', '.join(names)}); retrying at temperature {RETRY_TEMPERATURE}")
-            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE, prepared=prepared) or reply
+            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE, prepared=prepared,
+                                         think=not chiming) or reply
         elif reply and repeats_itself(channel_id, reply):
             log.info(f"Reply repeats one of Gomihyu's recent messages or example lines; retrying at temperature {RETRY_TEMPERATURE}")
             # If the retry fails outright, the repetitive reply beats no reply.
-            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE, prepared=prepared) or reply
+            reply = await generate_reply(channel_id, for_her, temperature=RETRY_TEMPERATURE, prepared=prepared,
+                                         think=not chiming) or reply
         if reply and (names := strangers(channel_id, reply)):
             # Still there after the retry: those sentences go. Nothing left means nothing to say.
             filtered = without_names(reply, names)
@@ -664,7 +671,7 @@ async def reply_to(channel: discord.abc.Messageable, channel_id: int, for_her: b
     reason = "generation"
     if reply:
         moved = logged[channel_id] != seen
-        if moved and not requests and not must_answer:
+        if moved and chiming:
             log.info("Chat moved on while writing a chime-in; discarding the stale draft")
             return
         # Everyone in a required batch is already being answered, so none needs a ping.
