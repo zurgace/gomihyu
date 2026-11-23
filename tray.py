@@ -18,8 +18,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 HERE = Path(__file__).resolve().parent
@@ -32,7 +32,9 @@ def tray(app: QApplication, bot: subprocess.Popen) -> QSystemTrayIcon:
     icon = QSystemTrayIcon(QIcon(str(HERE / "icon.png")))
     icon.setToolTip("Gomi")
     menu = QMenu()
-    menu.addAction("Open log", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(LOG))))
+    # xdg-open with her own environment, not QDesktopServices: pip Qt asks the desktop portal, and one woken
+    # by a boot service before login has no display, so the editor it starts crashes (Nov 18, Nov 22).
+    menu.addAction("Open log", lambda: QProcess.startDetached("xdg-open", [str(LOG)]))
     stop = menu.addAction("Shut down")
 
     def shut_down():

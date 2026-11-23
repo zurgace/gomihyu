@@ -31,6 +31,10 @@ marker = T / "marker"
 bot = fake(); time.sleep(0.5)
 icon = tray.tray(app, bot)
 assert not icon.icon().isNull()                                       # icon.png, her app image
+(T / "xdg-open").write_text(f'#!/bin/sh\necho "$@" > "{T}/opened"\n'); (T / "xdg-open").chmod(0o755)
+os.environ["PATH"] = f"{T}:{os.environ['PATH']}"                       # Open log: xdg-open on gomi.log, no portal
+[a for a in icon.contextMenu().actions() if a.text() == "Open log"][0].trigger()
+assert wait_for(lambda: (T / "opened").exists() and (T / "opened").read_text().strip() == str(tray.LOG))
 stop = [a for a in icon.contextMenu().actions() if a.text() == "Shut down"][0]
 texts = []
 QTimer.singleShot(100, lambda: (stop.trigger(), texts.append(stop.text())))
