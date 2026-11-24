@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 
 os.environ.update(DISCORD_BOT_TOKEN="fake", PEOPLE_FILE=f"{TMP}/people_conversation.json")
 sys.path.insert(0, REPO)
-import bot
-from meld import voice_examples
+from gomi import bot
+from gomi.meld import voice_examples
 
 NS = types.SimpleNamespace
 ids = itertools.count(1000)

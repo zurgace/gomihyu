@@ -7,7 +7,7 @@ SP = Path(TMP)
 PEOPLE = SP / "people_memtest.json"; PEOPLE.unlink(missing_ok=True)
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8769/api/chat", PEOPLE_FILE=str(PEOPLE))
 sys.path.insert(0, REPO)
-from memory import fact_to_remember as f, PeopleMemory
+from gomi.memory import fact_to_remember as f, PeopleMemory
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 # --- trigger parsing: only explicit requests aimed at her ---
@@ -63,7 +63,7 @@ assert p.read_text() == '{"7": {"facts": ["x",]}}'                  # untouched
 p.unlink()
 
 # --- in the bot ---
-import bot
+from gomi import bot
 from datetime import datetime
 bot.local_now = lambda: datetime(2026, 10, 4, 0, 5)
 DATE = "Right now it's Sunday, October 4, 2026, 12:05 AM.\n\n"  # every reply's prompt starts with it

@@ -18,10 +18,10 @@ import math
 import random
 import re
 
-from censor import has_slur
-from chatlog import raw_author_text
-from persona import BOT_NAME, BOT_NICKNAME, fewshot_eligible
-from reactions import LAUGHING, MEDIA, names_her
+from .censor import has_slur
+from .chatlog import raw_author_text
+from .persona import BOT_NAME, BOT_NICKNAME, fewshot_eligible
+from .reactions import LAUGHING, MEDIA, names_her
 
 LANDED_WITHIN_SECONDS = 180  # a laugh or an answer this soon after her reply counts
 CONTEXT_LINES = 6  # chat before an example's reply, at most

@@ -34,15 +34,15 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-sys.path.insert(0, str(ROOT))  # so persona.py imports when run from anywhere
+sys.path.insert(0, str(ROOT))  # so the gomi package imports when run from anywhere
 
 from dotenv import load_dotenv  # noqa: E402
 
-from chatlog import ChatLog  # noqa: E402
-from meld import MELD_RUNS, persona_share, voice_examples  # noqa: E402
-from persona import BOT_NAME, asked_room, build_messages, example_targets, format_line  # noqa: E402
-from reactions import names_her  # noqa: E402
-from shape import tidy  # noqa: E402
+from gomi.chatlog import ChatLog  # noqa: E402
+from gomi.meld import MELD_RUNS, persona_share, voice_examples  # noqa: E402
+from gomi.persona import BOT_NAME, asked_room, build_messages, example_targets, format_line  # noqa: E402
+from gomi.reactions import names_her  # noqa: E402
+from gomi.shape import tidy  # noqa: E402
 
 SEED = HERE / "gomihyu_seed.jsonl"
 OUT = HERE / "train.jsonl"
@@ -139,8 +139,8 @@ def main():
         rows, summary = seed, f"{len(seed)} seed examples"
     else:
         load_dotenv(ROOT / ".env")
-        chat_log = ChatLog(ROOT / os.environ.get("CHAT_LOG_DIR", "chatlogs"))
-        earned = read_jsonl(ROOT / os.environ.get("EARNED_FILE", "earned_examples.jsonl"), real=True)
+        chat_log = ChatLog(ROOT / os.environ.get("CHAT_LOG_DIR", "data/chatlogs"))
+        earned = read_jsonl(ROOT / os.environ.get("EARNED_FILE", "data/earned_examples.jsonl"), real=True)
         anchor = float(os.environ.get("MELD_ANCHOR", "0.3"))
         runs = int(os.environ.get("MELD_RUNS", str(MELD_RUNS)))
         rows, summary = meld_examples(seed, args.run, args.persona_share, args.seed_repeat, chat_log, earned, anchor,

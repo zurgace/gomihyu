@@ -12,6 +12,10 @@ __pycache__/
 archive/discord-pipeline/data/
 train.jsonl
 
+# Her data: all of the files below live in data/ since Nov 24. Their names stay ignored anywhere too, in
+# case an older checkout writes them at the repo root.
+data/
+
 # Person memory — facts about real server members; stays on the machine running the bot
 people.json
 people.json.tmp

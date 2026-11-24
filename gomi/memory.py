@@ -16,7 +16,7 @@ import os
 import re
 from pathlib import Path
 
-from persona import BOT_NAME, BOT_NICKNAME
+from .persona import BOT_NAME, BOT_NICKNAME
 
 # Her name within the first few words ("gomi, ...", "ok then gomi ...", "hey @Gomihyu ..."),
 # or an @mention tacked on the end

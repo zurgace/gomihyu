@@ -20,9 +20,9 @@ import re
 import time
 from pathlib import Path
 
-from censor import has_slur
-from chatlog import local_day, raw_author_text
-from persona import BOT_NAME, BOT_NICKNAME, format_line
+from .censor import has_slur
+from .chatlog import local_day, raw_author_text
+from .persona import BOT_NAME, BOT_NICKNAME, format_line
 
 MAX_NOTE_LENGTH = 200
 MAX_RECAP_LENGTH = 500

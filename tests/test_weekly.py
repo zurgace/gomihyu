@@ -16,7 +16,7 @@ from pathlib import Path
 
 REPO = Path(REPO)
 sys.path.insert(0, str(REPO))
-from chatlog import ChatLog  # noqa: E402
+from gomi.chatlog import ChatLog  # noqa: E402
 
 work = Path(tempfile.mkdtemp())
 repo, fake, bin_dir = work / "repo", work / "fake", work / "bin"

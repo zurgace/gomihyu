@@ -5,7 +5,7 @@ from aiohttp import web
 SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8776/api/chat", PEOPLE_FILE=f"{SP}/people_fewshot.json")
 sys.path.insert(0, REPO)
-import bot, persona
+from gomi import bot, persona
 from datetime import datetime
 NOW = datetime(2026, 10, 4, 13, 31); bot.local_now = lambda: NOW
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
@@ -102,7 +102,7 @@ asyncio.run(main())
 
 # SEED_EXAMPLES=true loads the seed; FEW_SHOT_EXAMPLES=0 turns example chats off; a missing seed warns and carries on
 env = {**os.environ}
-run = lambda code, **extra: subprocess.run([sys.executable, "-c", "import bot; " + code], cwd=REPO,
+run = lambda code, **extra: subprocess.run([sys.executable, "-c", "from gomi import bot; " + code], cwd=REPO,
                                            env={**env, **extra}, capture_output=True, text=True)
 out = run("print(len(bot.examples))", SEED_EXAMPLES="true"); assert out.stdout.strip().endswith("108"), out
 out = run("print(len(bot.examples))", SEED_EXAMPLES="true", FEW_SHOT_EXAMPLES="0"); assert out.stdout.strip().endswith("0"), out

@@ -6,7 +6,7 @@ from aiohttp import web
 os.environ["PEOPLE_FILE"] = TMP + "/people_test_bot.json"; os.environ["DISCORD_BOT_TOKEN"] = "fake"
 os.environ["OLLAMA_URL"] = "http://127.0.0.1:8765/api/chat"
 sys.path.insert(0, REPO)
-import bot, persona
+from gomi import bot, persona
 from datetime import datetime
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # these tests are about replies
 NOW = datetime(2026, 10, 4, 13, 31); bot.local_now = lambda: NOW

@@ -7,8 +7,8 @@ fine-tuning data matches what the bot sends at runtime.
 
 from datetime import datetime
 
-from emojis import CUSTOM
-from shape import ROOM_SENTENCES, needs_room, tidy
+from .emojis import CUSTOM
+from .shape import ROOM_SENTENCES, needs_room, tidy
 
 BOT_NAME = "Gomihyu"  # her Discord username, and her label in the chat log
 BOT_NICKNAME = "Gomi"  # what she goes by

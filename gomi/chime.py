@@ -18,7 +18,7 @@ the room or plans score high for talking but low for reacting, and a great joke 
 import json
 from typing import NamedTuple
 
-from persona import BOT_NAME, BOT_NICKNAME
+from .persona import BOT_NAME, BOT_NICKNAME
 
 MAX_READ = 150
 

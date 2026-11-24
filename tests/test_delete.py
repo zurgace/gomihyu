@@ -7,12 +7,13 @@ SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8770/api/chat", PEOPLE_FILE=f"{SP}/people_delete.json",
                   OWNER_USER_IDS="111, 222")
 sys.path.insert(0, REPO)
-import discord, bot
+import discord
+from gomi import bot
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0; bot.examples = []
 assert bot.OWNER_USER_IDS == {111, 222} and bot.owner_ids == {111, 222}
 
-from commands import delete_request as d, ALL
+from gomi.commands import delete_request as d, ALL
 cases = {
     "gomi delete that": 1, "@Gomihyu delete it": 1, "gomi del": 1, "gomi delete pls": 1, "delete this": 1,
     "gomi delete that message": 1, "gomi delete your last message": 1, "gomi delete ur last msg": 1,

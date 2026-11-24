@@ -30,8 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from finetuning.weekly import THINK, api  # noqa: E402
-from persona import BOT_NAME, build_messages, format_line  # noqa: E402
-from shape import at_most, one_emoji, sentences_for, this_time  # noqa: E402
+from gomi.persona import BOT_NAME, build_messages, format_line  # noqa: E402
+from gomi.shape import at_most, one_emoji, sentences_for, this_time  # noqa: E402
 
 MODELS = ["gomi-w1", "gemma4:e4b", "gomi-bolt"]
 SEEDS = [17, 29, 43]

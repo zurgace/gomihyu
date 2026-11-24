@@ -10,8 +10,8 @@ import time
 REPO, TMP = Path(os.environ["GOMI_REPO"]), Path(os.environ["GOMI_TMP"])
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "finetuning"))
-from chatlog import ChatLog, local_day, raw_author_text
-from meld import landed_replies
+from gomi.chatlog import ChatLog, local_day, raw_author_text
+from gomi.meld import landed_replies
 from build_dataset import render
 
 
@@ -69,8 +69,8 @@ assert [raw_author_text(e) for e in log.read(8)] == ["old plain words", "new pla
 
 async def diary_boundary():
     os.environ.update(DISCORD_BOT_TOKEN="fake", PEOPLE_FILE=str(TMP / "people.json"))
-    import bot
-    from diary import Diary
+    from gomi import bot
+    from gomi.diary import Diary
 
     bot.chat_log = ChatLog(TMP / "diary_log")
     bot.diary = Diary(TMP / "diary_boundary.json")

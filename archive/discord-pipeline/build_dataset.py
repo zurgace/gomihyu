@@ -17,9 +17,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for persona.py
+sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for the gomi package
 
-from persona import BOT_NAME, build_messages, format_line  # noqa: E402
+from gomi.persona import BOT_NAME, build_messages, format_line  # noqa: E402
 
 EXAMPLES = HERE / "data" / "examples.jsonl"
 OUT = HERE / "data" / "train.jsonl"

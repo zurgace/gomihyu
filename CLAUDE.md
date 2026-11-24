@@ -11,25 +11,30 @@ How each part works and why, with the user's words and dates, is in its module's
 read them before changing it. `README.md` is the user manual; `.env.example` lists every setting.
 
 ## Environment
-- CachyOS (Arch), fish shell; run things as `venv/bin/python ...`. After any change run `tests/run_all.sh`
-  (all faked, on a temp copy of the repo, fixed ports: one run at a time; `tests/run_all.sh test_x.py` for one).
+- CachyOS (Arch), fish shell; run things from the repo root as `venv/bin/python ...` (her: `-m gomi`, the
+  tray app: `-m gomi.tray`). After any change run `tests/run_all.sh` (all faked, on a temp copy of the
+  repo, fixed ports: one run at a time; `tests/run_all.sh test_x.py` for one).
 - `gemma4:e4b`: 3.2GB, 100% GPU at 8192 context. Every call sends the same `OLLAMA_NUM_CTX`, or Ollama
   reloads the model. Whatever serves her must fit the 2070 (do the VRAM math first, then check `ollama ps`:
   file size isn't memory); training runs on Kaggle.
-- Her saved setup (Nov 17): `gomi-bolt` (`Modelfile.bolt`), thinking on (not chime-ins, Nov 22), history
-  30, no few-shot; pictures on `gemma4:e4b`; `TASK_MODEL` is empty, so room reads and the diary run on
-  Bolt too.
+- Her saved setup (Nov 17): `gomi-bolt` (`models/Modelfile.bolt`), thinking on (not chime-ins, Nov 22),
+  history 30, no few-shot; pictures on `gemma4:e4b`; `TASK_MODEL` is empty, so room reads and the diary
+  run on Bolt too.
 - Vision works on the user's Ollama 0.34.2; re-run `tools/vision_check.py` after Ollama or model changes.
 - Rejected: LFM2.5-2.6B (felt like "a response bot"; `archive/lfm2.5/`), Ternary Bonsai 2 27B (llama.cpp
   fork, too big), anime-girl-1.5B.
 
 ## Map
-- `bot.py` (grep the relevant flow): Discord client, all runtime flow, every setting.
+- `gomi/` is the bot, a package (Nov 24): its modules import each other relatively, scripts and tests
+  import `gomi.x`.
+  `bot.py` (grep the relevant flow): Discord client, all runtime flow, every setting.
   `persona.py`: the system prompt and every prompt builder; the training data is built with them too,
   so the prompt format changes only there.
 - `chime.py` reads the room · `shape.py` each reply's shape · `reactions.py` + `emojis.py` · `vision.py` ·
   `commands.py` owner commands · `censor.py` + `slurs.txt` · `tray.py` runs her from the system tray.
 - `memory.py` people.json · `chatlog.py` · `diary.py` · `meld.py` landed replies, vibe note · `melee.py`.
+- `data/` (gitignored): her files (people.json, chatlogs/, diary.json, earned_examples.jsonl,
+  melee_channel.json, gomi.log). `models/`: `Modelfile.bolt`. `tools/`: `chat_check.py`, `vision_check.py`.
 - `finetuning/`: `gomihyu_seed.jsonl` (108 made-up chats, training only), `persona_guide.md` (read it
   before writing seed chats), `build_dataset.py`, `weekly.py` + `kaggle_train.py`. `archive/`: parked.
 
@@ -68,8 +73,8 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   user's Discord export (`Messages/`, `*.zip`).
 
 ## Open / to watch
-- Models compared Nov 17 (`tools/chat_check.py`, made-up chats, one judge): `gomi-bolt` (`Modelfile.bolt`)
-  thinking on did best, stock `gemma4:e4b` thinking on next with the best voice, `gomi-w1` thinking off
+- Models compared Nov 17 (`tools/chat_check.py`, made-up chats, one judge): `gomi-bolt`
+  (`models/Modelfile.bolt`) thinking on did best, stock `gemma4:e4b` thinking on next with the best voice, `gomi-w1` thinking off
   last (invents opinions, takes others' praise, talks down). Both thinking setups take ~10s a reply; Bolt
   can't see pictures. The user switched her to Bolt; not judged live yet (curt replies? the wait?).
 - Chime-ins don't think since Nov 22 (the user's pick): thinking ones took 13-20s and Doumi's answers (5-9s)

@@ -5,8 +5,8 @@ from aiohttp import web
 SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8771/api/chat", PEOPLE_FILE=f"{SP}/people_emo.json")
 sys.path.insert(0, REPO)
-from reactions import reacts_instead as ri, media_only, posted_emoji
-from chime import room_format as picker_format
+from gomi.reactions import reacts_instead as ri, media_only, posted_emoji
+from gomi.chime import room_format as picker_format
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 # --- when a reaction replaces a reply (max 2 words) ---
@@ -28,9 +28,9 @@ assert posted_emoji("🇯🇵") == "🇯🇵" and posted_emoji("❤️") == "❤
 assert posted_emoji("lol 💀") is None and posted_emoji("[image] 💀") is None and posted_emoji("") is None
 assert picker_format({"😤": "x", "kekpoint": "y"})["properties"]["emoji"]["enum"] == ["😤", "kekpoint", "none"]
 
-import bot, persona
+from gomi import bot, persona
 bot.CHIME_IN_THRESHOLD = 0; bot.VISION = False  # these are the text-only paths; test_vision.py has the rest
-from emojis import UNICODE
+from gomi.emojis import UNICODE
 # the chat prompt lists in-text emojis only
 assert ":kekpoint: (laughing at someone's fail)" in persona.SYSTEM_PROMPT
 assert "aryanosaka" not in persona.SYSTEM_PROMPT and "goonerstare" not in persona.SYSTEM_PROMPT

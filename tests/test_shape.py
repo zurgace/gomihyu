@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 from aiohttp import web
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8776/api/chat", PEOPLE_FILE=f"{TMP}/people_shape.json")
 sys.path.insert(0, REPO)
-from shape import asked, at_most, emojis_in, needs_room, one_emoji, quick, sentences_for, this_time, tidy, whole
-import persona
+from gomi.shape import asked, at_most, emojis_in, needs_room, one_emoji, quick, sentences_for, this_time, tidy, whole
+from gomi import persona
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 # --- one short line: a few words besides her name, no question, not bad news
@@ -105,7 +105,7 @@ assert "using the latest follow-ups and corrections" in pending
 assert "The newest speaker isn't necessarily talking to you" in pending
 assert "Respond to that newest message, not an older one" not in pending
 
-import bot
+from gomi import bot
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # every post gets a reply
 
 # --- the chat from the user's screenshot (2026-10-04), replayed: what she posts, what she's told
@@ -127,7 +127,7 @@ import json
 from pathlib import Path
 sys.path.insert(0, REPO + "/finetuning")
 import build_dataset
-from chatlog import ChatLog
+from gomi.chatlog import ChatLog
 old = {"history": [["yuzuki", "why do old people fall for every ai video"]], "reply": R1}
 valid = {**old, "reply": R1_POSTED, "real": True, "answered_requests": [],
          "history_meta": [{"id": 1, "text": old["history"][0][1], "addressed": False, "bot": False}]}

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from aiohttp import web
 os.environ["PEOPLE_FILE"] = TMP + "/people_test_repeat.json"; os.environ["DISCORD_BOT_TOKEN"] = "fake"; os.environ["OLLAMA_URL"] = "http://127.0.0.1:8767/api/chat"
 sys.path.insert(0, REPO)
-import bot
+from gomi import bot
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # these tests are about replies
 bot.ONE_LINE_MAX_WORDS = 0  # ...and the repeat guard, not their length (test_shape.py)
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)

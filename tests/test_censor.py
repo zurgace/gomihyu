@@ -6,7 +6,7 @@ from aiohttp import web
 SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8770/api/chat", PEOPLE_FILE=f"{SP}/people_censor.json")
 sys.path.insert(0, REPO)
-from censor import has_slur, WORDS
+from gomi.censor import has_slur, WORDS
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 assert len(WORDS) == 25 and "#" not in "".join(WORDS)
@@ -18,7 +18,7 @@ for text in ["this is so spicy", "a raccoon ate my melon bread", "japan trip", "
              "shit fuck damn, swearing stays", ""]:
     assert not has_slur(text), text
 
-import bot
+from gomi import bot
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0  # these tests are about replies
 reply = {"v": None}
 async def fake(request): return web.json_response({"message": {"content": reply["v"]}})

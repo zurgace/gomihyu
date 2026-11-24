@@ -3,7 +3,8 @@ import asyncio, os, sys, types, logging
 from aiohttp import web
 os.environ["PEOPLE_FILE"] = TMP + "/people_test_logs.json"; os.environ["DISCORD_BOT_TOKEN"] = "fake"; os.environ["OLLAMA_URL"] = "http://127.0.0.1:8766/api/chat"
 sys.path.insert(0, REPO)
-import aiohttp, bot
+import aiohttp
+from gomi import bot
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 mode = {"v": None}

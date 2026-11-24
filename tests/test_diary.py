@@ -9,10 +9,10 @@ T = Path(os.environ["CHAT_LOG_DIR"]).parent                          # run_all.s
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8766/api/chat", PEOPLE_FILE=str(T / "people.json"))
 sys.path.insert(0, REPO)
 import discord
-import bot, persona
-from chatlog import ChatLog, local_day
-from diary import Diary, chunks, day_label, diary_posts, parse_digest, digest_format, render_line
-from memory import PeopleMemory
+from gomi import bot, persona
+from gomi.chatlog import ChatLog, local_day
+from gomi.diary import Diary, chunks, day_label, diary_posts, parse_digest, digest_format, render_line
+from gomi.memory import PeopleMemory
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 0; bot.REACT_ONLY_MAX_WORDS = 0
 assert bot.CHAT_LOG_DIR == T / "chatlogs" and bot.DIARY_FILE == T / "diary.json"

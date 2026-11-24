@@ -10,8 +10,8 @@ OUT = T / "outbox"; OUT.mkdir()
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8764/api/chat", PEOPLE_FILE=str(T / "people.json"),
                   MELEE_OUTBOX=str(OUT), MELEE_PLAYER="Rex")
 sys.path.insert(0, REPO)
-import bot, melee
-from diary import parse_digest
+from gomi import bot, melee
+from gomi.diary import parse_digest
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 0; bot.REACT_ONLY_MAX_WORDS = 0
 bot.MELEE_CHANNEL_FILE = T / "melee_channel.json"

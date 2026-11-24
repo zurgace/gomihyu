@@ -7,11 +7,11 @@ from pathlib import Path
 sys.path.insert(0, os.environ["GOMI_REPO"])
 sys.path.insert(0, str(Path(os.environ["GOMI_REPO"]) / "finetuning"))
 
-from chatlog import ChatLog, raw_author_text
-from meld import landed_replies, voice_examples
+from gomi.chatlog import ChatLog, raw_author_text
+from gomi.meld import landed_replies, voice_examples
 from build_dataset import meld_examples, read_jsonl, render, voice_pool
-from persona import SYSTEM_PROMPT, example_targets, format_examples, system_content
-from meld import pick_examples
+from gomi.persona import SYSTEM_PROMPT, example_targets, format_examples, system_content
+from gomi.meld import pick_examples
 
 
 def post(i, author, text, **extra):

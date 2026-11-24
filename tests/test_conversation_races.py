@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 os.environ.update(DISCORD_BOT_TOKEN='fake', PEOPLE_FILE=f'{TMP}/race_people.json')
 sys.path.insert(0, REPO)
-import bot
+from gomi import bot
 
 NS = types.SimpleNamespace
 ids = itertools.count(10000)

@@ -2,7 +2,7 @@
 Type=Application
 Name=Gomi
 Comment=Gomihyu, the Discord bot, in the system tray
-Exec=GOMI_DIR/venv/bin/python GOMI_DIR/tray.py
-Icon=GOMI_DIR/icon.png
+Exec=GOMI_DIR/venv/bin/python GOMI_DIR/gomi/tray.py
+Icon=GOMI_DIR/gomi/icon.png
 Terminal=false
 Categories=Network;Chat;

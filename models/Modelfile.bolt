@@ -1,5 +1,5 @@
 # Optional Bolt candidate for the synthetic conversation comparison.
-# Create explicitly with: ollama create gomi-bolt -f Modelfile.bolt
+# Create explicitly with: ollama create gomi-bolt -f models/Modelfile.bolt
 # Creation may download the FROM model; it does not switch the running bot.
 
 FROM hf.co/unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF:UD-Q4_K_XL

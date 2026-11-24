@@ -14,6 +14,18 @@ works from, and most commits are Claude's.
 
 Every setting is in `.env.example`, with its default.
 
+## Layout
+```
+gomi/          the bot, a Python package (python -m gomi): bot.py runs the Discord side, persona.py
+               builds every prompt, chime.py reads the room, shape.py sizes each reply, tray.py is the app
+finetuning/    the weekly fine-tune on Kaggle, and the made-up seed chats it trains on
+tools/         model comparison (chat_check.py) and the vision check
+tests/         run_all.sh and a suite per feature, with Ollama, Discord and Kaggle faked
+models/        Modelfile.bolt, the Ollama model gomi-bolt
+archive/       parked experiments
+data/          her memory, chat logs and diary (made on her first run, gitignored)
+```
+
 ## Setup
 1. **Ollama and the model**
    ```bash
@@ -31,19 +43,19 @@ Every setting is in `.env.example`, with its default.
    ```bash
    python3 -m venv venv && venv/bin/pip install -r requirements.txt
    cp .env.example .env    # put the token in DISCORD_BOT_TOKEN
-   venv/bin/python bot.py  # "Logged in as Gomihyu" when connected
+   venv/bin/python -m gomi  # "Logged in as Gomihyu" when connected
    ```
    Stop with Ctrl+C (or "gomi goodnight"): she writes her diary first; a second Ctrl+C skips it.
    `ModuleNotFoundError` after a system update (CachyOS upgrades Python): rebuild the venv with
    `rm -rf venv && python3 -m venv venv && venv/bin/pip install -r requirements.txt`.
 
-   **As an app** (no console): `venv/bin/python tray.py` (Qt, from `requirements.txt`) puts her icon in
-   the system tray. Right-click it for **Open log** (what the console showed is in `gomi.log`, the run
-   before in `gomi.log.old`) and **Shut down** (the Ctrl+C above; click again to skip the diary). The
-   icon goes when she stops, with a notification if she crashed. To start her from the app menu (search
-   "Gomi"), once, in the repo folder:
+   **As an app** (no console): `venv/bin/python -m gomi.tray` (Qt, from `requirements.txt`) puts her
+   icon in the system tray. Right-click it for **Open log** (what the console showed is in
+   `data/gomi.log`, the run before in `data/gomi.log.old`) and **Shut down** (the Ctrl+C above; click
+   again to skip the diary). The icon goes when she stops, with a notification if she crashed. To start
+   her from the app menu (search "Gomi"), once, in the repo folder:
    ```bash
-   sed "s|GOMI_DIR|$PWD|g" gomihyu.desktop > ~/.local/share/applications/gomihyu.desktop
+   sed "s|GOMI_DIR|$PWD|g" gomi/gomihyu.desktop > ~/.local/share/applications/gomihyu.desktop
    ```
    Also copy that file into `~/.config/autostart/` to start her at login.
 
@@ -55,12 +67,12 @@ Every setting is in `.env.example`, with its default.
   `Read kaz0's post: '...', interest 3, react 9/10 (reacts at 8), 🔥 fits`.
 - **Reactions** are for moments: a big win, something really funny or cute, a painful fail. Pictures,
   stickers, emoji-only posts and 1–2 word interjections ("lol wtf") only ever get a reaction; sad news
-  gets a reply and `:catsad:`. `emojis.py` lists every emoji and when to use it: edit the notes to change
-  her picks.
+  gets a reply and `:catsad:`. `gomi/emojis.py` lists every emoji and when to use it: edit the notes to
+  change her picks.
 - **Talks like a member of the chat**: plain answers first, plays along, teases like a friend. She calls
   people by nickname, pings someone only to pull them in (never the person she's answering), and never
   brings up the made-up people from the seed chats (`kaz0`, `Nori`, ...).
-- **Reply shape is decided in code** (`shape.py`), since a small model copies its own last few messages:
+- **Reply shape is decided in code** (`gomi/shape.py`), since a small model copies its own last few messages:
   a post of at most `ONE_LINE_MAX_WORDS` (6) words that isn't a question gets one short line; a post
   aimed at her that asks for room ("make me a build", "explain ...", "list ...", "how do I ...", "walk me
   through", tips, a guide, a recipe) gets the whole answer, up to 6 sentences or a short list; anything
@@ -69,7 +81,8 @@ Every setting is in `.env.example`, with its default.
   an emoji (one at most), only if her last two messages didn't. A needed clarification is always allowed:
   she can ask what someone means instead of inventing an answer. Pending requests determine length even
   when newer short chatter arrives. At most three requests enter one reply; additional requests stay queued.
-- **Never says a slur**: a reply with a word from `slurs.txt` becomes `:goonerstare:`. Swearing is fine.
+- **Never says a slur**: a reply with a word from `gomi/slurs.txt` becomes `:goonerstare:`. Swearing is
+  fine.
 - **One reply at a time per channel**; whatever arrives meanwhile gets one follow-up, and drops a chime-in
   she hasn't posted yet. Questions to her still get answered, each asker their own, as a Discord reply if
   the chat moved on. A reply that fails, or may not have gone through, isn't resent: ask again.
@@ -80,16 +93,16 @@ Every setting is in `.env.example`, with its default.
 
 ## Memory and diary
 - "**gomi remember that** I hate cilantro" (or @mention her) stores it word for word (📝).
-  "gomi call me Rex" / "gomi Yuzuki's nickname is Yuzu" sets nicknames. Kept in `people.json`.
-- She logs the server's chat (`chatlogs/`, never DMs). At shutdown she writes her **diary**: a recap per
-  channel (`diary.json`; her last 3 days go in her prompt) and notes on people (kept only if the words
-  they're based on are that person's own, not a quote). A crash is caught up on at the next start.
+  "gomi call me Rex" / "gomi Yuzuki's nickname is Yuzu" sets nicknames. Kept in `data/people.json`.
+- She logs the server's chat (`data/chatlogs/`, never DMs). At shutdown she writes her **diary**: a recap
+  per channel (`data/diary.json`; her last 3 days go in her prompt) and notes on people (kept only if the
+  words they're based on are that person's own, not a quote). A crash is caught up on at the next start.
 - Each new recap is also **posted** in its channel (📔): right away on "gomi goodnight", at the next start
   after a Ctrl+C. Never her notes on people, and she ignores the post. `POST_DIARY=false` turns it off.
 - Each night her replies that **landed** (a person's positive reaction or laugh, with no complaint; a mention
-  or a reply alone isn't praise) become examples of her voice (`earned_examples.jsonl`, up to
+  or a reply alone isn't praise) become examples of her voice (`data/earned_examples.jsonl`, up to
   `FEW_SHOT_EXAMPLES` 8 per reply's prompt), and she updates a short note on how the server talks.
-- Stop the bot before editing any of these files. All of them are gitignored and stay on your PC.
+- Stop the bot before editing any of these files. `data/` is gitignored and stays on your PC.
 
 ## What she sees
 A Discord reply shows her a short quote of the post it answers, even an old one. She sees other bots'
@@ -162,9 +175,9 @@ Ollama, Discord, Kaggle and Unsloth are faked, and the suites run on a temporary
 your `.env` and data are never touched.
 
 ## Comparing conversation models
-`tools/chat_check.py` gives `gomi-w1`, `gemma4:e4b` and `gomi-bolt` (made from `Modelfile.bolt`) the same
-six made-up chats at seeds 17, 29 and 43, and writes every prompt, setting and reply to a new report.
-Nothing private is read, not even `.env`; the models must be installed already:
+`tools/chat_check.py` gives `gomi-w1`, `gemma4:e4b` and `gomi-bolt` (made from `models/Modelfile.bolt`)
+the same six made-up chats at seeds 17, 29 and 43, and writes every prompt, setting and reply to a new
+report. Nothing private is read, not even `.env`; the models must be installed already:
 ```bash
 venv/bin/python tools/chat_check.py --url http://localhost:11434/api/chat --think --output /tmp/gomi-comparison-thinking.md
 venv/bin/python tools/chat_check.py --url http://localhost:11434/api/chat --no-think --output /tmp/gomi-comparison-no-thinking.md

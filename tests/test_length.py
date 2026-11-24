@@ -6,7 +6,7 @@ SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8774/api/chat", PEOPLE_FILE=f"{SP}/people_len.json",
                   MAX_REPLY_TOKENS="120", OLLAMA_NUM_CTX="6144")
 sys.path.insert(0, REPO)
-import bot, persona
+from gomi import bot, persona
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 

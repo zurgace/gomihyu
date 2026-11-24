@@ -8,7 +8,7 @@ T = Path(os.environ["CHAT_LOG_DIR"]).parent
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8762/api/chat", PEOPLE_FILE=str(T / "people.json"),
                   OLLAMA_MODEL="gomi-w1", TASK_MODEL="gemma4:e4b", VISION_MODEL="gemma4:e4b")
 sys.path.insert(0, REPO)
-import bot
+from gomi import bot
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 assert bot.MODEL_NAME == "gomi-w1" and bot.TASK_MODEL == "gemma4:e4b" and bot.VISION_MODEL == "gemma4:e4b"
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 6

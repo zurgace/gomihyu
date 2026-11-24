@@ -9,7 +9,7 @@ PEOPLE = SP / "people_pings.json"
 PEOPLE.write_text(json.dumps({"111111111111111111": {"display_name": "REX MODE", "facts": [], "nickname": "Rex"}}))
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8772/api/chat", PEOPLE_FILE=str(PEOPLE))
 sys.path.insert(0, REPO)
-import bot, persona
+from gomi import bot, persona
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0; bot.examples = []
 

@@ -11,7 +11,7 @@ PEOPLE.write_text(json.dumps({
   "222222222222222222": {"display_name": "Yuzuki", "facts": ["I hate coffee"]}}))
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8773/api/chat", PEOPLE_FILE=str(PEOPLE))
 sys.path.insert(0, REPO)
-from memory import nicknames_in as n, PeopleMemory
+from gomi.memory import nicknames_in as n, PeopleMemory
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 assert n("ok then gomi remember that Yuzuki's nickname is Yuzu and your nickname is Gomi") == [("Yuzuki", "Yuzu")]
@@ -20,7 +20,7 @@ assert n("gomi, call @yuzuki Yuzu please") == [("yuzuki", "Yuzu")] and n('gomi c
 assert n("gomi call me later") == [] and n("gomi call me when you're free") == [] and n("gomi, your nickname is Gomi") == []
 assert n("gomi, kaz0's nick is Kaz. also hi") == [("kaz0", "Kaz")] and n("gomi call me " + "x" * 33) == []
 
-import bot, persona
+from gomi import bot, persona
 from datetime import datetime
 bot.local_now = lambda: datetime(2026, 10, 4, 23, 59)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0

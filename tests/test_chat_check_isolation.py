@@ -10,13 +10,13 @@ REPO, TMP = Path(os.environ["GOMI_REPO"]), Path(os.environ["GOMI_TMP"])
 repo = TMP / "checker-isolation"
 repo.mkdir()
 # Copy the import graph's source, never saved configuration, examples, logs or models.
-for name in ("persona.py", "shape.py", "emojis.py", "reactions.py", "chatlog.py", "chime.py",
-             "diary.py", "meld.py", "censor.py", "finetuning/weekly.py", "finetuning/build_dataset.py",
-             "tools/chat_check.py", "tools/vision_check.py"):
+for name in ("gomi/__init__.py", "gomi/persona.py", "gomi/shape.py", "gomi/emojis.py", "gomi/reactions.py",
+             "gomi/chatlog.py", "gomi/chime.py", "gomi/diary.py", "gomi/meld.py", "gomi/censor.py",
+             "finetuning/weekly.py", "finetuning/build_dataset.py", "tools/chat_check.py", "tools/vision_check.py"):
     dest = repo / name
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(REPO / name, dest)
-(repo / "slurs.txt").write_text("syntheticforbiddenword\n")
+(repo / "gomi" / "slurs.txt").write_text("syntheticforbiddenword\n")
 (repo / ".env").write_text(
     "GOMI_DOTENV_SENTINEL=synthetic-loaded\n"
     "OLLAMA_URL=http://dotenv.invalid:12123/api/chat\n"

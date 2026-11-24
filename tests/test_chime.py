@@ -7,7 +7,7 @@ SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8771/api/chat", PEOPLE_FILE=f"{SP}/people_chime.json")
 os.environ.pop("CHIME_IN_THRESHOLD", None)
 sys.path.insert(0, REPO)
-import bot, chime
+from gomi import bot, chime
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []
 assert bot.CHIME_IN_THRESHOLD == 6   # the default

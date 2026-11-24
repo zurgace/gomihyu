@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 
 os.environ.update(DISCORD_BOT_TOKEN='fake', PEOPLE_FILE=f'{TMP}/image_people.json')
 sys.path.insert(0, REPO)
-import bot
-from chatlog import ChatLog
-from meld import landed_replies
+from gomi import bot
+from gomi.chatlog import ChatLog
+from gomi.meld import landed_replies
 from finetuning.build_dataset import render
 
 NS = types.SimpleNamespace

@@ -8,8 +8,9 @@ os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8769/ap
                   MUTE_MINUTES="45")
 if os.path.exists(f"{SP}/people_mute.json"): os.remove(f"{SP}/people_mute.json")
 sys.path.insert(0, REPO)
-import discord, bot
-from commands import mute_request as m, unmute_request as u, FOREVER
+import discord
+from gomi import bot
+from gomi.commands import mute_request as m, unmute_request as u, FOREVER
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 2; bot.CHIME_IN_THRESHOLD = 0; bot.examples = []
 assert bot.MUTE_MINUTES == 45

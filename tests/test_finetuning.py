@@ -38,7 +38,7 @@ channel(4, "GUILD_TEXT", [
     ("2026-01-01 11:20:00", ">starts business\n>stress levels skyrocket"),
 ])
 channel(5, "PUBLIC_THREAD", [("2026-02-02 12:00:00", "thread message counts as public too")])
-slur = next(l.strip() for l in (REPO / "slurs.txt").read_text().splitlines() if l.strip() and not l.startswith("#"))
+slur = next(l.strip() for l in (REPO / "gomi" / "slurs.txt").read_text().splitlines() if l.strip() and not l.startswith("#"))
 channel(6, "GUILD_VOICE", [("2026-02-02 12:00:00", f"this one has {slur} in it though")])
 
 r = run(FT / "extract.py", export)

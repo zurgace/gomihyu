@@ -9,7 +9,7 @@ OUT = SP / "outbox"; shutil.rmtree(OUT, ignore_errors=True); OUT.mkdir()
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8768/api/chat", PEOPLE_FILE=str(SP / "people_melee.json"),
                   MELEE_OUTBOX=str(OUT), MELEE_PLAYER="Rex")
 sys.path.insert(0, REPO)
-import bot, melee
+from gomi import bot, melee
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []
 bot.MELEE_CHANNEL_FILE = SP / "melee_channel_test.json"; bot.MELEE_CHANNEL_FILE.unlink(missing_ok=True)

@@ -35,24 +35,24 @@ import aiohttp
 import discord
 from dotenv import load_dotenv
 
-from censor import has_slur
-from chatlog import ChatLog, local_day, raw_author_text
-from chime import Reading, parse_room, room_format, room_messages
-from commands import (ALL, FOREVER, delete_request, gg_request, goodnight_request, melee_here_request, melee_stop_request,
+from .censor import has_slur
+from .chatlog import ChatLog, local_day, raw_author_text
+from .chime import Reading, parse_room, room_format, room_messages
+from .commands import (ALL, FOREVER, delete_request, gg_request, goodnight_request, melee_here_request, melee_stop_request,
                       mute_request, quiet_request, unmute_request)
-from diary import Diary, chunks, diary_posts, digest_format, digest_messages, parse_digest, render_line
-from meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
-from emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
-from melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
+from .diary import Diary, chunks, diary_posts, digest_format, digest_messages, parse_digest, render_line
+from .meld import VIBE_FORMAT, landed_replies, parse_vibe, pick_examples, vibe_messages
+from .emojis import CUSTOM, LOOKING, SAD_NEWS, SLUR_STANDIN, UNICODE
+from .melee import (TAUNT_WINDOW_SECONDS, default_outbox, load_channel, read_outbox, save_channel, session_facts,
                    session_ready, stale)
-from memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
-from persona import (BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line,
+from .memory import PeopleMemory, aimed_at_her, fact_to_remember, nicknames_in
+from .persona import (BOT_NAME, BOT_NICKNAME, build_goodnight_messages, build_messages, build_session_messages, format_line,
                      made_up_names, example_targets)
-from reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
-from shape import (LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, WHOLE, at_most, one_emoji, sentences_for, this_time,
+from .reactions import media_only, names_her, posted_emoji, reacts_instead, sad_news
+from .shape import (LINE_SENTENCES, MAX_SENTENCES, SENTENCE_END, WHOLE, at_most, one_emoji, sentences_for, this_time,
                    whole)
-import vision
-from vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
+from . import vision
+from .vision import clean_description, describe_messages, embed_label, jpeg_b64, label, sources
 
 load_dotenv()
 
@@ -98,16 +98,18 @@ OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "false").strip().lower() in ("1", "true", "yes", "on")
 # Whether the model thinks even when told not to (some do), seen in a response. Nothing is capped then.
 model_thinks = False
-# Facts people ask her to remember; relative paths are next to this file. Survives restarts.
-PEOPLE_FILE = Path(__file__).resolve().parent / os.environ.get("PEOPLE_FILE", "people.json")
+# Her files are in data/ (gitignored) by default; relative paths are from the repo root.
+ROOT = Path(__file__).resolve().parent.parent
+# Facts people ask her to remember. Survives restarts.
+PEOPLE_FILE = ROOT / os.environ.get("PEOPLE_FILE", "data/people.json")
 MAX_FACTS_PER_PERSON = int(os.environ.get("MAX_FACTS_PER_PERSON", "20"))
 # Her diary (diary.py): when the bot shuts down she reads the day's chat log (every message in the
 # server's channels, kept in CHAT_LOG_DIR; never DMs) and writes a recap per channel (DIARY_FILE)
 # and notes on people (people.json, at most MAX_LEARNED_PER_PERSON each, oldest dropping off). Her
 # prompt gets the last RECAP_DAYS days of recaps, and after a restart she picks the chat back up
 # from the log if it's newer than HISTORY_RELOAD_HOURS.
-CHAT_LOG_DIR = Path(__file__).resolve().parent / os.environ.get("CHAT_LOG_DIR", "chatlogs")
-DIARY_FILE = Path(__file__).resolve().parent / os.environ.get("DIARY_FILE", "diary.json")
+CHAT_LOG_DIR = ROOT / os.environ.get("CHAT_LOG_DIR", "data/chatlogs")
+DIARY_FILE = ROOT / os.environ.get("DIARY_FILE", "data/diary.json")
 MAX_LEARNED_PER_PERSON = int(os.environ.get("MAX_LEARNED_PER_PERSON", "10"))
 RECAP_DAYS = int(os.environ.get("RECAP_DAYS", "3"))
 HISTORY_RELOAD_HOURS = float(os.environ.get("HISTORY_RELOAD_HOURS", "12"))
@@ -118,7 +120,7 @@ POST_DIARY = os.environ.get("POST_DIARY", "true").strip().lower() in ("1", "true
 # EARNED_FILE as her example chats (with SEED_EXAMPLES, replacing Satania ones as they pile up: MELD_FULL_AT
 # earned, all the way down to MELD_ANCHOR, the share of Satania examples that always stays); and, with at
 # least VIBE_MIN_MESSAGES new messages, her note on how the server talks is updated.
-EARNED_FILE = Path(__file__).resolve().parent / os.environ.get("EARNED_FILE", "earned_examples.jsonl")
+EARNED_FILE = ROOT / os.environ.get("EARNED_FILE", "data/earned_examples.jsonl")
 MELD_ANCHOR = float(os.environ.get("MELD_ANCHOR", "0.3"))
 MELD_FULL_AT = int(os.environ.get("MELD_FULL_AT", "200"))
 VIBE_MIN_MESSAGES = int(os.environ.get("VIBE_MIN_MESSAGES", "10"))
@@ -146,7 +148,7 @@ HUSHED_EMOJI = "🤐"  # on posts aimed at her while she's muted, so people know
 # prompt): the seed only trains her now.
 FEW_SHOT_EXAMPLES = int(os.environ.get("FEW_SHOT_EXAMPLES", "8"))
 SEED_EXAMPLES = os.environ.get("SEED_EXAMPLES", "false").strip().lower() in ("1", "true", "yes", "on")
-SEED_FILE = Path(__file__).resolve().parent / "finetuning" / "gomihyu_seed.jsonl"
+SEED_FILE = ROOT / "finetuning" / "gomihyu_seed.jsonl"
 # Melee results (melee.py): the outbox folder AI-Melee leaves her taunts and matches in (by default the
 # one both programs know, ~/.local/share/gomihyu/melee-outbox), and the channel she posts them in: the
 # one an owner picked with "gomi post melee here" (kept in MELEE_CHANNEL_FILE), else MELEE_CHANNEL_ID.
@@ -154,7 +156,7 @@ SEED_FILE = Path(__file__).resolve().parent / "finetuning" / "gomihyu_seed.jsonl
 # match has come for MELEE_SESSION_IDLE_MINUTES (the game was force-quit). A session whose newest match
 # is older than MELEE_MAX_AGE_MINUTES (played while the bot was off) is dropped unposted.
 MELEE_OUTBOX = Path(os.environ.get("MELEE_OUTBOX", "").strip() or default_outbox()).expanduser()
-MELEE_CHANNEL_FILE = Path(__file__).resolve().parent / "melee_channel.json"
+MELEE_CHANNEL_FILE = ROOT / "data" / "melee_channel.json"
 MELEE_CHANNEL_ID = int(os.environ.get("MELEE_CHANNEL_ID", "0").strip() or "0")
 MELEE_EMOJI = "🎮"  # reaction confirming this channel gets her Melee posts
 NO_MELEE_EMOJI = "🔕"
@@ -1520,6 +1522,8 @@ def reload_history() -> None:
 
 
 async def main() -> None:
+    for path in (PEOPLE_FILE, DIARY_FILE, EARNED_FILE, MELEE_CHANNEL_FILE):
+        path.parent.mkdir(parents=True, exist_ok=True)  # data/ on a fresh clone: her saves don't make folders
     reload_history()
     # Ctrl+C (asyncio cancels this task), a stop (SIGTERM) or a closed terminal (SIGHUP): write her diary
     # first. A second Ctrl+C skips it; the next start catches up.
@@ -1544,10 +1548,3 @@ async def main() -> None:
             log.info("Diary written. Goodnight.")
         except asyncio.CancelledError:
             log.info("Skipped her diary; she'll catch up at the next start")
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass

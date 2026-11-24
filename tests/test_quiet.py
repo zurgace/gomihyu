@@ -7,8 +7,8 @@ SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8767/api/chat", PEOPLE_FILE=f"{SP}/people_quiet.json")
 if os.path.exists(f"{SP}/people_quiet.json"): os.remove(f"{SP}/people_quiet.json")
 sys.path.insert(0, REPO)
-import bot, chime
-from commands import quiet_request as q, unmute_request as u, FOREVER
+from gomi import bot, chime
+from gomi.commands import quiet_request as q, unmute_request as u, FOREVER
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 6; bot.REACT_ONLY_MAX_WORDS = 2
 

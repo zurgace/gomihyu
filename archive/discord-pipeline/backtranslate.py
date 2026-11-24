@@ -28,12 +28,12 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for censor.py and persona.py
+sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for the gomi package
 
 from dotenv import load_dotenv  # noqa: E402
 
-from censor import has_slur  # noqa: E402
-from persona import BOT_NAME  # noqa: E402
+from gomi.censor import has_slur  # noqa: E402
+from gomi.persona import BOT_NAME  # noqa: E402
 
 load_dotenv(HERE.parent / ".env")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")

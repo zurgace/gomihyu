@@ -50,13 +50,13 @@ sys.path[:0] = [str(ROOT), str(HERE), str(ROOT / "tools")]
 from dotenv import load_dotenv  # noqa: E402
 
 import build_dataset  # noqa: E402  (finetuning/build_dataset.py)
-from chatlog import ChatLog, local_day  # noqa: E402
-from chime import parse_room, room_format, room_messages  # noqa: E402
-from diary import Diary, digest_format, digest_messages, parse_digest  # noqa: E402
-from emojis import UNICODE  # noqa: E402
-from meld import MELD_RUNS, persona_share, pick_examples  # noqa: E402
-from persona import build_messages, format_line  # noqa: E402
-from reactions import names_her  # noqa: E402
+from gomi.chatlog import ChatLog, local_day  # noqa: E402
+from gomi.chime import parse_room, room_format, room_messages  # noqa: E402
+from gomi.diary import Diary, digest_format, digest_messages, parse_digest  # noqa: E402
+from gomi.emojis import UNICODE  # noqa: E402
+from gomi.meld import MELD_RUNS, persona_share, pick_examples  # noqa: E402
+from gomi.persona import build_messages, format_line  # noqa: E402
+from gomi.reactions import names_her  # noqa: E402
 
 RUNS = HERE / "runs"
 STATE = RUNS / "runs.json"
@@ -219,8 +219,8 @@ def cmd_build(args) -> bool:
         number = done[-1]["run"] + 1 if done else 1
     before = next((r for r in reversed(done) if r["run"] < number), {"landed": 0, "voice": 0})
 
-    chat_log = ChatLog(ROOT / setting("CHAT_LOG_DIR", "chatlogs"))
-    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
+    chat_log = ChatLog(ROOT / setting("CHAT_LOG_DIR", "data/chatlogs"))
+    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "data/earned_examples.jsonl"), real=True)
     voice = len(build_dataset.voice_pool(chat_log))
     new = new_examples(before, len(earned), voice)
     since = f"run {before['run']}" if "run" in before else "the start"
@@ -484,12 +484,12 @@ def cmd_check(args) -> bool:
     now = current if not same_model(current, new) else args.stock
     # the example chats she'd get on `now`: the bot's setting for what she runs on, the default for the stock model
     few = int(setting("FEW_SHOT_EXAMPLES", "8")) if now == current else 8
-    diary_file = ROOT / setting("DIARY_FILE", "diary.json")
+    diary_file = ROOT / setting("DIARY_FILE", "data/diary.json")
     vibe = Diary(diary_file).vibe() if diary_file.exists() else []
     # her prompt's seed chats, if the bot shows them (SEED_EXAMPLES): it only trains her by default
     shows_seed = setting("SEED_EXAMPLES", "false").lower() in ("1", "true", "yes", "on")
     seed = build_dataset.read_jsonl(build_dataset.SEED) if shows_seed else []
-    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
+    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "data/earned_examples.jsonl"), real=True)
     anchor, full_at = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_FULL_AT", "200"))
     think = thinks()
     cap = {"num_predict": int(setting("MAX_REPLY_TOKENS", "200"))}  # none when thinking: it counts against it
@@ -600,8 +600,8 @@ def cmd_status(args) -> bool:
     number = done[-1]["run"] + 1 if done else 1
     anchor, runs = float(setting("MELD_ANCHOR", "0.3")), int(setting("MELD_RUNS", str(MELD_RUNS)))
     before = done[-1] if done else {"landed": 0, "voice": 0}
-    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "earned_examples.jsonl"), real=True)
-    voice = len(build_dataset.voice_pool(ChatLog(ROOT / setting("CHAT_LOG_DIR", "chatlogs"))))
+    earned = build_dataset.read_jsonl(ROOT / setting("EARNED_FILE", "data/earned_examples.jsonl"), real=True)
+    voice = len(build_dataset.voice_pool(ChatLog(ROOT / setting("CHAT_LOG_DIR", "data/chatlogs"))))
     new = new_examples(before, len(earned), voice)
     growth = (f"{new} new examples from the server so far, a run wants {args.min_new}." if new is not None else
               f"new example count unknown: run {before['run']} used different provenance rules. "

@@ -10,7 +10,7 @@ sys.path.insert(0, REPO + "/tools")
 os.environ.update(OLLAMA_MODEL="fake-current", OLLAMA_THINK="false", OLLAMA_NUM_CTX="4096",
                   MAX_REPLY_TOKENS="123")
 import chat_check
-from shape import this_time
+from gomi.shape import this_time
 
 requests, gets = [], []
 mode = {"content": "First full sentence. Second full sentence. Third full sentence. Fourth full sentence.",
@@ -159,7 +159,7 @@ try:
             (seed, model) for seed in chat_check.SEEDS for model in chat_check.MODELS]
         assert all(r["messages"] == chat_check.prompt(case, now)[0] for r in matrix)
         assert all(r["options"] == matrix[0]["options"] for r in matrix[:3])
-    assert "bot" not in sys.modules  # no Discord client, data stores or bot startup
+    assert "gomi.bot" not in sys.modules  # no Discord client, data stores or bot startup
 
     # Missing and inline-only thinking are measured from actual returned text.
     assert not chat_check.response_details({"message": {"content": "An answer."}})["thinking_present"]

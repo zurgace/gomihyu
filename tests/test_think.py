@@ -5,7 +5,7 @@ from aiohttp import web
 SP = TMP
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8775/api/chat", PEOPLE_FILE=f"{SP}/people_think.json")
 sys.path.insert(0, REPO)
-import bot
+from gomi import bot
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 
@@ -103,10 +103,10 @@ async def main():
 asyncio.run(main())
 
 # OLLAMA_THINK=true in .env turns it back on
-out = subprocess.run([sys.executable, "-c", "import bot; print(bot.OLLAMA_THINK)"], cwd=REPO,
+out = subprocess.run([sys.executable, "-c", "from gomi import bot; print(bot.OLLAMA_THINK)"], cwd=REPO,
                      env={**os.environ, "OLLAMA_THINK": "true"}, capture_output=True, text=True)
 assert out.stdout.strip().endswith("True"), out
-out = subprocess.run([sys.executable, "-c", "import bot; print(bot.model_thinks, bot.cap(200, bot.OLLAMA_THINK), bot.cap(80))"],
+out = subprocess.run([sys.executable, "-c", "from gomi import bot; print(bot.model_thinks, bot.cap(200, bot.OLLAMA_THINK), bot.cap(80))"],
                      cwd=REPO, env={**os.environ, "OLLAMA_THINK": "true"}, capture_output=True, text=True)
 assert out.stdout.strip().endswith("False {} {'num_predict': 80}"), out  # replies uncapped from the first, the rest not
 print("OLLAMA_THINK ENV OK")

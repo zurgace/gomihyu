@@ -9,7 +9,7 @@ T = Path(os.environ["CHAT_LOG_DIR"]).parent
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8764/api/chat", PEOPLE_FILE=str(T / "people.json"))
 os.environ.pop("AVATAR_DESCRIPTION", None)
 sys.path.insert(0, REPO)
-import bot, chime, persona, vision
+from gomi import bot, chime, persona, vision
 import discord
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 6; bot.REACT_ONLY_MAX_WORDS = 2

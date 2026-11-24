@@ -9,7 +9,7 @@ T = Path(os.environ["CHAT_LOG_DIR"]).parent
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8763/api/chat", PEOPLE_FILE=str(T / "people.json"),
                   VISION_MODEL="moondream")
 sys.path.insert(0, REPO)
-import bot, persona, vision, reactions
+from gomi import bot, persona, vision, reactions
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 0; bot.REACT_ONLY_MAX_WORDS = 2; bot.EMBED_WAIT_SECONDS = 0.05
 assert bot.VISION is True and bot.VISION_MODEL == "moondream" and bot.VISION_MAX_IMAGES == 3

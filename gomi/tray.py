@@ -3,12 +3,13 @@ Gomi as a desktop app: an icon in the system tray instead of a console window (u
 gomi be an app (or as a notification icon on my task bar) on my 2070box so I dont need to keep a console
 open just for gomi ... be able to shut down gomi by the app too").
 
-    venv/bin/python tray.py     (README, "Run": the app-menu entry that starts it)
+    venv/bin/python -m gomi.tray     (README, "Run"; the app-menu entry, gomihyu.desktop, runs this file)
 
-Runs bot.py as is, its console output going to gomi.log (the run before in gomi.log.old). Right-click
-the icon: "Open log" (the read lines for tuning the thresholds are there now), "Shut down" (Ctrl+C:
-she writes her diary first; clicking again skips it). The icon goes once she's stopped, however she
-stopped ("gomi goodnight" too), with a notification if she crashed; and she stops if the tray goes.
+Runs her (python -m gomi) as is, her console output going to data/gomi.log (the run before in
+data/gomi.log.old). Right-click the icon: "Open log" (the read lines for tuning the thresholds are there
+now), "Shut down" (Ctrl+C: she writes her diary first; clicking again skips it). The icon goes once she's
+stopped, however she stopped ("gomi goodnight" too), with a notification if she crashed; and she stops if
+the tray goes.
 """
 
 import ctypes
@@ -23,7 +24,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 HERE = Path(__file__).resolve().parent
-LOG = HERE / "gomi.log"
+ROOT = HERE.parent
+LOG = ROOT / "data" / "gomi.log"
 PR_SET_PDEATHSIG = 1
 
 
@@ -66,11 +68,12 @@ def main() -> None:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)  # one Gomi: two would answer everything twice
     except BlockingIOError:
         sys.exit("Gomi's already running (her icon's in the tray)")
+    LOG.parent.mkdir(exist_ok=True)
     if LOG.exists():
         LOG.replace(LOG.with_name("gomi.log.old"))
     with open(LOG, "w") as out:
         # Started before Qt's threads; she gets SIGTERM (and writes her diary) if the tray dies or is killed.
-        bot = subprocess.Popen([sys.executable, "-u", "bot.py"], cwd=HERE, stdin=subprocess.DEVNULL, stdout=out,
+        bot = subprocess.Popen([sys.executable, "-u", "-m", "gomi"], cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out,
                                stderr=subprocess.STDOUT,
                                preexec_fn=lambda: ctypes.CDLL(None).prctl(PR_SET_PDEATHSIG, signal.SIGTERM))
     app = QApplication(sys.argv)

@@ -28,8 +28,8 @@ try:
 except ImportError:  # requirements not reinstalled since vision came in: bot.py turns vision off and says so
     Image = None
 
-from censor import has_slur
-from persona import BOT_NICKNAME
+from .censor import has_slur
+from .persona import BOT_NICKNAME
 
 MAX_SIDE = 1024  # pixels; the vision tower works on a fixed token budget, so bigger only costs bandwidth
 MAX_DESCRIPTION = 160

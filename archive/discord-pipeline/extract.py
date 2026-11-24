@@ -22,10 +22,10 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for censor.py and emojis.py
+sys.path.insert(0, str(HERE.parent.parent))  # the repo root, for the gomi package
 
-from censor import has_slur  # noqa: E402
-from emojis import CUSTOM  # noqa: E402
+from gomi.censor import has_slur  # noqa: E402
+from gomi.emojis import CUSTOM  # noqa: E402
 
 OUT = HERE / "data" / "replies.jsonl"
 # Channel types whose messages anyone in the server could read. Everything else is private.

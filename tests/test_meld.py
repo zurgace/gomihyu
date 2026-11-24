@@ -7,8 +7,8 @@ from aiohttp import web
 T = Path(os.environ["CHAT_LOG_DIR"]).parent
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8765/api/chat", PEOPLE_FILE=str(T / "people.json"))
 REPO = Path(REPO); sys.path.insert(0, str(REPO))
-import bot, persona, meld
-from chatlog import ChatLog
+from gomi import bot, persona, meld
+from gomi.chatlog import ChatLog
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.CHIME_IN_THRESHOLD = 0; bot.REACT_ONLY_MAX_WORDS = 0
 assert bot.EARNED_FILE == T / "earned.jsonl" and bot.MELD_ANCHOR == 0.3 and bot.MELD_FULL_AT == 200

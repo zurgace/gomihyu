@@ -27,8 +27,8 @@ Her replies that landed before this (meld.py) are held to the same limits (tidy)
 
 import re
 
-from emojis import CUSTOM
-from reactions import ADDRESSED, EMOJI, MEDIA, sad_news, words
+from .emojis import CUSTOM
+from .reactions import ADDRESSED, EMOJI, MEDIA, sad_news, words
 
 RECENT = 2  # her own latest messages that "now and then" looks back on
 LINE_SENTENCES = 2  # a one-line reply: "AGAIN?? ...third time's the charm, kaz0. probably." is still one

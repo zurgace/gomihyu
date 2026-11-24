@@ -8,8 +8,8 @@ from PIL import Image
 T = Path(os.environ["CHAT_LOG_DIR"]).parent
 os.environ.update(DISCORD_BOT_TOKEN="fake", OLLAMA_URL="http://127.0.0.1:8761/api/chat", PEOPLE_FILE=str(T / "people.json"))
 sys.path.insert(0, REPO)
-import bot, chime
-from emojis import UNICODE
+from gomi import bot, chime
+from gomi.emojis import UNICODE
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.examples = []; bot.CHIME_IN_THRESHOLD = 6; bot.REACT_ONLY_MAX_WORDS = 2
 assert bot.REACT_TO_CHAT is True and bot.REACT_THRESHOLD == 8 and {"🥺", "😳", "💀"} <= set(UNICODE)
