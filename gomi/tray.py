@@ -5,9 +5,9 @@ open just for gomi ... be able to shut down gomi by the app too").
 
     venv/bin/python -m gomi.tray     (README, "Run"; the app-menu entry, gomihyu.desktop, runs this file)
 
-Runs her (python -m gomi) as is, her console output going to data/gomi.log (the run before in
-data/gomi.log.old). Right-click the icon: "Open log" (the read lines for tuning the thresholds are there
-now), "Shut down" (Ctrl+C: she writes her diary first; clicking again skips it). The icon goes once she's
+Runs her (python -m gomi) as is, her console output going to data/gomi.log (earlier runs in data/logs/,
+named by when they ended). Right-click the icon: "Open log" (the read lines for tuning the thresholds are
+there now), "Shut down" (Ctrl+C: she writes her diary first; clicking again skips it). The icon goes once she's
 stopped, however she stopped ("gomi goodnight" too), with a notification if she crashed; and she stops if
 the tray goes.
 """
@@ -17,6 +17,7 @@ import fcntl
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QTimer
@@ -70,7 +71,11 @@ def main() -> None:
         sys.exit("Gomi's already running (her icon's in the tray)")
     LOG.parent.mkdir(exist_ok=True)
     if LOG.exists():
-        LOG.replace(LOG.with_name("gomi.log.old"))
+        # Every run's log is kept (Nov 24): one old copy held a day of room reads, too few to tune the thresholds.
+        # shortcut: never pruned (~25KB a run), prune if data/logs/ ever gets big.
+        old = LOG.parent / "logs" / time.strftime("gomi-%Y-%m-%d-%H%M%S.log", time.localtime(LOG.stat().st_mtime))
+        old.parent.mkdir(exist_ok=True)
+        LOG.replace(old)
     with open(LOG, "w") as out:
         # Started before Qt's threads; she gets SIGTERM (and writes her diary) if the tray dies or is killed.
         bot = subprocess.Popen([sys.executable, "-u", "-m", "gomi"], cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out,

@@ -236,7 +236,7 @@ code, out = weekly("build")
 assert code == 0 and "Built run 1" in out and "persona (aimed for 70%)" in out, out
 upload = repo / "finetuning" / "runs" / "w1" / "upload"
 rows = [json.loads(l) for l in (upload / "train.jsonl").read_text().splitlines()]
-assert len(rows) == 324 + 139 and all(r["messages"][-1]["role"] == "assistant" for r in rows)
+assert len(rows) == 384 + 165 and all(r["messages"][-1]["role"] == "assistant" for r in rows)
 assert json.loads((upload / "run.json").read_text()) == {"run": 1, "base": "unsloth/gemma-4-E4B-it", "epochs": 1,
                                                           "rank": 16, "lr": 2e-4, "max_len": 2048, "quant": "Q4_K_M"}
 assert state()["runs"][0]["stage"] == "built" and state()["runs"][0]["landed"] == 10
@@ -249,7 +249,7 @@ assert code == 0 and "tester/gomi-meld-w1" in out and "kaggle.com/code/tester/go
 k = kaggle_state()
 assert ["datasets", "create", "-p", str(upload)] in k["log"] and "tester/gomi-meld-w1" in k["datasets"]
 p = k["pushed"]
-assert p["run"] == 1 and p["data_run"] == 1 and p["accelerator"] == "NvidiaTeslaT4" and p["rows"] == 324 + 139
+assert p["run"] == 1 and p["data_run"] == 1 and p["accelerator"] == "NvidiaTeslaT4" and p["rows"] == 384 + 165
 assert p["meta"]["is_private"] and p["meta"]["enable_gpu"] and p["meta"]["enable_internet"]
 assert p["meta"]["dataset_sources"] == ["tester/gomi-meld-w1"] and p["meta"]["id"] == "tester/gomi-meld"
 assert state()["runs"][0]["stage"] == "training"

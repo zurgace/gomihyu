@@ -61,7 +61,7 @@ assert tray.LOG == T / "data" / "gomi.log"
 tray.LOG.parent.mkdir(); tray.LOG.write_text("the run before\n")     # the real main(), as the app menu runs it
 first = subprocess.Popen([sys.executable, str(G / "tray.py")])
 assert wait_for(lambda: "Logged in" in tray.LOG.read_text())
-assert (T / "data" / "gomi.log.old").read_text() == "the run before\n"
+assert [p.read_text() for p in (T / "data" / "logs").glob("gomi-*.log")] == ["the run before\n"]
 second = subprocess.run([sys.executable, str(G / "tray.py")], capture_output=True, text=True, timeout=30)
 assert second.returncode == 1 and "already running" in second.stderr, second
 first.kill(); first.wait()                                            # the tray's gone: she still writes her diary

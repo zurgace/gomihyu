@@ -51,7 +51,7 @@ data/          her memory, chat logs and diary (made on her first run, gitignore
 
    **As an app** (no console): `venv/bin/python -m gomi.tray` (Qt, from `requirements.txt`) puts her
    icon in the system tray. Right-click it for **Open log** (what the console showed is in
-   `data/gomi.log`, the run before in `data/gomi.log.old`) and **Shut down** (the Ctrl+C above; click
+   `data/gomi.log`, earlier runs in `data/logs/`) and **Shut down** (the Ctrl+C above; click
    again to skip the diary). The icon goes when she stops, with a notification if she crashed. To start
    her from the app menu (search "Gomi"), once, in the repo folder:
    ```bash

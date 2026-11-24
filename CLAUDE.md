@@ -34,8 +34,9 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
   `commands.py` owner commands · `censor.py` + `slurs.txt` · `tray.py` runs her from the system tray.
 - `memory.py` people.json · `chatlog.py` · `diary.py` · `meld.py` landed replies, vibe note · `melee.py`.
 - `data/` (gitignored): her files (people.json, chatlogs/, diary.json, earned_examples.jsonl,
-  melee_channel.json, gomi.log). `models/`: `Modelfile.bolt`. `tools/`: `chat_check.py`, `vision_check.py`.
-- `finetuning/`: `gomihyu_seed.jsonl` (108 made-up chats, training only), `persona_guide.md` (read it
+  melee_channel.json, gomi.log, logs/ with every earlier run's). `models/`: `Modelfile.bolt`. `tools/`:
+  `chat_check.py`, `vision_check.py`.
+- `finetuning/`: `gomihyu_seed.jsonl` (128 made-up chats, training only), `persona_guide.md` (read it
   before writing seed chats), `build_dataset.py`, `weekly.py` + `kaggle_train.py`. `archive/`: parked.
 
 ## Locked in (ask before changing)
@@ -75,22 +76,32 @@ read them before changing it. `README.md` is the user manual; `.env.example` lis
 ## Open / to watch
 - Models compared Nov 17 (`tools/chat_check.py`, made-up chats, one judge): `gomi-bolt` thinking on did
   best, stock `gemma4:e4b` thinking on next with the best voice, `gomi-w1` thinking off last (invents
-  opinions, takes others' praise, talks down). Both thinking setups take ~10s a reply. Live, Bolt talked
-  too direct, so she's back on stock (Nov 24); the wait isn't judged yet.
+  opinions, takes others' praise, talks down). Live, Bolt talked too direct, so she's back on stock (Nov
+  24). Stock with thinking answered 9-14s after the post on Nov 23 (median 11s, nobody complained): the
+  user judges whether that wait is fine.
 - Chime-ins don't think since Nov 22 (the user's pick): thinking ones took 13-20s and Doumi's answers (5-9s)
-  dropped 3 of 5. Watch whether they go flat (Nov 17: thinking off had the flattest voice).
-- Answering Doumi (Nov 22) is untried live: does Doumi's room read answer her back, and are 2 turns each a
-  round enough for a debate? Doumi's side is entertainerllm's (its firm rule 1: point there, confirm first).
-- Earned examples saved before Nov 14 counted any mention or reaction as approval (of 80, 62 only because
-  someone named her after, 11 for an angry reaction; 60 trained W1). Review them before the next build
-  (`weekly.py build --force`), and add good examples of topic changes, not knowing, follow-ups, plain answers.
-- Not fixed: pre-Nov 14 logs can hold a picture post saved after later ones, and the diary resumes after a
-  timestamp, so posts sharing one across a part break, or after the clock goes back, can be skipped.
+  dropped 3 of 5. Nov 23: 8 posted 3-10s after the post, 1 more dropped; not flat so far, but half asked
+  something back and one was a bare emoji. Keep watching (Nov 17: thinking off had the flattest voice).
+- Answering Doumi (Nov 22) is still untried live (Doumi hasn't named, pinged or replied to her since): does
+  Doumi's room read answer her back, and are 2 turns each a round enough for a debate? Doumi's side is
+  entertainerllm's (its firm rule 1: point there, confirm first).
+- Landed replies: the 80 saved before Nov 14 (any mention or reaction counted as approval) lack the
+  provenance `build_dataset.render` needs, so no build or prompt uses them, and none has landed since (Nov
+  14-23: 3 angry and 2 :kekpoint: reactions on her 41 posts, no laughs). Until one does, a build
+  (`weekly.py build --force`) is the seed plus server voice.
+- Known limit, checked Nov 24: the diary resumes after a timestamp, so a post sharing one across a part
+  break, or after the clock goes back, can be skipped; neither has happened in 3,030 logged posts. 11 posts
+  from Oct 2-15 (8 pictures) were logged 3-11s late, so a few voice examples near them are out of order.
 - Open: whether training also mixes in the parked Discord-export pipeline (the user's lowercase bursts,
-  DMs excluded); likely 1–3k examples, which the user checks first.
+  DMs excluded); likely 1–3k examples, which the user checks first. It needs the user's Discord data
+  package, which isn't on this machine (Nov 24).
 - Live tuning: the `Read ... react n/10` / `Interest n/10` log lines → the thresholds, then `chime.py`'s
-  anchors.
-- Not judged live yet: reply shapes (jabs one line? does the room phrase list catch real requests, and is
-  6 sentences right? emoji / asking back at most 1 in 3?), then `OLLAMA_THINK=true` on stock gemma4:e4b
-  (a fine-tune trained without it may not think well), the friend-first persona, the date, melon-bread
-  frequency, nicknames and "who am I?", vision, the slur filter, and the shouted corrections staying rare.
+  anchors; `data/logs/` keeps every run's since Nov 24. Nov 23 at 8/8: 42 reads, interest 5-8 (half 7,
+  never 9-10), 6 chime-ins in 12 hours. The run before, probably still at 6, chimed in 3 times in 3
+  minutes (the user: "gomi yapping too much").
+- Not judged live yet (none came up Nov 14-23): whether the room phrase list catches real requests and 6
+  sentences is right, the date, "who am I?", the slur filter; the shouted corrections only matter once a
+  fine-tune serves her. Seen: jab replies mostly one short line, but two ran two full sentences (~30
+  words; `LINE_SENTENCES` allows 2); emoji in 1 of 3 posts, asking back 1 in 4; no melon bread; a nickname
+  used; vision plausible (pictures ~1s, link previews ~5s); on stock the Archdemon act ran long once; 4
+  replies failed Nov 14-15 (the log with the cause is gone), none since.

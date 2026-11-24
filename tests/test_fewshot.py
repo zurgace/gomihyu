@@ -11,7 +11,7 @@ NOW = datetime(2026, 10, 4, 13, 31); bot.local_now = lambda: NOW
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 bot.REACT_ONLY_MAX_WORDS = 0; bot.CHIME_IN_THRESHOLD = 0
 seed = [json.loads(l) for l in open(REPO + "/finetuning/gomihyu_seed.jsonl") if l.strip()]
-assert len(seed) == 108 and bot.SEED_EXAMPLES is False and bot.examples == []   # the seed only trains her now
+assert len(seed) == 128 and bot.SEED_EXAMPLES is False and bot.examples == []   # the seed only trains her now
 assert bot.MADE_UP.search("go bother @kaz0")  # its people are fake all the same: the seed trains her
 
 calls, answers = [], []
@@ -104,13 +104,13 @@ asyncio.run(main())
 env = {**os.environ}
 run = lambda code, **extra: subprocess.run([sys.executable, "-c", "from gomi import bot; " + code], cwd=REPO,
                                            env={**env, **extra}, capture_output=True, text=True)
-out = run("print(len(bot.examples))", SEED_EXAMPLES="true"); assert out.stdout.strip().endswith("108"), out
+out = run("print(len(bot.examples))", SEED_EXAMPLES="true"); assert out.stdout.strip().endswith("128"), out
 out = run("print(len(bot.examples))", SEED_EXAMPLES="true", FEW_SHOT_EXAMPLES="0"); assert out.stdout.strip().endswith("0"), out
 out = run("from pathlib import Path; print(len(bot.load_examples(Path('nope.jsonl'))))", SEED_EXAMPLES="true")
 assert out.stdout.strip().endswith("0") and "No example chats at" in out.stderr, out
 # training data still comes from the seed, and never gets the example block
 subprocess.run([sys.executable, REPO + "/finetuning/build_dataset.py"], check=True, capture_output=True)
 rows = [json.loads(l) for l in open(REPO + "/finetuning/train.jsonl")]
-assert len(rows) == 108 and all(row["messages"][0]["content"] == persona.SYSTEM_PROMPT for row in rows)
+assert len(rows) == 128 and all(row["messages"][0]["content"] == persona.SYSTEM_PROMPT for row in rows)
 os.remove(REPO + "/finetuning/train.jsonl")
 print("FEWSHOT CONFIG OK")
